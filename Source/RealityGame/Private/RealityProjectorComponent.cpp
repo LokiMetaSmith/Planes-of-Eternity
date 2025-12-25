@@ -2,6 +2,7 @@
 #include "Net/UnrealNetwork.h"
 #include "DrawDebugHelpers.h"
 #include "Math/Vector.h"
+#include "GameFramework/Actor.h"
 
 // Sets default values for this component's properties
 URealityProjectorComponent::URealityProjectorComponent()
@@ -57,59 +58,72 @@ void URealityProjectorComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProp
 
 float URealityProjectorComponent::GetBlendWeightAtLocation(FVector Location, const TArray<URealityProjectorComponent*>& Projectors)
 {
-    // Calculate the full reality result
-    FBlendResult Result = CalculateRealityAtPoint(Location, Projectors);
+    // Re-implement simplified logic here to identify if we are the winner or the runner-up.
+    // CalculateRealityAtPoint gives us the "Result", but not "Who" is the RunnerUp.
 
-    // If we are the dominant archetype, the blend alpha is the "bleed" of the runner-up.
-    // So our weight is 1.0 - BlendAlpha.
-    if (Result.DominantArchetype == RealitySignature.ActiveStyle.Archetype)
+    TArray<URealityProjectorComponent*> AllProjectors = Projectors;
+    if (!AllProjectors.Contains(this))
     {
-        return 1.0f - Result.BlendAlpha;
+        AllProjectors.Add(this);
     }
-    else
+
+    if (AllProjectors.Num() == 0 || !GetOwner())
     {
-        // If we are not dominant, our weight is effectively 0 unless we are the runner up?
-        // But the previous 1v1 logic implied "How much of the OTHER world is visible".
-        // If we are not dominant, and we are not the runner up, we are likely 0.
-        // However, the simple BlendAlpha returned is "Bleed of RunnerUp into Winner".
+        return 0.0f;
+    }
 
-        // If we are the runner up, we are the ones bleeding in.
-        // But the current CalculateRealityAtPoint only returns WHO won and HOW MUCH the runner up bleeds.
-        // It doesn't identify the runner up explicitly in the struct.
+    float MaxStrength = -1.0f;
+    float RunnerUpStrength = -1.0f;
+    URealityProjectorComponent* Winner = nullptr;
+    URealityProjectorComponent* RunnerUp = nullptr;
 
-        // For simplicity in this N-player context:
-        // If we won, we are 1.0 - BlendAlpha.
-        // If we lost, we are 0.0 (or we could be the BlendAlpha if we are the strongest loser, but let's keep it simple).
-        return Result.BlendAlpha; // Wait, this logic was valid for 1v1 where "If I didn't win, the other guy did".
+    // Calculate strengths
+    for (URealityProjectorComponent* Candidate : AllProjectors)
+    {
+        if (!Candidate || !Candidate->GetOwner()) continue;
 
-        // Let's refine this return value.
-        // If Result.DominantArchetype != MyArchetype, it means I lost.
-        // If I lost, how much of ME is visible?
-        // If I am the runner up, it's Result.BlendAlpha.
-        // If I am a distant third, it's 0.
-        // Since I can't easily know if I am the runner up without re-calculating or expanding the struct...
-        // let's just return Result.BlendAlpha if the archetypes match? No.
+        float Dist = FVector::Dist(Location, Candidate->GetOwner()->GetActorLocation());
+        Dist = FMath::Max(Dist, 1.0f); // Avoid div/0
 
-        // Actually, this function is usually called ON the component to know "My Weight".
-        // Let's rely on CalculateRealityAtPoint to be the source of truth.
-        // But since FBlendResult doesn't return the RunnerUp pointer, we can't be sure.
+        float Strength = Candidate->RealitySignature.Fidelity / Dist;
 
-        // I will re-implement the specific check here.
-        // Or better, assume that if I'm not dominant, I'm just contributing to the "conflict" state.
-
-        // Re-reading the prompt: "The result of two worlds colliding... Who won? How much bleed?"
-        // In N-players, we only care about the Winner and the "Bleed" (which is the next strongest).
-
-        // If I am not the winner, I return 0.0f unless I am the specific runner up.
-        // Since I don't want to overcomplicate the FBlendResult struct (as it's defined by the user),
-        // I will leave this simple: If I am dominant, 1-Alpha. Else 0.
-
-        if (Result.DominantArchetype == RealitySignature.ActiveStyle.Archetype)
+        if (Strength > MaxStrength)
         {
-             return 1.0f - Result.BlendAlpha;
+            RunnerUpStrength = MaxStrength;
+            RunnerUp = Winner;
+
+            MaxStrength = Strength;
+            Winner = Candidate;
         }
-        return 0.0f; // Simplified for N-player: only winner gets full representation minus bleed.
+        else if (Strength > RunnerUpStrength)
+        {
+            RunnerUpStrength = Strength;
+            RunnerUp = Candidate;
+        }
     }
+
+    if (Winner == this)
+    {
+        // If we are the winner, our weight is 1.0 minus the bleed from the runner up
+        if (MaxStrength > KINDA_SMALL_NUMBER)
+        {
+             float BlendAlpha = (RunnerUpStrength > 0.0f) ? (RunnerUpStrength / MaxStrength) : 0.0f;
+             return 1.0f - BlendAlpha;
+        }
+        return 1.0f;
+    }
+    else if (RunnerUp == this)
+    {
+        // If we are the runner up, our weight is the bleed factor
+        if (MaxStrength > KINDA_SMALL_NUMBER)
+        {
+            return RunnerUpStrength / MaxStrength;
+        }
+        return 0.0f; // Should not happen if MaxStrength is 0 since we are RunnerUp
+    }
+
+    // If we are neither winner nor runner up, we have no influence
+    return 0.0f;
 }
 
 FBlendResult URealityProjectorComponent::CalculateRealityAtPoint(FVector Point, const TArray<URealityProjectorComponent*>& Projectors)

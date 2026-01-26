@@ -1,0 +1,66 @@
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum RealityArchetype {
+    #[default]
+    Void,        // Default/Empty
+    Fantasy,     // High Fantasy
+    SciFi,       // Cyber Punk
+    Horror,      // Eldritch Horror
+    Toon,        // Toon Logic
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RealityStyle {
+    pub archetype: RealityArchetype,
+    pub sub_theme: String, // e.g., "Necromancer_Castle"
+    pub seed: i32,         // The deterministic random number for WFC generation
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RealityInjection {
+    pub injection_id: String,
+    // Add other properties as needed
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RealitySignature {
+    // The visual look the player is projecting
+    pub active_style: RealityStyle,
+
+    // The "Power" of their computer/magic.
+    // Higher number = Higher Poly Count, Better Physics, Harder to overwite.
+    pub fidelity: f32,
+
+    // The radius of their influence bubble in world units (cm)
+    pub influence_radius: f32,
+
+    // A list of "Injections" (e.g., The Sci-Fi Turret inside a Fantasy World)
+    pub active_injections: Vec<RealityInjection>,
+}
+
+impl Default for RealitySignature {
+    fn default() -> Self {
+        Self {
+            active_style: RealityStyle::default(),
+            fidelity: 100.0,
+            influence_radius: 1000.0,
+            active_injections: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlendResult {
+    pub dominant_archetype: RealityArchetype, // Who won?
+    pub blend_alpha: f32,                     // 0.0 to 1.0 (How much "Bleed" is happening?)
+    pub is_conflict: bool,                    // True if genres are opposites (e.g., SciFi vs Fantasy)
+}
+
+impl Default for BlendResult {
+    fn default() -> Self {
+        Self {
+            dominant_archetype: RealityArchetype::Void,
+            blend_alpha: 0.0,
+            is_conflict: false,
+        }
+    }
+}

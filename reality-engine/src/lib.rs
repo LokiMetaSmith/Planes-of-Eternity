@@ -7,6 +7,8 @@ use wgpu::util::DeviceExt;
 
 mod camera;
 mod texture;
+pub mod reality_types;
+pub mod projector;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -104,6 +106,7 @@ struct State {
     height: u32,
 }
 
+#[cfg(target_arch = "wasm32")]
 impl State {
     async fn new(canvas: HtmlCanvasElement) -> Self {
         let width = canvas.width();
@@ -410,6 +413,7 @@ impl State {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn start(canvas_id: String) -> Result<(), JsValue> {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -491,6 +495,7 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
     Ok(())
 }
 
+#[cfg(target_arch = "wasm32")]
 fn request_animation_frame(f: &Closure<dyn FnMut()>) {
     web_sys::window()
         .unwrap()

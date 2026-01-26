@@ -27,3 +27,4 @@
 - [x] Handle window resize events
 - [x] Implement vertex buffers
 - [x] Add camera control
+- [x] Implement texture loading

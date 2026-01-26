@@ -196,8 +196,27 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
         .dyn_into::<HtmlCanvasElement>()
         .expect("Element is not a canvas");
 
-    let state = State::new(canvas).await;
+    let state = State::new(canvas.clone()).await;
     let state = Rc::new(RefCell::new(state));
+
+    // Resize handler
+    let state_resize = state.clone();
+    let canvas_resize = canvas.clone();
+    let window_resize = window.clone();
+    let resize_closure = Closure::wrap(Box::new(move || {
+        let width = window_resize.inner_width().unwrap().as_f64().unwrap() as u32;
+        let height = window_resize.inner_height().unwrap().as_f64().unwrap() as u32;
+
+        canvas_resize.set_width(width);
+        canvas_resize.set_height(height);
+
+        state_resize.borrow_mut().resize(width, height);
+    }) as Box<dyn FnMut()>);
+
+    window
+        .add_event_listener_with_callback("resize", resize_closure.as_ref().unchecked_ref())
+        .expect("Failed to add resize listener");
+    resize_closure.forget();
 
     // Render loop
     let f = Rc::new(RefCell::new(None));

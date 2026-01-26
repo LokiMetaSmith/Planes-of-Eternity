@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reality Engine (Rust + WebGPU)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #222; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <canvas id="reality-canvas"></canvas>
+    <script type="module">
+        import init, { start } from './pkg/reality_engine.js';
+
+        async function run() {
+            try {
+                await init();
+                console.log("WASM initialized.");
+                await start("reality-canvas");
+            } catch (e) {
+                console.error("Failed to start engine:", e);
+            }
+        }
+
+        run();
+    </script>
+</body>
+</html>

@@ -21,3 +21,9 @@
 *   **reality-engine:** The core Rust + WebGPU engine.
 *   **reference_nanite_webgpu:** Reference implementation of Nanite logic in TypeScript.
 *   **legacy_epic_version:** Archived Unreal Engine 5 source code.
+
+## Tasks
+
+- [x] Handle window resize events
+- [ ] Implement vertex buffers
+- [ ] Add camera control

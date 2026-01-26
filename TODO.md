@@ -25,5 +25,5 @@
 ## Tasks
 
 - [x] Handle window resize events
-- [ ] Implement vertex buffers
+- [x] Implement vertex buffers
 - [ ] Add camera control

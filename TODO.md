@@ -26,4 +26,4 @@
 
 - [x] Handle window resize events
 - [x] Implement vertex buffers
-- [ ] Add camera control
+- [x] Add camera control

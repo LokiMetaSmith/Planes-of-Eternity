@@ -1,20 +1,20 @@
-use cgmath::{MetricSpace, Vector3};
+use cgmath::{MetricSpace, Point3};
 use crate::reality_types::{BlendResult, RealitySignature};
 
 pub struct RealityProjector {
-    pub location: Vector3<f32>,
+    pub location: Point3<f32>,
     pub reality_signature: RealitySignature,
 }
 
 impl RealityProjector {
-    pub fn new(location: Vector3<f32>, signature: RealitySignature) -> Self {
+    pub fn new(location: Point3<f32>, signature: RealitySignature) -> Self {
         Self {
             location,
             reality_signature: signature,
         }
     }
 
-    pub fn get_blend_weight_at_location(&self, location: Vector3<f32>, rival: Option<&RealityProjector>) -> f32 {
+    pub fn get_blend_weight_at_location(&self, location: Point3<f32>, rival: Option<&RealityProjector>) -> f32 {
         let rival_ref = match rival {
             Some(r) => r,
             None => return 1.0,
@@ -36,7 +36,7 @@ impl RealityProjector {
         strength_a / (strength_a + strength_b)
     }
 
-    pub fn calculate_reality_at_point(&self, point: Vector3<f32>, rival: Option<&RealityProjector>) -> BlendResult {
+    pub fn calculate_reality_at_point(&self, point: Point3<f32>, rival: Option<&RealityProjector>) -> BlendResult {
         let mut result = BlendResult::default();
 
         let rival_ref = match rival {
@@ -95,21 +95,21 @@ mod tests {
         sig_b.active_style.archetype = RealityArchetype::SciFi;
         sig_b.fidelity = 100.0;
 
-        let proj_a = RealityProjector::new(Vector3::new(0.0, 0.0, 0.0), sig_a);
-        let proj_b = RealityProjector::new(Vector3::new(10.0, 0.0, 0.0), sig_b);
+        let proj_a = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig_a);
+        let proj_b = RealityProjector::new(Point3::new(10.0, 0.0, 0.0), sig_b);
 
         // Point closer to A
-        let result = proj_a.calculate_reality_at_point(Vector3::new(2.0, 0.0, 0.0), Some(&proj_b));
+        let result = proj_a.calculate_reality_at_point(Point3::new(2.0, 0.0, 0.0), Some(&proj_b));
         assert_eq!(result.dominant_archetype, RealityArchetype::Fantasy);
         assert!(result.is_conflict);
 
         // Point closer to B
-        let result = proj_a.calculate_reality_at_point(Vector3::new(8.0, 0.0, 0.0), Some(&proj_b));
+        let result = proj_a.calculate_reality_at_point(Point3::new(8.0, 0.0, 0.0), Some(&proj_b));
         assert_eq!(result.dominant_archetype, RealityArchetype::SciFi);
         assert!(result.is_conflict);
 
         // Midpoint
-        let result = proj_a.calculate_reality_at_point(Vector3::new(5.0, 0.0, 0.0), Some(&proj_b));
+        let result = proj_a.calculate_reality_at_point(Point3::new(5.0, 0.0, 0.0), Some(&proj_b));
         // Equal strength, code says StrengthA >= StrengthB -> A wins
         assert_eq!(result.dominant_archetype, RealityArchetype::Fantasy);
         assert!( (result.blend_alpha - 1.0).abs() < 1e-4 ); // Blend should be 1.0 at equal strength
@@ -122,8 +122,8 @@ mod tests {
         let mut sig_b = RealitySignature::default();
         sig_b.fidelity = 100.0;
 
-        let proj_a = RealityProjector::new(Vector3::new(0.0, 0.0, 0.0), sig_a);
-        let proj_b = RealityProjector::new(Vector3::new(10.0, 0.0, 0.0), sig_b);
+        let proj_a = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig_a);
+        let proj_b = RealityProjector::new(Point3::new(10.0, 0.0, 0.0), sig_b);
 
         // At A's location, weight should be 1.0 (actually slightly less because B has some influence)
         // Distance A = 1.0 (clamped), Strength A = 100.
@@ -131,7 +131,7 @@ mod tests {
         // A wins.
         // Strength A = 100. Strength B = 10.
         // Weight = 100 / 110 = 0.90909...
-        let weight = proj_a.get_blend_weight_at_location(Vector3::new(0.0, 0.0, 0.0), Some(&proj_b));
+        let weight = proj_a.get_blend_weight_at_location(Point3::new(0.0, 0.0, 0.0), Some(&proj_b));
         assert!((weight - (100.0 / 110.0)).abs() < 1e-4);
     }
 }

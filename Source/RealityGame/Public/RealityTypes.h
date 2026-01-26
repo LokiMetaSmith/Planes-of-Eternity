@@ -40,7 +40,11 @@ struct FRealityInjection
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     FName InjectionID;
 
-    // Add other properties as needed
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    TSoftClassPtr<class AActor> AssetClass;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FTransform RelativeTransform;
 };
 
 // 3. The Player State (The "Who")

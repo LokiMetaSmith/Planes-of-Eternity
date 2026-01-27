@@ -23,6 +23,8 @@ impl RealityProjector {
         let dist_a = self.location.distance(location).max(1.0);
         let dist_b = rival_ref.location.distance(location).max(1.0);
 
+        // Note: Legacy C++ implementation uses Fidelity / Distance and ignores InfluenceRadius for strength calculation.
+        // We maintain this behavior for parity, though visual debugs in C++ used the radius.
         let strength_a = self.reality_signature.fidelity / dist_a;
         let strength_b = rival_ref.reality_signature.fidelity / dist_b;
 

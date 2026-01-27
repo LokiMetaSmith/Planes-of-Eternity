@@ -8,29 +8,11 @@ pub enum RealityArchetype {
     Toon,        // Toon Logic
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct RealityStyle {
     pub archetype: RealityArchetype,
     pub sub_theme: String, // e.g., "Necromancer_Castle"
     pub seed: i32,         // The deterministic random number for WFC generation
-
-    // Generative Parameters (Stable Diffusion-like control)
-    pub roughness: f32,    // High frequency noise intensity
-    pub scale: f32,        // Frequency of the noise (Feature size)
-    pub distortion: f32,   // Domain warping intensity
-}
-
-impl Default for RealityStyle {
-    fn default() -> Self {
-        Self {
-            archetype: RealityArchetype::default(),
-            sub_theme: String::new(),
-            seed: 0,
-            roughness: 0.5,
-            scale: 1.0,
-            distortion: 0.0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

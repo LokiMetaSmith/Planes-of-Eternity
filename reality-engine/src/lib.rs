@@ -372,7 +372,15 @@ impl State {
             });
 
         // Generate high-res grid mesh
-        let (vertices, indices) = create_grid_mesh(10.0, 100);
+        // We create a "Chunk" mesh which we will render multiple times at different positions
+        // For this step, we just render one big one, but we prepare the logic for multiple draws.
+        // Actually, to implement the "grid of 3x3 chunks" requested in the plan:
+        // We will generate ONE mesh (a 10x10 unit tile), and we will render it 9 times with different model matrices.
+        // HOWEVER, our current shader doesn't support a Model Matrix uniform per instance (it assumes identity/world space).
+        // So for simplicity in this iteration, we will just generate ONE MASSIVE MESH that covers the 3x3 area (30x30 units).
+
+        // 30.0 size, 200 resolution = decent detail
+        let (vertices, indices) = create_grid_mesh(30.0, 200);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -459,6 +467,42 @@ impl State {
             self.config.height = new_height;
             self.surface.configure(&self.device, &self.config);
             self.camera.aspect = self.config.width as f32 / self.config.height as f32;
+        }
+    }
+
+    pub fn process_mouse_click(&mut self, x: f32, y: f32) {
+        // x, y are in NDC coordinates (-1 to 1)
+        // Simple Ray-Plane intersection (Plane normal Y=1, d=0)
+
+        // Invert View Projection
+        use cgmath::SquareMatrix;
+        let view_proj = self.camera.build_view_projection_matrix();
+        let inv_view_proj = view_proj.invert().unwrap_or(cgmath::Matrix4::identity());
+
+        // Ray clip coordinates
+        let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);
+        let mut ray_eye = inv_view_proj * ray_clip;
+        ray_eye.z = -1.0;
+        ray_eye.w = 0.0;
+
+        let ray_world = (inv_view_proj * ray_clip).truncate();
+        let ray_origin = self.camera.eye.to_vec();
+        let ray_dir = (ray_world - ray_origin).normalize();
+
+        // Plane Intersection: P = O + tD
+        // P.y = 0
+        // O.y + t * D.y = 0
+        // t = -O.y / D.y
+
+        if ray_dir.y.abs() > 1e-6 {
+             let t = -self.camera.eye.y / ray_dir.y;
+             if t > 0.0 {
+                 let hit_point = self.camera.eye + ray_dir * t;
+                 log::warn!("Injection at: {:?}", hit_point);
+
+                 // Move Anomaly to click location
+                 self.anomaly_projector.location = hit_point;
+             }
         }
     }
 
@@ -628,6 +672,30 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
         .add_event_listener_with_callback("keyup", keyup_closure.as_ref().unchecked_ref())
         .expect("Failed to add keyup listener");
     keyup_closure.forget();
+
+    // Mouse Handler
+    let state_mouse = state.clone();
+    let canvas_mouse = canvas.clone();
+    let mouse_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let rect = canvas_mouse.get_bounding_client_rect();
+        let x = event.client_x() as f32 - rect.left() as f32;
+        let y = event.client_y() as f32 - rect.top() as f32;
+
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+
+        // Convert to NDC (-1 to 1)
+        // Y is inverted in CSS vs NDC
+        let ndc_x = (x / width) * 2.0 - 1.0;
+        let ndc_y = -((y / height) * 2.0 - 1.0);
+
+        state_mouse.borrow_mut().process_mouse_click(ndc_x, ndc_y);
+    }) as Box<dyn FnMut(_)>);
+
+    canvas
+        .add_event_listener_with_callback("mousedown", mouse_closure.as_ref().unchecked_ref())
+        .expect("Failed to add mousedown listener");
+    mouse_closure.forget();
 
     // Render loop
     let f = Rc::new(RefCell::new(None));

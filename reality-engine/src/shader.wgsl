@@ -45,9 +45,6 @@ fn fbm(p: vec2<f32>, octaves: i32, roughness: f32) -> f32 {
     var a = 0.5;
     var shift = vec2<f32>(100.0);
     var p2 = p;
-    // Manually unrolled loop for compatibility/performance or just fixed size
-    // WGSL requires constant loops usually for unrolling, or dynamic loops are fine.
-    // We will do a fixed loop for simplicity.
     for (var i = 0; i < 5; i = i + 1) {
         if (i >= octaves) { break; }
         v = v + a * noise(p2);
@@ -55,6 +52,25 @@ fn fbm(p: vec2<f32>, octaves: i32, roughness: f32) -> f32 {
         a = a * roughness;
     }
     return v;
+}
+
+// Voronoi / Cellular Noise for SciFi/Tech look
+fn voronoi(x: vec2<f32>) -> f32 {
+    let p = floor(x);
+    let f = fract(x);
+
+    var min_dist = 1.0;
+
+    for (var j = -1; j <= 1; j = j + 1) {
+        for (var i = -1; i <= 1; i = i + 1) {
+            let b = vec2<f32>(f32(i), f32(j));
+            let r = b - f + hash(p + b); // hash returns 0..1, treat as random offset
+            let d = dot(r, r);
+            min_dist = min(min_dist, d);
+        }
+    }
+    // Return inverted distance for "cells"
+    return 1.0 - sqrt(min_dist);
 }
 
 struct VertexOutput {
@@ -77,7 +93,22 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 
     // Generative Displacement
     // Use XZ plane for noise input
-    let noise_val = fbm(pos.xz * scale, 4, roughness);
+    var noise_val = 0.0;
+
+    // Hybrid blend: If roughness is high (> 0.6), start mixing in Voronoi (SciFi)
+    // Otherwise stick to FBM (Organic)
+    if (roughness > 0.6) {
+        // SciFi / Tech
+        // Snap coordinates for "digital" look
+        let snap = 5.0;
+        let p = floor(pos.xz * scale * snap) / snap;
+        noise_val = voronoi(p);
+        // Make it blocky
+        noise_val = step(0.5, noise_val) * 0.5;
+    } else {
+        // Organic / Fantasy
+        noise_val = fbm(pos.xz * scale, 4, roughness);
+    }
 
     // Apply displacement (Y-up)
     // Scale displacement by distortion and blend alpha (implied by params)
@@ -99,22 +130,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let roughness = reality.blend_params.y;
     let scale = reality.blend_params.z;
 
-    // Create a procedural pattern based on world position and height
-    // "Stable Diffusion" style latent noise visualization
-    let n = fbm(in.world_pos.xz * scale * 2.0, 3, roughness);
+    var pattern_color = vec3<f32>(0.0);
 
-    // Create a color ramp based on height/noise
-    let pattern_color = vec3<f32>(n, n * 0.8 + 0.2, n * 0.5 + 0.5); // Cyan-ish noise
+    if (roughness > 0.6) {
+        // SciFi Look: Voronoi / Circuitry
+        let v = voronoi(in.world_pos.xz * scale * 2.0);
+        let circuit = step(0.95, v) + step(v, 0.05);
+        pattern_color = mix(blend_color.rgb * 0.5, vec3<f32>(0.0, 1.0, 1.0), circuit);
+    } else {
+        // Fantasy Look: Organic FBM
+        let n = fbm(in.world_pos.xz * scale * 2.0, 3, roughness);
+        // Earthy tones + Magic
+        pattern_color = mix(vec3<f32>(0.4, 0.3, 0.2), blend_color.rgb, n);
+    }
 
-    // Mix the procedural color with the "Archetype Color" (blend_color)
-    let generative_look = mix(pattern_color, blend_color.rgb, 0.5);
-
-    // Final blend: Base Texture vs Generative Reality
-    // If blend_alpha is high, we see more of the generated reality
+    // Mix the procedural color with the "Archetype Color"
+    let generative_look = mix(pattern_color, blend_color.rgb, 0.3);
 
     // Add glowing edge effect based on height (Nanite wireframe-ish look?)
-    let edge = step(0.9, fract(in.world_pos.x * 10.0)) + step(0.9, fract(in.world_pos.z * 10.0));
-    let wireframe = clamp(edge, 0.0, 0.2);
+    let edge = step(0.9, fract(in.world_pos.x * 5.0)) + step(0.9, fract(in.world_pos.z * 5.0));
+    let wireframe = clamp(edge, 0.0, 0.2) * roughness; // Only wireframe if rough/techy
 
     let final_gen_color = generative_look + vec3<f32>(wireframe);
 

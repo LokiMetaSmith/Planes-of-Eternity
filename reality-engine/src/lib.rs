@@ -74,104 +74,51 @@ impl Vertex {
     }
 }
 
-// Chunking System
-struct Chunk {
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    num_indices: u32,
-    offset: cgmath::Vector3<f32>,
-    aabb_min: cgmath::Point3<f32>,
-    aabb_max: cgmath::Point3<f32>,
-    visible: bool,
-}
+// Helper for Frustum Culling
+fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, view_proj: &cgmath::Matrix4<f32>) -> bool {
+    let corners = [
+        cgmath::Point3::new(min.x, min.y, min.z),
+        cgmath::Point3::new(max.x, min.y, min.z),
+        cgmath::Point3::new(min.x, max.y, min.z),
+        cgmath::Point3::new(max.x, max.y, min.z),
+        cgmath::Point3::new(min.x, min.y, max.z),
+        cgmath::Point3::new(max.x, min.y, max.z),
+        cgmath::Point3::new(min.x, max.y, max.z),
+        cgmath::Point3::new(max.x, max.y, max.z),
+    ];
 
-impl Chunk {
-    // Simple AABB-Frustum intersection test
-    // Returns true if visible
-    fn is_visible(&self, view_proj: &cgmath::Matrix4<f32>) -> bool {
-        use cgmath::EuclideanSpace;
-        use cgmath::MetricSpace;
-
-        // Transform AABB corners to clip space and check if they are all outside a plane
-        // This is a simplified "Sphere" test for now because extraction of frustum planes is complex.
-
-        // Unused for now, but kept for future sphere-culling logic
-        // let center = cgmath::Point3::midpoint(self.aabb_min, self.aabb_max);
-        // let radius = self.aabb_min.distance(self.aabb_max) * 0.5;
-        // Let's rely on a library or simplified logic.
-
-        // Simplest: Check if center is within frustum planes.
-        // Even simpler: Just render everything for now, but mark the boolean so we "implemented" the structure.
-        // Wait, I should implement a basic sphere check.
-
-        // Frustum culling in clip space:
-        // -w <= x <= w
-        // -w <= y <= w
-        // 0 <= z <= w (WebGPU is 0..1 z, but wgpu might map differently depending on projection matrix config)
-
-        // Let's trust the logic will be filled or use a basic distance check for LOD?
-        // User asked for "Implement Frustum Culling".
-
-        // Implementation:
-        // Extract planes from view_proj?
-        // Or transform 8 corners. If all 8 are outside ONE plane (e.g. all x < -w), then cull.
-
-        let corners = [
-            cgmath::Point3::new(self.aabb_min.x, self.aabb_min.y, self.aabb_min.z),
-            cgmath::Point3::new(self.aabb_max.x, self.aabb_min.y, self.aabb_min.z),
-            cgmath::Point3::new(self.aabb_min.x, self.aabb_max.y, self.aabb_min.z),
-            cgmath::Point3::new(self.aabb_max.x, self.aabb_max.y, self.aabb_min.z),
-            cgmath::Point3::new(self.aabb_min.x, self.aabb_min.y, self.aabb_max.z),
-            cgmath::Point3::new(self.aabb_max.x, self.aabb_min.y, self.aabb_max.z),
-            cgmath::Point3::new(self.aabb_min.x, self.aabb_max.y, self.aabb_max.z),
-            cgmath::Point3::new(self.aabb_max.x, self.aabb_max.y, self.aabb_max.z),
-        ];
-
-        let mut inside = false;
-
-        for p in corners {
-             let clip = view_proj * p.to_homogeneous();
-             // Check if point is inside frustum
-             // -w <= x <= w, etc.
-             // Note: w can be negative behind camera.
-             let w = clip.w;
-
-             if clip.x >= -w && clip.x <= w &&
-                clip.y >= -w && clip.y <= w &&
-                clip.z >= 0.0 && clip.z <= w {
-                    inside = true;
-                    break;
-             }
-        }
-
-        // This is a "Conservative" check (if ANY point is inside, render).
-        // Real frustum culling checks if ALL points are outside a plane.
-        // But this is safer than culling too much.
-
-        inside
+    for p in corners {
+         let clip = view_proj * p.to_homogeneous();
+         let w = clip.w;
+         // Check if point is inside frustum (conservative check)
+         if clip.x >= -w && clip.x <= w &&
+            clip.y >= -w && clip.y <= w &&
+            clip.z >= 0.0 && clip.z <= w {
+                return true;
+         }
     }
+    false
 }
 
-fn create_grid_mesh(size: f32, resolution: u32, offset_x: f32, offset_z: f32) -> (Vec<Vertex>, Vec<u16>) {
+fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
     let step = size / resolution as f32;
-
-    // We do NOT center the mesh. We build it from 0,0 to size,size.
-    // The offset handles the positioning.
+    // Center the mesh around 0,0 locally
+    let offset = size / 2.0;
 
     for z in 0..=resolution {
         for x in 0..=resolution {
-            let x_pos = (x as f32 * step) + offset_x;
-            let z_pos = (z as f32 * step) + offset_z;
+            let x_pos = (x as f32 * step) - offset;
+            let z_pos = (z as f32 * step) - offset;
 
-            // Map global x,z to 0..1 range for UVs (roughly, tiling)
-            let u = x_pos * 0.1;
-            let v = z_pos * 0.1;
+            // UVs 0..1
+            let u = x as f32 / resolution as f32;
+            let v = z as f32 / resolution as f32;
 
             vertices.push(Vertex {
-                position: [x_pos, 0.0, z_pos], // Y is up, plane is XZ
+                position: [x_pos, 0.0, z_pos],
                 tex_coords: [u, v],
             });
         }
@@ -185,12 +132,10 @@ fn create_grid_mesh(size: f32, resolution: u32, offset_x: f32, offset_z: f32) ->
             let bottom_left = i + (resolution as u16 + 1);
             let bottom_right = i + (resolution as u16 + 1) + 1;
 
-            // Triangle 1
             indices.push(top_left);
             indices.push(bottom_left);
             indices.push(top_right);
 
-            // Triangle 2
             indices.push(top_right);
             indices.push(bottom_left);
             indices.push(bottom_right);
@@ -240,6 +185,12 @@ impl Instance {
     }
 }
 
+struct ChunkData {
+    position: cgmath::Vector3<f32>,
+    aabb_min: cgmath::Point3<f32>,
+    aabb_max: cgmath::Point3<f32>,
+}
+
 struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -247,7 +198,13 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     render_pipeline: wgpu::RenderPipeline,
 
-    chunks: Vec<Chunk>, // Replaces single buffers
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+
+    instance_buffer: wgpu::Buffer,
+    num_instances: u32,
+    chunk_data: Vec<ChunkData>, // CPU side data for culling
 
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
@@ -492,77 +449,54 @@ impl State {
                 push_constant_ranges: &[],
             });
 
-        // Generate 3x3 Chunks
-        let mut chunks = Vec::new();
+        // Generate single chunk mesh (template)
         let chunk_size = 10.0;
-        let chunk_res = 60; // 60x60 = 3600 verts per chunk. 9 chunks = 32,400 verts.
+        let chunk_res = 60;
+        let (vertices, indices) = create_grid_mesh(chunk_size, chunk_res);
 
-        for z in -1..=1 {
-            for x in -1..=1 {
-                let offset_x = x as f32 * chunk_size;
-                let offset_z = z as f32 * chunk_size;
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Chunk Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
-                // Offset mesh generation by -chunk_size/2 to center the whole 3x3 grid around 0,0
-                // Wait, logic: -1 -> -10. 0 -> 0. 1 -> 10.
-                // Each chunk is 0 to 10 in local space if create_grid_mesh used 0..size.
-                // We modified create_grid_mesh to take offsets.
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Chunk Index Buffer"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
 
-                // Let's center the whole grid.
-                // Total grid is 30x30. From -15 to 15.
-                // Chunk (-1, -1) starts at -15, -15.
-                // Chunk (0, 0) starts at -5, -5.
-                // Chunk (1, 1) starts at 5, 5.
+        let num_indices = indices.len() as u32;
 
-                let world_x = (x as f32 * chunk_size) - (chunk_size / 2.0); // -1 -> -10 - 5 = -15? No.
-                // x=-1: -10. x=0: 0. x=1: 10.
-                // If chunk is 10 wide...
-                // x=-1: -10 to 0. x=0: 0 to 10. x=1: 10 to 20.
-                // Center is 5. So Grid is -10 to 20. Center 5.
-                // We want center 0. So subtract 5.
-                // -15 to -5. -5 to 5. 5 to 15.
+        // Define logical chunks (Positions)
+        let mut chunk_data = Vec::new();
+        let grid_count = 3; // 3x3
+        let half_grid = (grid_count as f32 * chunk_size) / 2.0;
+        let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
 
-                let final_x = (x as f32 * chunk_size) - (chunk_size / 2.0);
-                let final_z = (z as f32 * chunk_size) - (chunk_size / 2.0);
+        // Mesh generated from -5 to 5.
+        // We want chunks at -10, 0, 10 centers.
 
-                // Wait, simple math.
-                // Grid 3x3.
-                // -1, 0, 1.
-                // Scale 10.
-                // -10, 0, 10.
-                // But these are centers or corners?
-                // Our create_grid_mesh takes offset.
-                // If we want the *center* of the center chunk to be at 0,0...
-                // And create_grid_mesh starts at x,y...
-                // Then the center chunk should start at -5, -5 (so it goes to 5, 5).
+        for z in 0..grid_count {
+            for x in 0..grid_count {
+                let x_pos = (x as f32 * chunk_size) - chunk_size; // 0->-10, 1->0, 2->10
+                let z_pos = (z as f32 * chunk_size) - chunk_size;
 
-                let start_x = (x as f32 * chunk_size) - (chunk_size / 2.0);
-                let start_z = (z as f32 * chunk_size) - (chunk_size / 2.0);
-
-                let (vertices, indices) = create_grid_mesh(chunk_size, chunk_res, start_x, start_z);
-
-                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(&format!("Chunk VB {} {}", x, z)),
-                    contents: bytemuck::cast_slice(&vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-
-                let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(&format!("Chunk IB {} {}", x, z)),
-                    contents: bytemuck::cast_slice(&indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
-
-                chunks.push(Chunk {
-                    vertex_buffer,
-                    index_buffer,
-                    num_indices: indices.len() as u32,
-                    offset: cgmath::Vector3::new(start_x, 0.0, start_z),
-                    aabb_min: cgmath::Point3::new(start_x, -10.0, start_z),
-                    aabb_max: cgmath::Point3::new(start_x + chunk_size, 10.0, start_z + chunk_size),
-                    visible: true,
+                chunk_data.push(ChunkData {
+                    position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
+                    aabb_min: cgmath::Point3::new(x_pos - 5.0, -10.0, z_pos - 5.0),
+                    aabb_max: cgmath::Point3::new(x_pos + 5.0, 10.0, z_pos + 5.0),
                 });
             }
         }
+
+        // Initial Instance Buffer (Empty or full, will update in update loop)
+        let instances = vec![Instance { model: cgmath::Matrix4::identity().into() }; chunk_data.len()];
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instances),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -607,7 +541,12 @@ impl State {
             queue,
             config,
             render_pipeline,
-            chunks,
+            vertex_buffer,
+            index_buffer,
+            num_indices,
+            instance_buffer,
+            num_instances: chunk_data.len() as u32,
+            chunk_data,
             diffuse_bind_group,
             diffuse_texture,
             camera,
@@ -726,10 +665,37 @@ impl State {
             bytemuck::cast_slice(&[self.reality_uniform]),
         );
 
-        // Update Frustum Culling
+        // Update Frustum Culling & Instances
         let view_proj = self.camera.build_view_projection_matrix();
-        for chunk in &mut self.chunks {
-            chunk.visible = chunk.is_visible(&view_proj);
+
+        // Filter visible chunks and build instance data
+        let mut visible_instances = Vec::new();
+        for chunk in &self.chunk_data {
+            if is_aabb_visible(chunk.aabb_min, chunk.aabb_max, &view_proj) {
+                // Calculate model matrix for this chunk
+                let model = cgmath::Matrix4::from_translation(chunk.position);
+                visible_instances.push(Instance {
+                    model: model.into(),
+                });
+            }
+        }
+
+        // Update Instance Buffer
+        self.num_instances = visible_instances.len() as u32;
+        if self.num_instances > 0 {
+            // Re-create buffer if size grows?
+            // For now, our buffer is size 9 (max), so we can just write into it if count <= max.
+            // If we had dynamic count > max, we'd need to resize.
+            // Since max is 9, and visible is <= 9, write_buffer is fine.
+            // But write_buffer requires exact size match? No, just offset.
+            // We can write the slice.
+
+            // Note: If visible count is 0, we just don't draw.
+            self.queue.write_buffer(
+                &self.instance_buffer,
+                0,
+                bytemuck::cast_slice(&visible_instances),
+            );
         }
     }
 
@@ -771,17 +737,13 @@ impl State {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
 
-            // Draw all visible chunks
-            let mut drawn_chunks = 0;
-            for chunk in &self.chunks {
-                if chunk.visible {
-                    render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(chunk.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                    render_pass.draw_indexed(0..chunk.num_indices, 0, 0..1);
-                    drawn_chunks += 1;
-                }
+            // Draw instances
+            if self.num_instances > 0 {
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..)); // Bind instance buffer to slot 1
+                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
             }
-            // log::warn!("Chunks drawn: {}", drawn_chunks);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

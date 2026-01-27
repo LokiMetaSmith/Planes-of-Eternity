@@ -89,6 +89,13 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
+    let model_matrix = mat4x4<f32>(
+        instance.model_matrix_0,
+        instance.model_matrix_1,
+        instance.model_matrix_2,
+        instance.model_matrix_3,
+    );
+
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
 
@@ -96,7 +103,8 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let scale = reality.blend_params.z;
     let distortion = reality.blend_params.w;
 
-    var pos = model.position;
+    // Transform vertex to world space using instance matrix
+    var pos = (model_matrix * vec4<f32>(model.position, 1.0)).xyz;
 
     // Generative Displacement
     // Use XZ plane for noise input

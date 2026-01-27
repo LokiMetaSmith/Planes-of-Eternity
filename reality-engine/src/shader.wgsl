@@ -103,6 +103,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let scale = reality.blend_params.z;
     let distortion = reality.blend_params.w;
 
+    // Transform vertex to world space using instance matrix
     var pos = (model_matrix * vec4<f32>(model.position, 1.0)).xyz;
 
     // Generative Displacement

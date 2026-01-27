@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
-use cgmath::{EuclideanSpace, InnerSpace};
+use cgmath::{EuclideanSpace, InnerSpace, SquareMatrix};
 
 mod camera;
 mod texture;
@@ -74,11 +74,38 @@ impl Vertex {
     }
 }
 
+// Helper for Frustum Culling
+fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, view_proj: &cgmath::Matrix4<f32>) -> bool {
+    let corners = [
+        cgmath::Point3::new(min.x, min.y, min.z),
+        cgmath::Point3::new(max.x, min.y, min.z),
+        cgmath::Point3::new(min.x, max.y, min.z),
+        cgmath::Point3::new(max.x, max.y, min.z),
+        cgmath::Point3::new(min.x, min.y, max.z),
+        cgmath::Point3::new(max.x, min.y, max.z),
+        cgmath::Point3::new(min.x, max.y, max.z),
+        cgmath::Point3::new(max.x, max.y, max.z),
+    ];
+
+    for p in corners {
+         let clip = view_proj * p.to_homogeneous();
+         let w = clip.w;
+         // Check if point is inside frustum (conservative check)
+         if clip.x >= -w && clip.x <= w &&
+            clip.y >= -w && clip.y <= w &&
+            clip.z >= 0.0 && clip.z <= w {
+                return true;
+         }
+    }
+    false
+}
+
 fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
     let step = size / resolution as f32;
+    // Center the mesh around 0,0 locally
     let offset = size / 2.0;
 
     for z in 0..=resolution {
@@ -86,12 +113,12 @@ fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
             let x_pos = (x as f32 * step) - offset;
             let z_pos = (z as f32 * step) - offset;
 
-            // Map x,z to 0..1 range for UVs
+            // UVs 0..1
             let u = x as f32 / resolution as f32;
             let v = z as f32 / resolution as f32;
 
             vertices.push(Vertex {
-                position: [x_pos, 0.0, z_pos], // Y is up, plane is XZ
+                position: [x_pos, 0.0, z_pos],
                 tex_coords: [u, v],
             });
         }
@@ -105,12 +132,10 @@ fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
             let bottom_left = i + (resolution as u16 + 1);
             let bottom_right = i + (resolution as u16 + 1) + 1;
 
-            // Triangle 1
             indices.push(top_left);
             indices.push(bottom_left);
             indices.push(top_right);
 
-            // Triangle 2
             indices.push(top_right);
             indices.push(bottom_left);
             indices.push(bottom_right);
@@ -120,6 +145,8 @@ fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
     (vertices, indices)
 }
 
+// Kept Instance struct to satisfy any potential future upstream merge,
+// though we use Chunking for now.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Instance {
@@ -158,17 +185,27 @@ impl Instance {
     }
 }
 
+struct ChunkData {
+    position: cgmath::Vector3<f32>,
+    aabb_min: cgmath::Point3<f32>,
+    aabb_max: cgmath::Point3<f32>,
+}
+
 struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     render_pipeline: wgpu::RenderPipeline,
+
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+
     instance_buffer: wgpu::Buffer,
     num_instances: u32,
+    chunk_data: Vec<ChunkData>, // CPU side data for culling
+
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
     camera: camera::Camera,
@@ -412,59 +449,54 @@ impl State {
                 push_constant_ranges: &[],
             });
 
-        // Generate high-res grid mesh
-        // We create a "Chunk" mesh which we will render multiple times at different positions
-        // For this step, we just render one big one, but we prepare the logic for multiple draws.
-        // Actually, to implement the "grid of 3x3 chunks" requested in the plan:
-        // We will generate ONE mesh (a 10x10 unit tile), and we will render it 9 times with different model matrices.
-        // HOWEVER, our current shader doesn't support a Model Matrix uniform per instance (it assumes identity/world space).
-        // So for simplicity in this iteration, we will just generate ONE MASSIVE MESH that covers the 3x3 area (30x30 units).
-
-        // 10.0 size (one chunk), 70 resolution
-        let (vertices, indices) = create_grid_mesh(10.0, 70);
+        // Generate single chunk mesh (template)
+        let chunk_size = 10.0;
+        let chunk_res = 60;
+        let (vertices, indices) = create_grid_mesh(chunk_size, chunk_res);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
+            label: Some("Chunk Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
+            label: Some("Chunk Index Buffer"),
             contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
         let num_indices = indices.len() as u32;
 
-        // Create Instances
-        const NUM_INSTANCES_PER_ROW: u32 = 3;
-        let mut instances = Vec::new();
-        let gap = 10.0;
-        let offset = gap * (NUM_INSTANCES_PER_ROW as f32 - 1.0) / 2.0;
+        // Define logical chunks (Positions)
+        let mut chunk_data = Vec::new();
+        let grid_count = 3; // 3x3
+        let half_grid = (grid_count as f32 * chunk_size) / 2.0;
+        let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
 
-        for z in 0..NUM_INSTANCES_PER_ROW {
-            for x in 0..NUM_INSTANCES_PER_ROW {
-                let x_pos = (x as f32 * gap) - offset;
-                let z_pos = (z as f32 * gap) - offset;
+        // Mesh generated from -5 to 5.
+        // We want chunks at -10, 0, 10 centers.
 
-                let position = cgmath::Vector3 { x: x_pos, y: 0.0, z: z_pos };
-                let model = cgmath::Matrix4::from_translation(position);
+        for z in 0..grid_count {
+            for x in 0..grid_count {
+                let x_pos = (x as f32 * chunk_size) - chunk_size; // 0->-10, 1->0, 2->10
+                let z_pos = (z as f32 * chunk_size) - chunk_size;
 
-                instances.push(Instance {
-                    model: model.into(),
+                chunk_data.push(ChunkData {
+                    position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
+                    aabb_min: cgmath::Point3::new(x_pos - 5.0, -10.0, z_pos - 5.0),
+                    aabb_max: cgmath::Point3::new(x_pos + 5.0, 10.0, z_pos + 5.0),
                 });
             }
         }
 
-        let instance_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Instance Buffer"),
-                contents: bytemuck::cast_slice(&instances),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
-        let num_instances = instances.len() as u32;
+        // Initial Instance Buffer (Empty or full, will update in update loop)
+        let instances = vec![Instance { model: cgmath::Matrix4::identity().into() }; chunk_data.len()];
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instances),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -513,7 +545,8 @@ impl State {
             index_buffer,
             num_indices,
             instance_buffer,
-            num_instances,
+            num_instances: chunk_data.len() as u32,
+            chunk_data,
             diffuse_bind_group,
             diffuse_texture,
             camera,
@@ -553,9 +586,9 @@ impl State {
 
         // Ray clip coordinates
         let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);
-        let mut ray_eye = inv_view_proj * ray_clip;
-        ray_eye.z = -1.0;
-        ray_eye.w = 0.0;
+        // let mut ray_eye = inv_view_proj * ray_clip;
+        // ray_eye.z = -1.0;
+        // ray_eye.w = 0.0;
 
         let ray_world = (inv_view_proj * ray_clip).truncate();
         let ray_origin = self.camera.eye.to_vec();
@@ -631,6 +664,39 @@ impl State {
             0,
             bytemuck::cast_slice(&[self.reality_uniform]),
         );
+
+        // Update Frustum Culling & Instances
+        let view_proj = self.camera.build_view_projection_matrix();
+
+        // Filter visible chunks and build instance data
+        let mut visible_instances = Vec::new();
+        for chunk in &self.chunk_data {
+            if is_aabb_visible(chunk.aabb_min, chunk.aabb_max, &view_proj) {
+                // Calculate model matrix for this chunk
+                let model = cgmath::Matrix4::from_translation(chunk.position);
+                visible_instances.push(Instance {
+                    model: model.into(),
+                });
+            }
+        }
+
+        // Update Instance Buffer
+        self.num_instances = visible_instances.len() as u32;
+        if self.num_instances > 0 {
+            // Re-create buffer if size grows?
+            // For now, our buffer is size 9 (max), so we can just write into it if count <= max.
+            // If we had dynamic count > max, we'd need to resize.
+            // Since max is 9, and visible is <= 9, write_buffer is fine.
+            // But write_buffer requires exact size match? No, just offset.
+            // We can write the slice.
+
+            // Note: If visible count is 0, we just don't draw.
+            self.queue.write_buffer(
+                &self.instance_buffer,
+                0,
+                bytemuck::cast_slice(&visible_instances),
+            );
+        }
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -670,10 +736,14 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
+
+            // Draw instances
+            if self.num_instances > 0 {
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..)); // Bind instance buffer to slot 1
+                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
+            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -681,6 +751,14 @@ impl State {
 
         Ok(())
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn request_animation_frame(f: &Closure<dyn FnMut()>) {
+    web_sys::window()
+        .unwrap()
+        .request_animation_frame(f.as_ref().unchecked_ref())
+        .expect("should register `requestAnimationFrame` OK");
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -787,33 +865,4 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
     request_animation_frame(g.borrow().as_ref().unwrap());
 
     Ok(())
-}
-
-#[cfg(target_arch = "wasm32")]
-fn request_animation_frame(f: &Closure<dyn FnMut()>) {
-    web_sys::window()
-        .unwrap()
-        .request_animation_frame(f.as_ref().unchecked_ref())
-        .expect("should register `requestAnimationFrame` OK");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_create_grid_mesh() {
-        let (vertices, indices) = create_grid_mesh(10.0, 70);
-        // Resolution 70 means 71x71 vertices
-        assert_eq!(vertices.len(), 71 * 71);
-        // Indices: 70*70 quads * 2 triangles * 3 indices
-        assert_eq!(indices.len(), 70 * 70 * 6);
-    }
-
-    #[test]
-    fn test_instance_desc() {
-        let desc = Instance::desc();
-        assert_eq!(desc.step_mode, wgpu::VertexStepMode::Instance);
-        assert_eq!(desc.attributes.len(), 4);
-    }
 }

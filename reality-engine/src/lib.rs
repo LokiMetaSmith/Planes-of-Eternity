@@ -760,3 +760,109 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
         .request_animation_frame(f.as_ref().unchecked_ref())
         .expect("should register `requestAnimationFrame` OK");
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn start(canvas_id: String) -> Result<(), JsValue> {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+
+    let window = web_sys::window().expect("No global `window` exists");
+    let document = window.document().expect("Should have a document on window");
+    let canvas = document
+        .get_element_by_id(&canvas_id)
+        .expect("Could not find canvas")
+        .dyn_into::<HtmlCanvasElement>()
+        .expect("Element is not a canvas");
+
+    let state = State::new(canvas.clone()).await;
+    let state = Rc::new(RefCell::new(state));
+
+    // Resize handler
+    let state_resize = state.clone();
+    let canvas_resize = canvas.clone();
+    let window_resize = window.clone();
+    let resize_closure = Closure::wrap(Box::new(move || {
+        let width = window_resize.inner_width().unwrap().as_f64().unwrap() as u32;
+        let height = window_resize.inner_height().unwrap().as_f64().unwrap() as u32;
+
+        canvas_resize.set_width(width);
+        canvas_resize.set_height(height);
+
+        state_resize.borrow_mut().resize(width, height);
+    }) as Box<dyn FnMut()>);
+
+    window
+        .add_event_listener_with_callback("resize", resize_closure.as_ref().unchecked_ref())
+        .expect("Failed to add resize listener");
+    resize_closure.forget();
+
+    // Keyboard handlers
+    let state_keydown = state.clone();
+    let keydown_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+        state_keydown
+            .borrow_mut()
+            .camera_controller
+            .process_events(&event.code(), true);
+    }) as Box<dyn FnMut(_)>);
+
+    window
+        .add_event_listener_with_callback("keydown", keydown_closure.as_ref().unchecked_ref())
+        .expect("Failed to add keydown listener");
+    keydown_closure.forget();
+
+    let state_keyup = state.clone();
+    let keyup_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+        state_keyup
+            .borrow_mut()
+            .camera_controller
+            .process_events(&event.code(), false);
+    }) as Box<dyn FnMut(_)>);
+
+    window
+        .add_event_listener_with_callback("keyup", keyup_closure.as_ref().unchecked_ref())
+        .expect("Failed to add keyup listener");
+    keyup_closure.forget();
+
+    // Mouse Handler
+    let state_mouse = state.clone();
+    let canvas_mouse = canvas.clone();
+    let mouse_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let rect = canvas_mouse.get_bounding_client_rect();
+        let x = event.client_x() as f32 - rect.left() as f32;
+        let y = event.client_y() as f32 - rect.top() as f32;
+
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+
+        // Convert to NDC (-1 to 1)
+        // Y is inverted in CSS vs NDC
+        let ndc_x = (x / width) * 2.0 - 1.0;
+        let ndc_y = -((y / height) * 2.0 - 1.0);
+
+        state_mouse.borrow_mut().process_mouse_click(ndc_x, ndc_y);
+    }) as Box<dyn FnMut(_)>);
+
+    canvas
+        .add_event_listener_with_callback("mousedown", mouse_closure.as_ref().unchecked_ref())
+        .expect("Failed to add mousedown listener");
+    mouse_closure.forget();
+
+    // Render loop
+    let f = Rc::new(RefCell::new(None));
+    let g = f.clone();
+
+    let state_copy = state.clone();
+    *g.borrow_mut() = Some(Closure::new(move || {
+        let mut state = state_copy.borrow_mut();
+        state.update();
+        state.render().expect("Render failed");
+
+        // Request next frame
+        request_animation_frame(f.borrow().as_ref().unwrap());
+    }));
+
+    request_animation_frame(g.borrow().as_ref().unwrap());
+
+    Ok(())
+}

@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
-use cgmath::{EuclideanSpace, InnerSpace};
+use cgmath::{EuclideanSpace, InnerSpace, SquareMatrix};
 
 mod camera;
 mod texture;
@@ -586,9 +586,9 @@ impl State {
 
         // Ray clip coordinates
         let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);
-        let mut ray_eye = inv_view_proj * ray_clip;
-        ray_eye.z = -1.0;
-        ray_eye.w = 0.0;
+        // let mut ray_eye = inv_view_proj * ray_clip;
+        // ray_eye.z = -1.0;
+        // ray_eye.w = 0.0;
 
         let ray_world = (inv_view_proj * ray_clip).truncate();
         let ray_origin = self.camera.eye.to_vec();

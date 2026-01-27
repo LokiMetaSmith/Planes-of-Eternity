@@ -4,6 +4,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
+use cgmath::{EuclideanSpace, InnerSpace};
 
 mod camera;
 mod texture;
@@ -102,6 +103,44 @@ const INDICES: &[u16] = &[
     2, 3, 4,
 ];
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Instance {
+    model: [[f32; 4]; 4],
+}
+
+impl Instance {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Instance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
+
 struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -111,6 +150,8 @@ struct State {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+    instance_buffer: wgpu::Buffer,
+    num_instances: u32,
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
     camera: camera::Camera,
@@ -348,6 +389,17 @@ impl State {
                 push_constant_ranges: &[],
             });
 
+        // Generate high-res grid mesh
+        // We create a "Chunk" mesh which we will render multiple times at different positions
+        // For this step, we just render one big one, but we prepare the logic for multiple draws.
+        // Actually, to implement the "grid of 3x3 chunks" requested in the plan:
+        // We will generate ONE mesh (a 10x10 unit tile), and we will render it 9 times with different model matrices.
+        // HOWEVER, our current shader doesn't support a Model Matrix uniform per instance (it assumes identity/world space).
+        // So for simplicity in this iteration, we will just generate ONE MASSIVE MESH that covers the 3x3 area (30x30 units).
+
+        // 10.0 size (one chunk), 70 resolution
+        let (vertices, indices) = create_grid_mesh(10.0, 70);
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
             contents: bytemuck::cast_slice(VERTICES),
@@ -362,13 +414,42 @@ impl State {
 
         let num_indices = INDICES.len() as u32;
 
+        // Create Instances
+        const NUM_INSTANCES_PER_ROW: u32 = 3;
+        let mut instances = Vec::new();
+        let gap = 10.0;
+        let offset = gap * (NUM_INSTANCES_PER_ROW as f32 - 1.0) / 2.0;
+
+        for z in 0..NUM_INSTANCES_PER_ROW {
+            for x in 0..NUM_INSTANCES_PER_ROW {
+                let x_pos = (x as f32 * gap) - offset;
+                let z_pos = (z as f32 * gap) - offset;
+
+                let position = cgmath::Vector3 { x: x_pos, y: 0.0, z: z_pos };
+                let model = cgmath::Matrix4::from_translation(position);
+
+                instances.push(Instance {
+                    model: model.into(),
+                });
+            }
+        }
+
+        let instance_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instances),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+        let num_instances = instances.len() as u32;
+
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[Vertex::desc(), Instance::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -408,6 +489,8 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices,
+            instance_buffer,
+            num_instances,
             diffuse_bind_group,
             diffuse_texture,
             camera,
@@ -511,8 +594,9 @@ impl State {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -610,4 +694,25 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
         .unwrap()
         .request_animation_frame(f.as_ref().unchecked_ref())
         .expect("should register `requestAnimationFrame` OK");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_grid_mesh() {
+        let (vertices, indices) = create_grid_mesh(10.0, 70);
+        // Resolution 70 means 71x71 vertices
+        assert_eq!(vertices.len(), 71 * 71);
+        // Indices: 70*70 quads * 2 triangles * 3 indices
+        assert_eq!(indices.len(), 70 * 70 * 6);
+    }
+
+    #[test]
+    fn test_instance_desc() {
+        let desc = Instance::desc();
+        assert_eq!(desc.step_mode, wgpu::VertexStepMode::Instance);
+        assert_eq!(desc.attributes.len(), 4);
+    }
 }

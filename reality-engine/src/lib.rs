@@ -33,7 +33,7 @@ impl CameraUniform {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct RealityUniform {
     blend_color: [f32; 4],
-    blend_params: [f32; 4], // x = alpha, yzw = padding
+    blend_params: [f32; 4], // x = alpha, y = roughness, z = scale, w = distortion
 }
 
 impl RealityUniform {
@@ -73,34 +73,51 @@ impl Vertex {
     }
 }
 
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.0868241, 0.49240386, 0.0],
-        tex_coords: [0.4131759, 0.00759614],
-    },
-    Vertex {
-        position: [-0.49513406, 0.06958647, 0.0],
-        tex_coords: [0.0048659444, 0.43041354],
-    },
-    Vertex {
-        position: [-0.21918549, -0.44939706, 0.0],
-        tex_coords: [0.28081453, 0.949397],
-    },
-    Vertex {
-        position: [0.35966998, -0.3473291, 0.0],
-        tex_coords: [0.85967, 0.84732914],
-    },
-    Vertex {
-        position: [0.44147372, 0.2347359, 0.0],
-        tex_coords: [0.9414737, 0.2652641],
-    },
-];
+fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
 
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+    let step = size / resolution as f32;
+    let offset = size / 2.0;
+
+    for z in 0..=resolution {
+        for x in 0..=resolution {
+            let x_pos = (x as f32 * step) - offset;
+            let z_pos = (z as f32 * step) - offset;
+
+            // Map x,z to 0..1 range for UVs
+            let u = x as f32 / resolution as f32;
+            let v = z as f32 / resolution as f32;
+
+            vertices.push(Vertex {
+                position: [x_pos, 0.0, z_pos], // Y is up, plane is XZ
+                tex_coords: [u, v],
+            });
+        }
+    }
+
+    for z in 0..resolution {
+        for x in 0..resolution {
+            let i = (z * (resolution + 1) + x) as u16;
+            let top_left = i;
+            let top_right = i + 1;
+            let bottom_left = i + (resolution as u16 + 1);
+            let bottom_right = i + (resolution as u16 + 1) + 1;
+
+            // Triangle 1
+            indices.push(top_left);
+            indices.push(bottom_left);
+            indices.push(top_right);
+
+            // Triangle 2
+            indices.push(top_right);
+            indices.push(bottom_left);
+            indices.push(bottom_right);
+        }
+    }
+
+    (vertices, indices)
+}
 
 struct State {
     surface: wgpu::Surface<'static>,
@@ -323,6 +340,9 @@ impl State {
         use cgmath::Point3;
         let mut player_sig = reality_types::RealitySignature::default();
         player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
+        player_sig.active_style.roughness = 0.3; // Smooth, rolling hills
+        player_sig.active_style.scale = 2.0;     // Large features
+        player_sig.active_style.distortion = 0.1; // Low distortion
         player_sig.fidelity = 100.0;
         let player_projector = projector::RealityProjector::new(
             Point3::new(0.0, 1.0, 2.0),
@@ -331,6 +351,9 @@ impl State {
 
         let mut anomaly_sig = reality_types::RealitySignature::default();
         anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+        anomaly_sig.active_style.roughness = 0.8; // Jagged, techy
+        anomaly_sig.active_style.scale = 5.0;     // High frequency details
+        anomaly_sig.active_style.distortion = 0.8; // High distortion (glitchy)
         anomaly_sig.fidelity = 100.0;
         let anomaly_projector = projector::RealityProjector::new(
             Point3::new(0.0, 0.0, 0.0), // At the tree
@@ -348,19 +371,30 @@ impl State {
                 push_constant_ranges: &[],
             });
 
+        // Generate high-res grid mesh
+        // We create a "Chunk" mesh which we will render multiple times at different positions
+        // For this step, we just render one big one, but we prepare the logic for multiple draws.
+        // Actually, to implement the "grid of 3x3 chunks" requested in the plan:
+        // We will generate ONE mesh (a 10x10 unit tile), and we will render it 9 times with different model matrices.
+        // HOWEVER, our current shader doesn't support a Model Matrix uniform per instance (it assumes identity/world space).
+        // So for simplicity in this iteration, we will just generate ONE MASSIVE MESH that covers the 3x3 area (30x30 units).
+
+        // 30.0 size, 200 resolution = decent detail
+        let (vertices, indices) = create_grid_mesh(30.0, 200);
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
+            contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
+            contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let num_indices = INDICES.len() as u32;
+        let num_indices = indices.len() as u32;
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -436,6 +470,42 @@ impl State {
         }
     }
 
+    pub fn process_mouse_click(&mut self, x: f32, y: f32) {
+        // x, y are in NDC coordinates (-1 to 1)
+        // Simple Ray-Plane intersection (Plane normal Y=1, d=0)
+
+        // Invert View Projection
+        use cgmath::SquareMatrix;
+        let view_proj = self.camera.build_view_projection_matrix();
+        let inv_view_proj = view_proj.invert().unwrap_or(cgmath::Matrix4::identity());
+
+        // Ray clip coordinates
+        let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);
+        let mut ray_eye = inv_view_proj * ray_clip;
+        ray_eye.z = -1.0;
+        ray_eye.w = 0.0;
+
+        let ray_world = (inv_view_proj * ray_clip).truncate();
+        let ray_origin = self.camera.eye.to_vec();
+        let ray_dir = (ray_world - ray_origin).normalize();
+
+        // Plane Intersection: P = O + tD
+        // P.y = 0
+        // O.y + t * D.y = 0
+        // t = -O.y / D.y
+
+        if ray_dir.y.abs() > 1e-6 {
+             let t = -self.camera.eye.y / ray_dir.y;
+             if t > 0.0 {
+                 let hit_point = self.camera.eye + ray_dir * t;
+                 log::warn!("Injection at: {:?}", hit_point);
+
+                 // Move Anomaly to click location
+                 self.anomaly_projector.location = hit_point;
+             }
+        }
+    }
+
     pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
@@ -464,7 +534,25 @@ impl State {
         };
 
         self.reality_uniform.blend_color = color;
-        self.reality_uniform.blend_params = [blend_result.blend_alpha, 0.0, 0.0, 0.0];
+
+        // Calculate blended generative parameters
+        let player_style = &self.player_projector.reality_signature.active_style;
+        let anomaly_style = &self.anomaly_projector.reality_signature.active_style;
+
+        // Identify which style is dominant to determine the direction of the blend
+        let (start_style, end_style) = if blend_result.dominant_archetype == player_style.archetype {
+            (player_style, anomaly_style)
+        } else {
+            (anomaly_style, player_style)
+        };
+
+        // Linear interpolation
+        let t = blend_result.blend_alpha;
+        let roughness = start_style.roughness * (1.0 - t) + end_style.roughness * t;
+        let scale = start_style.scale * (1.0 - t) + end_style.scale * t;
+        let distortion = start_style.distortion * (1.0 - t) + end_style.distortion * t;
+
+        self.reality_uniform.blend_params = [blend_result.blend_alpha, roughness, scale, distortion];
 
         self.queue.write_buffer(
             &self.reality_buffer,
@@ -584,6 +672,30 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
         .add_event_listener_with_callback("keyup", keyup_closure.as_ref().unchecked_ref())
         .expect("Failed to add keyup listener");
     keyup_closure.forget();
+
+    // Mouse Handler
+    let state_mouse = state.clone();
+    let canvas_mouse = canvas.clone();
+    let mouse_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let rect = canvas_mouse.get_bounding_client_rect();
+        let x = event.client_x() as f32 - rect.left() as f32;
+        let y = event.client_y() as f32 - rect.top() as f32;
+
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+
+        // Convert to NDC (-1 to 1)
+        // Y is inverted in CSS vs NDC
+        let ndc_x = (x / width) * 2.0 - 1.0;
+        let ndc_y = -((y / height) * 2.0 - 1.0);
+
+        state_mouse.borrow_mut().process_mouse_click(ndc_x, ndc_y);
+    }) as Box<dyn FnMut(_)>);
+
+    canvas
+        .add_event_listener_with_callback("mousedown", mouse_closure.as_ref().unchecked_ref())
+        .expect("Failed to add mousedown listener");
+    mouse_closure.forget();
 
     // Render loop
     let f = Rc::new(RefCell::new(None));

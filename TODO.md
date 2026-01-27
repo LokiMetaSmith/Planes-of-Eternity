@@ -28,3 +28,9 @@
 - [x] Implement vertex buffers
 - [x] Add camera control
 - [x] Implement texture loading
+- [x] Implement Procedural Mesh Generation
+- [x] Implement Generative Shader (FBM/Voronoi)
+- [x] Implement Reality Injection Interaction
+- [ ] Implement Chunked Rendering (Nanite-lite)
+- [ ] Implement Frustum Culling
+- [ ] Add Horror/Toon Archetype Visuals

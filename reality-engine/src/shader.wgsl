@@ -21,6 +21,13 @@ struct VertexInput {
     @location(1) tex_coords: vec2<f32>,
 };
 
+struct InstanceInput {
+    @location(2) model_matrix_0: vec4<f32>,
+    @location(3) model_matrix_1: vec4<f32>,
+    @location(4) model_matrix_2: vec4<f32>,
+    @location(5) model_matrix_3: vec4<f32>,
+};
+
 // Pseudo-random number generator
 fn hash(p: vec2<f32>) -> f32 {
     var p2 = fract(p * vec2<f32>(123.34, 456.21));
@@ -81,7 +88,14 @@ struct VertexOutput {
 };
 
 @vertex
-fn vs_main(model: VertexInput) -> VertexOutput {
+fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
+    let model_matrix = mat4x4<f32>(
+        instance.model_matrix_0,
+        instance.model_matrix_1,
+        instance.model_matrix_2,
+        instance.model_matrix_3,
+    );
+
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
 
@@ -89,7 +103,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     let scale = reality.blend_params.z;
     let distortion = reality.blend_params.w;
 
-    var pos = model.position;
+    var pos = (model_matrix * vec4<f32>(model.position, 1.0)).xyz;
 
     // Generative Displacement
     // Use XZ plane for noise input

@@ -28,3 +28,4 @@
 - [x] Implement vertex buffers
 - [x] Add camera control
 - [x] Implement texture loading
+- [x] Implement instanced rendering for grid chunks

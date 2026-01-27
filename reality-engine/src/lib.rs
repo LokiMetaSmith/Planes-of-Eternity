@@ -33,7 +33,7 @@ impl CameraUniform {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct RealityUniform {
     blend_color: [f32; 4],
-    blend_params: [f32; 4], // x = alpha, yzw = padding
+    blend_params: [f32; 4], // x = alpha, y = roughness, z = scale, w = distortion
 }
 
 impl RealityUniform {
@@ -73,34 +73,51 @@ impl Vertex {
     }
 }
 
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.0868241, 0.49240386, 0.0],
-        tex_coords: [0.4131759, 0.00759614],
-    },
-    Vertex {
-        position: [-0.49513406, 0.06958647, 0.0],
-        tex_coords: [0.0048659444, 0.43041354],
-    },
-    Vertex {
-        position: [-0.21918549, -0.44939706, 0.0],
-        tex_coords: [0.28081453, 0.949397],
-    },
-    Vertex {
-        position: [0.35966998, -0.3473291, 0.0],
-        tex_coords: [0.85967, 0.84732914],
-    },
-    Vertex {
-        position: [0.44147372, 0.2347359, 0.0],
-        tex_coords: [0.9414737, 0.2652641],
-    },
-];
+fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
 
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+    let step = size / resolution as f32;
+    let offset = size / 2.0;
+
+    for z in 0..=resolution {
+        for x in 0..=resolution {
+            let x_pos = (x as f32 * step) - offset;
+            let z_pos = (z as f32 * step) - offset;
+
+            // Map x,z to 0..1 range for UVs
+            let u = x as f32 / resolution as f32;
+            let v = z as f32 / resolution as f32;
+
+            vertices.push(Vertex {
+                position: [x_pos, 0.0, z_pos], // Y is up, plane is XZ
+                tex_coords: [u, v],
+            });
+        }
+    }
+
+    for z in 0..resolution {
+        for x in 0..resolution {
+            let i = (z * (resolution + 1) + x) as u16;
+            let top_left = i;
+            let top_right = i + 1;
+            let bottom_left = i + (resolution as u16 + 1);
+            let bottom_right = i + (resolution as u16 + 1) + 1;
+
+            // Triangle 1
+            indices.push(top_left);
+            indices.push(bottom_left);
+            indices.push(top_right);
+
+            // Triangle 2
+            indices.push(top_right);
+            indices.push(bottom_left);
+            indices.push(bottom_right);
+        }
+    }
+
+    (vertices, indices)
+}
 
 struct State {
     surface: wgpu::Surface<'static>,
@@ -323,6 +340,9 @@ impl State {
         use cgmath::Point3;
         let mut player_sig = reality_types::RealitySignature::default();
         player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
+        player_sig.active_style.roughness = 0.3; // Smooth, rolling hills
+        player_sig.active_style.scale = 2.0;     // Large features
+        player_sig.active_style.distortion = 0.1; // Low distortion
         player_sig.fidelity = 100.0;
         let player_projector = projector::RealityProjector::new(
             Point3::new(0.0, 1.0, 2.0),
@@ -331,6 +351,9 @@ impl State {
 
         let mut anomaly_sig = reality_types::RealitySignature::default();
         anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+        anomaly_sig.active_style.roughness = 0.8; // Jagged, techy
+        anomaly_sig.active_style.scale = 5.0;     // High frequency details
+        anomaly_sig.active_style.distortion = 0.8; // High distortion (glitchy)
         anomaly_sig.fidelity = 100.0;
         let anomaly_projector = projector::RealityProjector::new(
             Point3::new(0.0, 0.0, 0.0), // At the tree
@@ -348,19 +371,22 @@ impl State {
                 push_constant_ranges: &[],
             });
 
+        // Generate high-res grid mesh
+        let (vertices, indices) = create_grid_mesh(10.0, 100);
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
+            contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
+            contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let num_indices = INDICES.len() as u32;
+        let num_indices = indices.len() as u32;
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -464,7 +490,25 @@ impl State {
         };
 
         self.reality_uniform.blend_color = color;
-        self.reality_uniform.blend_params = [blend_result.blend_alpha, 0.0, 0.0, 0.0];
+
+        // Calculate blended generative parameters
+        let player_style = &self.player_projector.reality_signature.active_style;
+        let anomaly_style = &self.anomaly_projector.reality_signature.active_style;
+
+        // Identify which style is dominant to determine the direction of the blend
+        let (start_style, end_style) = if blend_result.dominant_archetype == player_style.archetype {
+            (player_style, anomaly_style)
+        } else {
+            (anomaly_style, player_style)
+        };
+
+        // Linear interpolation
+        let t = blend_result.blend_alpha;
+        let roughness = start_style.roughness * (1.0 - t) + end_style.roughness * t;
+        let scale = start_style.scale * (1.0 - t) + end_style.scale * t;
+        let distortion = start_style.distortion * (1.0 - t) + end_style.distortion * t;
+
+        self.reality_uniform.blend_params = [blend_result.blend_alpha, roughness, scale, distortion];
 
         self.queue.write_buffer(
             &self.reality_buffer,

@@ -7,6 +7,8 @@ use wgpu::util::DeviceExt;
 
 mod camera;
 mod texture;
+pub mod reality_types;
+pub mod projector;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -24,6 +26,22 @@ impl CameraUniform {
 
     fn update_view_proj(&mut self, camera: &camera::Camera) {
         self.view_proj = camera.build_view_projection_matrix().into();
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct RealityUniform {
+    blend_color: [f32; 4],
+    blend_params: [f32; 4], // x = alpha, yzw = padding
+}
+
+impl RealityUniform {
+    fn new() -> Self {
+        Self {
+            blend_color: [0.0, 0.0, 0.0, 0.0],
+            blend_params: [0.0; 4],
+        }
     }
 }
 
@@ -100,10 +118,16 @@ struct State {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     camera_controller: camera::CameraController,
+    reality_uniform: RealityUniform,
+    reality_buffer: wgpu::Buffer,
+    reality_bind_group: wgpu::BindGroup,
+    player_projector: projector::RealityProjector,
+    anomaly_projector: projector::RealityProjector,
     width: u32,
     height: u32,
 }
 
+#[cfg(target_arch = "wasm32")]
 impl State {
     async fn new(canvas: HtmlCanvasElement) -> Self {
         let width = canvas.width();
@@ -259,12 +283,67 @@ impl State {
 
         let camera_controller = camera::CameraController::new(0.2);
 
+        // Reality System Setup
+        let reality_uniform = RealityUniform::new();
+        let reality_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Reality Buffer"),
+                contents: bytemuck::cast_slice(&[reality_uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            }
+        );
+
+        let reality_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ],
+            label: Some("reality_bind_group_layout"),
+        });
+
+        let reality_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &reality_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: reality_buffer.as_entire_binding(),
+                }
+            ],
+            label: Some("reality_bind_group"),
+        });
+
+        use cgmath::Point3;
+        let mut player_sig = reality_types::RealitySignature::default();
+        player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
+        player_sig.fidelity = 100.0;
+        let player_projector = projector::RealityProjector::new(
+            Point3::new(0.0, 1.0, 2.0),
+            player_sig
+        );
+
+        let mut anomaly_sig = reality_types::RealitySignature::default();
+        anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+        anomaly_sig.fidelity = 100.0;
+        let anomaly_projector = projector::RealityProjector::new(
+            Point3::new(0.0, 0.0, 0.0), // At the tree
+            anomaly_sig
+        );
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &texture_bind_group_layout,
                     &camera_bind_group_layout,
+                    &reality_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -336,6 +415,11 @@ impl State {
             camera_buffer,
             camera_bind_group,
             camera_controller,
+            reality_uniform,
+            reality_buffer,
+            reality_bind_group,
+            player_projector,
+            anomaly_projector,
             width,
             height,
         }
@@ -359,6 +443,33 @@ impl State {
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+
+        // Update Reality Projector Position (Player follows camera)
+        self.player_projector.location = self.camera.eye;
+
+        // Calculate Blend
+        let blend_result = self.player_projector.calculate_reality_at_point(
+            self.camera.eye,
+            Some(&self.anomaly_projector)
+        );
+
+        // Map Archetype to Color
+        let color = match blend_result.dominant_archetype {
+            reality_types::RealityArchetype::Void => [0.0, 0.0, 0.0, 0.0],
+            reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0], // Green
+            reality_types::RealityArchetype::SciFi => [0.0, 0.0, 1.0, 1.0],   // Blue
+            reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],  // Red
+            reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],    // Yellow
+        };
+
+        self.reality_uniform.blend_color = color;
+        self.reality_uniform.blend_params = [blend_result.blend_alpha, 0.0, 0.0, 0.0];
+
+        self.queue.write_buffer(
+            &self.reality_buffer,
+            0,
+            bytemuck::cast_slice(&[self.reality_uniform]),
         );
     }
 
@@ -398,6 +509,7 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
@@ -410,6 +522,7 @@ impl State {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn start(canvas_id: String) -> Result<(), JsValue> {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -491,6 +604,7 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
     Ok(())
 }
 
+#[cfg(target_arch = "wasm32")]
 fn request_animation_frame(f: &Closure<dyn FnMut()>) {
     web_sys::window()
         .unwrap()

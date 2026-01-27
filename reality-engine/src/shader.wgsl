@@ -4,6 +4,13 @@ struct CameraUniform {
 @group(1) @binding(0)
 var<uniform> camera: CameraUniform;
 
+struct RealityUniform {
+    blend_color: vec4<f32>,
+    blend_params: vec4<f32>, // x = alpha
+};
+@group(2) @binding(0)
+var<uniform> reality: RealityUniform;
+
 @group(0) @binding(0)
 var t_diffuse: texture_2d<f32>;
 @group(0) @binding(1)
@@ -29,5 +36,11 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    let texture_color = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    let blend_color = reality.blend_color;
+    let blend_alpha = reality.blend_params.x;
+
+    // Mix the texture color with the blend color based on blend_alpha
+    // result = texture_color * (1.0 - blend_alpha) + blend_color * blend_alpha
+    return mix(texture_color, blend_color, blend_alpha * 0.5); // * 0.5 to keep texture visible
 }

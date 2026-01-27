@@ -6,7 +6,7 @@ var<uniform> camera: CameraUniform;
 
 struct RealityUniform {
     blend_color: vec4<f32>,
-    blend_params: vec4<f32>, // x = alpha
+    blend_params: vec4<f32>, // x = alpha, y = roughness, z = scale, w = distortion
 };
 @group(2) @binding(0)
 var<uniform> reality: RealityUniform;
@@ -83,17 +83,12 @@ fn voronoi(x: vec2<f32>) -> f32 {
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
+    @location(1) height: f32, // Pass displaced height to fragment
+    @location(2) world_pos: vec3<f32>,
 };
 
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
-    let model_matrix = mat4x4<f32>(
-        instance.model_matrix_0,
-        instance.model_matrix_1,
-        instance.model_matrix_2,
-        instance.model_matrix_3,
-    );
-
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
 
@@ -101,7 +96,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let scale = reality.blend_params.z;
     let distortion = reality.blend_params.w;
 
-    var pos = (model_matrix * vec4<f32>(model.position, 1.0)).xyz;
+    var pos = model.position;
 
     // Generative Displacement
     // Use XZ plane for noise input
@@ -134,11 +129,38 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let texture_color = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    let base_texture = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     let blend_color = reality.blend_color;
-    let blend_alpha = reality.blend_params.x;
+    let blend_alpha = reality.blend_params.x; // How much reality is "invading"
 
-    // Mix the texture color with the blend color based on blend_alpha
-    // result = texture_color * (1.0 - blend_alpha) + blend_color * blend_alpha
-    return mix(texture_color, blend_color, blend_alpha * 0.5); // * 0.5 to keep texture visible
+    // Generative Pattern
+    let roughness = reality.blend_params.y;
+    let scale = reality.blend_params.z;
+
+    var pattern_color = vec3<f32>(0.0);
+
+    if (roughness > 0.6) {
+        // SciFi Look: Voronoi / Circuitry
+        let v = voronoi(in.world_pos.xz * scale * 2.0);
+        let circuit = step(0.95, v) + step(v, 0.05);
+        pattern_color = mix(blend_color.rgb * 0.5, vec3<f32>(0.0, 1.0, 1.0), circuit);
+    } else {
+        // Fantasy Look: Organic FBM
+        let n = fbm(in.world_pos.xz * scale * 2.0, 3, roughness);
+        // Earthy tones + Magic
+        pattern_color = mix(vec3<f32>(0.4, 0.3, 0.2), blend_color.rgb, n);
+    }
+
+    // Mix the procedural color with the "Archetype Color"
+    let generative_look = mix(pattern_color, blend_color.rgb, 0.3);
+
+    // Add glowing edge effect based on height (Nanite wireframe-ish look?)
+    let edge = step(0.9, fract(in.world_pos.x * 5.0)) + step(0.9, fract(in.world_pos.z * 5.0));
+    let wireframe = clamp(edge, 0.0, 0.2) * roughness; // Only wireframe if rough/techy
+
+    let final_gen_color = generative_look + vec3<f32>(wireframe);
+
+    let result = mix(base_texture.rgb, final_gen_color, blend_alpha);
+
+    return vec4<f32>(result, 1.0);
 }

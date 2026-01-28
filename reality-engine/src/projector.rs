@@ -56,19 +56,23 @@ impl RealityProjector {
         let strength_a = self.reality_signature.fidelity / dist_a;
         let strength_b = rival_ref.reality_signature.fidelity / dist_b;
 
+        result.total_strength = strength_a + strength_b;
+
         const KINDA_SMALL_NUMBER: f32 = 1e-4;
 
         if strength_a >= strength_b {
             result.dominant_archetype = self.reality_signature.active_style.archetype;
-            if strength_a > KINDA_SMALL_NUMBER {
-                result.blend_alpha = strength_b / strength_a;
+            if strength_a + strength_b > KINDA_SMALL_NUMBER {
+                // Use smooth blending: weak / (strong + weak)
+                // At equal strength, this becomes 0.5
+                result.blend_alpha = strength_b / (strength_a + strength_b);
             } else {
                 result.blend_alpha = 0.0;
             }
         } else {
             result.dominant_archetype = rival_ref.reality_signature.active_style.archetype;
-            if strength_b > KINDA_SMALL_NUMBER {
-                result.blend_alpha = strength_a / strength_b;
+            if strength_a + strength_b > KINDA_SMALL_NUMBER {
+                result.blend_alpha = strength_a / (strength_a + strength_b);
             } else {
                 result.blend_alpha = 0.0;
             }
@@ -114,7 +118,10 @@ mod tests {
         let result = proj_a.calculate_reality_at_point(Point3::new(5.0, 0.0, 0.0), Some(&proj_b));
         // Equal strength, code says StrengthA >= StrengthB -> A wins
         assert_eq!(result.dominant_archetype, RealityArchetype::Fantasy);
-        assert!( (result.blend_alpha - 1.0).abs() < 1e-4 ); // Blend should be 1.0 at equal strength
+        assert!( (result.blend_alpha - 0.5).abs() < 1e-4 ); // Blend should be 0.5 at equal strength
+
+        // Strength A = 100/5 = 20. Strength B = 100/5 = 20. Total = 40.
+        assert!( (result.total_strength - 40.0).abs() < 1e-4 );
     }
 
     #[test]

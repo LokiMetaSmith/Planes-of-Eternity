@@ -71,6 +71,7 @@ pub struct BlendResult {
     pub dominant_archetype: RealityArchetype, // Who won?
     pub blend_alpha: f32,                     // 0.0 to 1.0 (How much "Bleed" is happening?)
     pub is_conflict: bool,                    // True if genres are opposites (e.g., SciFi vs Fantasy)
+    pub total_strength: f32,                  // Total signal strength at this point
 }
 
 impl Default for BlendResult {
@@ -79,6 +80,7 @@ impl Default for BlendResult {
             dominant_archetype: RealityArchetype::Void,
             blend_alpha: 0.0,
             is_conflict: false,
+            total_strength: 0.0,
         }
     }
 }

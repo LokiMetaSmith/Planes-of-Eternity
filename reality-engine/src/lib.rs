@@ -657,7 +657,11 @@ impl State {
         let scale = start_style.scale * (1.0 - t) + end_style.scale * t;
         let distortion = start_style.distortion * (1.0 - t) + end_style.distortion * t;
 
-        self.reality_uniform.blend_params = [blend_result.blend_alpha, roughness, scale, distortion];
+        // Use total_strength as the mix factor to fade in reality based on proximity.
+        // blend_alpha is used for parameter interpolation (above), but for visibility we use total signal strength.
+        let visibility_mix = blend_result.total_strength.min(1.0);
+
+        self.reality_uniform.blend_params = [visibility_mix, roughness, scale, distortion];
 
         self.queue.write_buffer(
             &self.reality_buffer,

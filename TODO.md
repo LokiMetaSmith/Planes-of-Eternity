@@ -28,3 +28,5 @@
 - [x] Implement vertex buffers
 - [x] Add camera control
 - [x] Implement texture loading
+- [x] Fix blending discontinuity at equal strength boundaries
+- [x] Implement distance-based reality fading

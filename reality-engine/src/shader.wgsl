@@ -140,6 +140,23 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
     }
 }
 
+// Helper to calculate final height at a point, including blending and visibility
+fn get_height_at(pos: vec3<f32>) -> f32 {
+    let blend = calculate_blend(pos);
+
+    let disp1 = get_displacement(pos.xz, reality.proj1_params);
+    let disp2 = get_displacement(pos.xz, reality.proj2_params);
+
+    // Apply distortion amount
+    let val1 = disp1 * reality.proj1_params.z;
+    let val2 = disp2 * reality.proj2_params.z;
+
+    let total_displacement = val1 * blend.weight1 + val2 * blend.weight2;
+    let visibility = min(blend.total_strength, 1.0);
+
+    return total_displacement * visibility;
+}
+
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
@@ -148,6 +165,7 @@ struct VertexOutput {
     @location(3) weight1: f32,
     @location(4) weight2: f32,
     @location(5) visibility: f32,
+    @location(6) normal: vec3<f32>,
 };
 
 @vertex
@@ -161,24 +179,24 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 
     // Transform vertex to world space using instance matrix
     var pos = (model_matrix * vec4<f32>(model.position, 1.0)).xyz;
+    let flat_pos = pos; // Keep original position for calculating blending/noise
 
-    // Calculate Blend
-    let blend = calculate_blend(pos);
+    // Calculate height
+    let h = get_height_at(flat_pos);
 
-    // Calculate Displacements independently
-    let disp1 = get_displacement(pos.xz, reality.proj1_params);
-    let disp2 = get_displacement(pos.xz, reality.proj2_params);
+    // Calculate Normal using Finite Difference
+    let e = 0.05;
+    let hx = get_height_at(flat_pos + vec3<f32>(e, 0.0, 0.0));
+    let hz = get_height_at(flat_pos + vec3<f32>(0.0, 0.0, e));
 
-    // Blend Displacement
-    // Interpolate distortion amount first? No, apply distortion to each then blend.
-    let val1 = disp1 * reality.proj1_params.z;
-    let val2 = disp2 * reality.proj2_params.z;
-
-    let total_displacement = val1 * blend.weight1 + val2 * blend.weight2;
-    let visibility = min(blend.total_strength, 1.0);
+    // N = normalize(vec3(h - hx, e, h - hz))
+    let normal = normalize(vec3<f32>(h - hx, e, h - hz));
 
     // Apply displacement
-    pos.y = pos.y + total_displacement * visibility;
+    pos.y = pos.y + h;
+
+    // Recalculate blend for Fragment Shader usage
+    let blend = calculate_blend(flat_pos);
 
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
@@ -187,7 +205,8 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.clip_position = camera.view_proj * vec4<f32>(pos, 1.0);
     out.weight1 = blend.weight1;
     out.weight2 = blend.weight2;
-    out.visibility = visibility;
+    out.visibility = min(blend.total_strength, 1.0);
+    out.normal = normal;
 
     return out;
 }
@@ -231,15 +250,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Blend Patterns
     let pattern_color = c1 * in.weight1 + c2 * in.weight2;
 
-    // We can also blend the "Wireframe" effect if we want, but keeping it simple for now.
-    // Let's add a generic wireframe based on blended roughness.
+    // Wireframe effect
     let blended_roughness = reality.proj1_params.x * in.weight1 + reality.proj2_params.x * in.weight2;
     let edge = step(0.9, fract(in.world_pos.x * 5.0)) + step(0.9, fract(in.world_pos.z * 5.0));
     let wireframe = clamp(edge, 0.0, 0.2) * blended_roughness;
 
     let final_gen_color = pattern_color + vec3<f32>(wireframe);
 
-    let result = mix(base_texture.rgb, final_gen_color, in.visibility);
+    // Lighting
+    let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.5));
+    let diffuse = max(dot(in.normal, light_dir), 0.0);
+    let ambient = 0.3;
+    let lighting = diffuse + ambient;
+
+    // Apply lighting to reality
+    let lit_reality = final_gen_color * lighting;
+
+    // Apply lighting to base texture
+    let base_normal = vec3<f32>(0.0, 1.0, 0.0);
+    let base_diffuse = max(dot(base_normal, light_dir), 0.0);
+    let lit_base = base_texture.rgb * (base_diffuse + ambient);
+
+    let result = mix(lit_base, lit_reality, in.visibility);
 
     return vec4<f32>(result, 1.0);
 }

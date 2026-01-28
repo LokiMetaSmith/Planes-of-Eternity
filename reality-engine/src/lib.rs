@@ -11,6 +11,7 @@ mod texture;
 pub mod reality_types;
 pub mod projector;
 pub mod persistence;
+pub mod world;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -226,7 +227,8 @@ struct State {
     reality_buffer: wgpu::Buffer,
     reality_bind_group: wgpu::BindGroup,
     player_projector: projector::RealityProjector,
-    anomaly_projector: projector::RealityProjector,
+    world_state: world::WorldState, // Replaces single anomaly_projector
+    active_anomaly: Option<projector::RealityProjector>, // The one we are currently placing/editing
     width: u32,
     height: u32,
 }
@@ -428,12 +430,27 @@ impl State {
         // Attempt to load state
         let loaded_state = persistence::load_from_local_storage("reality_engine_save");
 
-        let (player_projector, anomaly_projector) = if let Some(state) = loaded_state {
+        let (player_projector, mut world_state, mut active_anomaly) = if let Some(state) = loaded_state {
             log::info!("Restoring game state...");
             // Restore camera position
-            camera.eye = state.player_projector.location;
+            camera.eye = state.player.projector.location;
             camera_uniform.update_view_proj(&camera);
-            (state.player_projector, state.anomaly_projector)
+
+            // Create a default active anomaly if we had one saved?
+            // For now, let's just create a new one to edit, or use the last one from the world?
+            // To keep logic simple, we init a fresh active anomaly
+            let mut anomaly_sig = reality_types::RealitySignature::default();
+            anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+            anomaly_sig.active_style.roughness = 0.8;
+            anomaly_sig.active_style.scale = 5.0;
+            anomaly_sig.active_style.distortion = 0.8;
+            anomaly_sig.fidelity = 100.0;
+            let active_anomaly = projector::RealityProjector::new(
+                Point3::new(0.0, 0.0, 0.0),
+                anomaly_sig
+            );
+
+            (state.player.projector, state.world, Some(active_anomaly))
         } else {
             let mut player_sig = reality_types::RealitySignature::default();
             player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
@@ -452,11 +469,14 @@ impl State {
             anomaly_sig.active_style.scale = 5.0;     // High frequency details
             anomaly_sig.active_style.distortion = 0.8; // High distortion (glitchy)
             anomaly_sig.fidelity = 100.0;
-            let anomaly_projector = projector::RealityProjector::new(
+            let active_anomaly = projector::RealityProjector::new(
                 Point3::new(0.0, 0.0, 0.0), // At the tree
                 anomaly_sig
             );
-            (player_projector, anomaly_projector)
+
+            let world_state = world::WorldState::default();
+
+            (player_projector, world_state, Some(active_anomaly))
         };
 
         let render_pipeline_layout =
@@ -579,7 +599,8 @@ impl State {
             reality_buffer,
             reality_bind_group,
             player_projector,
-            anomaly_projector,
+            world_state,
+            active_anomaly,
             width,
             height,
         }
@@ -626,20 +647,30 @@ impl State {
                  let hit_point = self.camera.eye + ray_dir * t;
                  log::warn!("Injection at: {:?}", hit_point);
 
-                 // Move Anomaly to click location
-                 self.anomaly_projector.location = hit_point;
+                 // Move Active Anomaly to click location
+                 if let Some(ref mut anomaly) = self.active_anomaly {
+                     anomaly.location = hit_point;
+
+                     // "Commit" the anomaly to the world state (Append it)
+                     // Note: For now, we just Clone it into the world.
+                     // A real "Commit" would be an explicit UI action, but for "Click to Place", this works.
+                     self.world_state.add_anomaly(projector::RealityProjector {
+                         location: anomaly.location,
+                         reality_signature: anomaly.reality_signature.clone(),
+                     });
+
+                     log::info!("World Root Hash Updated: {}", self.world_state.root_hash);
+                 }
 
                  // Save state
                  let game_state = persistence::GameState {
-                    player_projector: projector::RealityProjector {
-                        location: self.player_projector.location,
-                        reality_signature: self.player_projector.reality_signature.clone(),
+                    player: persistence::PlayerState {
+                        projector: projector::RealityProjector {
+                            location: self.player_projector.location,
+                            reality_signature: self.player_projector.reality_signature.clone(),
+                        }
                     },
-                    anomaly_projector: projector::RealityProjector {
-                        location: self.anomaly_projector.location,
-                        reality_signature: self.anomaly_projector.reality_signature.clone(),
-                    },
-                    chunk_hash: "root_hash_placeholder".to_string(),
+                    world: self.world_state.clone(),
                     timestamp: js_sys::Date::now() as u64,
                 };
                 persistence::save_to_local_storage("reality_engine_save", &game_state);
@@ -681,7 +712,20 @@ impl State {
         ];
         self.reality_uniform.proj1_color = color1;
 
-        let p2 = &self.anomaly_projector;
+        // Render Active Anomaly (Ghost) if exists, OR find nearest from world state
+        // For this step, we'll render the "active_anomaly" if present, otherwise void.
+        // In the future, we need to iterate world chunks and upload arrays.
+
+        let p2 = if let Some(ref anomaly) = self.active_anomaly {
+             anomaly
+        } else {
+            // Find closest from world? Or just a dummy
+             &self.player_projector // Hack to hide it if null, or create a Void projector
+        };
+
+        // If we really want to see the stored world, we need to pick an anomaly from self.world_state
+        // For "Edit Mode", we show active_anomaly.
+
         let (id2, color2) = get_archetype_data(p2.reality_signature.active_style.archetype);
         self.reality_uniform.proj2_pos_fid = [p2.location.x, p2.location.y, p2.location.z, p2.reality_signature.fidelity];
         self.reality_uniform.proj2_params = [
@@ -805,9 +849,11 @@ pub struct GameClient {
 impl GameClient {
     pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {
         let mut state = self.state.borrow_mut();
-        state.anomaly_projector.reality_signature.active_style.roughness = roughness;
-        state.anomaly_projector.reality_signature.active_style.scale = scale;
-        state.anomaly_projector.reality_signature.active_style.distortion = distortion;
+        if let Some(ref mut anomaly) = state.active_anomaly {
+            anomaly.reality_signature.active_style.roughness = roughness;
+            anomaly.reality_signature.active_style.scale = scale;
+            anomaly.reality_signature.active_style.distortion = distortion;
+        }
         self.save_state(&state);
     }
 
@@ -820,22 +866,22 @@ impl GameClient {
             3 => reality_types::RealityArchetype::Toon,
             _ => reality_types::RealityArchetype::Void,
         };
-        state.anomaly_projector.reality_signature.active_style.archetype = archetype;
+        if let Some(ref mut anomaly) = state.active_anomaly {
+            anomaly.reality_signature.active_style.archetype = archetype;
+        }
         self.save_state(&state);
     }
 
     fn save_state(&self, state: &State) {
         // Construct GameState and save
         let game_state = persistence::GameState {
-            player_projector: projector::RealityProjector {
-                location: state.player_projector.location,
-                reality_signature: state.player_projector.reality_signature.clone(),
+            player: persistence::PlayerState {
+                projector: projector::RealityProjector {
+                    location: state.player_projector.location,
+                    reality_signature: state.player_projector.reality_signature.clone(),
+                }
             },
-            anomaly_projector: projector::RealityProjector {
-                location: state.anomaly_projector.location,
-                reality_signature: state.anomaly_projector.reality_signature.clone(),
-            },
-            chunk_hash: "root_hash_placeholder".to_string(),
+            world: state.world_state.clone(),
             timestamp: js_sys::Date::now() as u64,
         };
         persistence::save_to_local_storage("reality_engine_save", &game_state);
@@ -950,15 +996,13 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let autosave_closure = Closure::wrap(Box::new(move || {
         let state = state_autosave.borrow();
         let game_state = persistence::GameState {
-            player_projector: projector::RealityProjector {
-                location: state.player_projector.location,
-                reality_signature: state.player_projector.reality_signature.clone(),
+            player: persistence::PlayerState {
+                projector: projector::RealityProjector {
+                    location: state.player_projector.location,
+                    reality_signature: state.player_projector.reality_signature.clone(),
+                }
             },
-            anomaly_projector: projector::RealityProjector {
-                location: state.anomaly_projector.location,
-                reality_signature: state.anomaly_projector.reality_signature.clone(),
-            },
-            chunk_hash: "root_hash_placeholder".to_string(),
+            world: state.world_state.clone(),
             timestamp: js_sys::Date::now() as u64,
         };
         persistence::save_to_local_storage("reality_engine_save", &game_state);

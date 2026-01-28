@@ -1,13 +1,18 @@
 use serde::{Serialize, Deserialize};
 use crate::projector::RealityProjector;
+use crate::world::WorldState;
 use web_sys::Storage;
 use log::{info, error};
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct PlayerState {
+    pub projector: RealityProjector, // Contains location and self-signature
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GameState {
-    pub player_projector: RealityProjector,
-    pub anomaly_projector: RealityProjector,
-    pub chunk_hash: String, // "Git" root hash
+    pub player: PlayerState,
+    pub world: WorldState,
     pub timestamp: u64,
 }
 

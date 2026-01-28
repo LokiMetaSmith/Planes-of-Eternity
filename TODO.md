@@ -35,7 +35,7 @@
 - [x] Implement Archetype Selector UI
 - [x] Implement dynamic lighting with normal calculation
 - [x] Implement Void archetype rendering
-- [ ] Implement Local Persistence (Save/Load to LocalStorage)
+- [x] Implement Local Persistence (Save/Load to LocalStorage)
 - [ ] Define "Git-like" Game State Structure (Chunk Hashes, Deltas)
 - [ ] Implement P2P Architecture (WebRTC/PeerJS integration)
 - [ ] Implement Merge/Conflict Resolution Logic ("Anomaly" Events)

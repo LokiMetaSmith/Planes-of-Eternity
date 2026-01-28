@@ -36,6 +36,6 @@
 - [x] Implement dynamic lighting with normal calculation
 - [x] Implement Void archetype rendering
 - [x] Implement Local Persistence (Save/Load to LocalStorage)
-- [ ] Define "Git-like" Game State Structure (Chunk Hashes, Deltas)
-- [ ] Implement P2P Architecture (WebRTC/PeerJS integration)
+- [x] Define "Git-like" Game State Structure (Chunk Hashes, Deltas)
+- [ ] Implement P2P Architecture (Pollen-based Discovery & WebRTC)
 - [ ] Implement Merge/Conflict Resolution Logic ("Anomaly" Events)

@@ -5,8 +5,12 @@ struct CameraUniform {
 var<uniform> camera: CameraUniform;
 
 struct RealityUniform {
-    blend_color: vec4<f32>,
-    blend_params: vec4<f32>, // x = alpha, y = roughness, z = scale, w = distortion
+    proj1_pos_fid: vec4<f32>,
+    proj1_params: vec4<f32>, // x=roughness, y=scale, z=distortion, w=archetype_id
+    proj1_color: vec4<f32>,
+    proj2_pos_fid: vec4<f32>,
+    proj2_params: vec4<f32>,
+    proj2_color: vec4<f32>,
 };
 @group(2) @binding(0)
 var<uniform> reality: RealityUniform;
@@ -80,11 +84,70 @@ fn voronoi(x: vec2<f32>) -> f32 {
     return 1.0 - sqrt(min_dist);
 }
 
+struct BlendResult {
+    weight1: f32,
+    weight2: f32,
+    total_strength: f32,
+};
+
+fn calculate_blend(pos: vec3<f32>) -> BlendResult {
+    let dist1 = max(distance(pos, reality.proj1_pos_fid.xyz), 1.0);
+    let dist2 = max(distance(pos, reality.proj2_pos_fid.xyz), 1.0);
+
+    let strength1 = reality.proj1_pos_fid.w / dist1;
+    let strength2 = reality.proj2_pos_fid.w / dist2;
+    let total = strength1 + strength2;
+
+    var w1 = 0.5;
+    var w2 = 0.5;
+
+    if (total > 0.0001) {
+        w1 = strength1 / total;
+        w2 = strength2 / total;
+    } else {
+        w1 = 0.0;
+        w2 = 0.0;
+    }
+
+    return BlendResult(w1, w2, total);
+}
+
+fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
+    let roughness = params.x;
+    let scale = params.y;
+    let id = params.w;
+
+    if (id < 0.5) {
+        // Fantasy (FBM)
+        return fbm(xz * scale, 4, roughness);
+    } else if (id < 1.5) {
+        // SciFi (Voronoi)
+        let snap = 5.0;
+        let p = floor(xz * scale * snap) / snap;
+        var val = voronoi(p);
+        return step(0.5, val) * 0.5;
+    } else if (id < 2.5) {
+        // Horror (Ridged / Jagged)
+        // High frequency, spiky
+        let n = fbm(xz * scale * 2.0, 5, roughness + 0.2);
+        return (1.0 - abs(n * 2.0 - 1.0)) * 0.8;
+    } else {
+        // Toon (Stepped)
+        let n = fbm(xz * scale, 3, 0.5); // Smooth base
+        // Quantize
+        let steps = 4.0;
+        return floor(n * steps) / steps;
+    }
+}
+
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
-    @location(1) height: f32, // Pass displaced height to fragment
+    @location(1) height: f32,
     @location(2) world_pos: vec3<f32>,
+    @location(3) weight1: f32,
+    @location(4) weight2: f32,
+    @location(5) visibility: f32,
 };
 
 @vertex
@@ -96,79 +159,87 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
         instance.model_matrix_3,
     );
 
-    var out: VertexOutput;
-    out.tex_coords = model.tex_coords;
-
-    let roughness = reality.blend_params.y;
-    let scale = reality.blend_params.z;
-    let distortion = reality.blend_params.w;
-
     // Transform vertex to world space using instance matrix
     var pos = (model_matrix * vec4<f32>(model.position, 1.0)).xyz;
 
-    // Generative Displacement
-    // Use XZ plane for noise input
-    var noise_val = 0.0;
+    // Calculate Blend
+    let blend = calculate_blend(pos);
 
-    // Hybrid blend: If roughness is high (> 0.6), start mixing in Voronoi (SciFi)
-    // Otherwise stick to FBM (Organic)
-    if (roughness > 0.6) {
-        // SciFi / Tech
-        // Snap coordinates for "digital" look
-        let snap = 5.0;
-        let p = floor(pos.xz * scale * snap) / snap;
-        noise_val = voronoi(p);
-        // Make it blocky
-        noise_val = step(0.5, noise_val) * 0.5;
-    } else {
-        // Organic / Fantasy
-        noise_val = fbm(pos.xz * scale, 4, roughness);
-    }
+    // Calculate Displacements independently
+    let disp1 = get_displacement(pos.xz, reality.proj1_params);
+    let disp2 = get_displacement(pos.xz, reality.proj2_params);
 
-    // Apply displacement (Y-up)
-    // Scale displacement by distortion and blend alpha (implied by params)
-    pos.y = pos.y + noise_val * distortion;
+    // Blend Displacement
+    // Interpolate distortion amount first? No, apply distortion to each then blend.
+    let val1 = disp1 * reality.proj1_params.z;
+    let val2 = disp2 * reality.proj2_params.z;
 
+    let total_displacement = val1 * blend.weight1 + val2 * blend.weight2;
+    let visibility = min(blend.total_strength, 1.0);
+
+    // Apply displacement
+    pos.y = pos.y + total_displacement * visibility;
+
+    var out: VertexOutput;
+    out.tex_coords = model.tex_coords;
     out.height = pos.y;
     out.world_pos = pos;
     out.clip_position = camera.view_proj * vec4<f32>(pos, 1.0);
+    out.weight1 = blend.weight1;
+    out.weight2 = blend.weight2;
+    out.visibility = visibility;
+
     return out;
+}
+
+fn get_pattern_color(pos: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>) -> vec3<f32> {
+    let roughness = params.x;
+    let scale = params.y;
+    let id = params.w;
+
+    if (id < 0.5) {
+        // Fantasy
+        let n = fbm(pos.xz * scale * 2.0, 3, roughness);
+        return mix(vec3<f32>(0.4, 0.3, 0.2), base_color, n);
+    } else if (id < 1.5) {
+        // SciFi
+        let v = voronoi(pos.xz * scale * 2.0);
+        let circuit = step(0.95, v) + step(v, 0.05);
+        return mix(base_color * 0.5, vec3<f32>(0.0, 1.0, 1.0), circuit);
+    } else if (id < 2.5) {
+        // Horror
+        let n = fbm(pos.xz * scale * 3.0, 4, 0.8);
+        // Blood red and darkness
+        return mix(vec3<f32>(0.1, 0.0, 0.0), vec3<f32>(0.6, 0.0, 0.0), n);
+    } else {
+        // Toon
+        let n = fbm(pos.xz * scale, 3, 0.5);
+        // Cell shading bands
+        let band = floor(n * 3.0) / 3.0;
+        return mix(base_color, vec3<f32>(1.0), band * 0.5);
+    }
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_texture = textureSample(t_diffuse, s_diffuse, in.tex_coords);
-    let blend_color = reality.blend_color;
-    let blend_alpha = reality.blend_params.x; // How much reality is "invading"
 
-    // Generative Pattern
-    let roughness = reality.blend_params.y;
-    let scale = reality.blend_params.z;
+    // Generate Patterns Independently
+    let c1 = get_pattern_color(in.world_pos, reality.proj1_params, reality.proj1_color.rgb);
+    let c2 = get_pattern_color(in.world_pos, reality.proj2_params, reality.proj2_color.rgb);
 
-    var pattern_color = vec3<f32>(0.0);
+    // Blend Patterns
+    let pattern_color = c1 * in.weight1 + c2 * in.weight2;
 
-    if (roughness > 0.6) {
-        // SciFi Look: Voronoi / Circuitry
-        let v = voronoi(in.world_pos.xz * scale * 2.0);
-        let circuit = step(0.95, v) + step(v, 0.05);
-        pattern_color = mix(blend_color.rgb * 0.5, vec3<f32>(0.0, 1.0, 1.0), circuit);
-    } else {
-        // Fantasy Look: Organic FBM
-        let n = fbm(in.world_pos.xz * scale * 2.0, 3, roughness);
-        // Earthy tones + Magic
-        pattern_color = mix(vec3<f32>(0.4, 0.3, 0.2), blend_color.rgb, n);
-    }
-
-    // Mix the procedural color with the "Archetype Color"
-    let generative_look = mix(pattern_color, blend_color.rgb, 0.3);
-
-    // Add glowing edge effect based on height (Nanite wireframe-ish look?)
+    // We can also blend the "Wireframe" effect if we want, but keeping it simple for now.
+    // Let's add a generic wireframe based on blended roughness.
+    let blended_roughness = reality.proj1_params.x * in.weight1 + reality.proj2_params.x * in.weight2;
     let edge = step(0.9, fract(in.world_pos.x * 5.0)) + step(0.9, fract(in.world_pos.z * 5.0));
-    let wireframe = clamp(edge, 0.0, 0.2) * roughness; // Only wireframe if rough/techy
+    let wireframe = clamp(edge, 0.0, 0.2) * blended_roughness;
 
-    let final_gen_color = generative_look + vec3<f32>(wireframe);
+    let final_gen_color = pattern_color + vec3<f32>(wireframe);
 
-    let result = mix(base_texture.rgb, final_gen_color, blend_alpha);
+    let result = mix(base_texture.rgb, final_gen_color, in.visibility);
 
     return vec4<f32>(result, 1.0);
 }

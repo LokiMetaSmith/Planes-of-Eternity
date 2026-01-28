@@ -30,3 +30,5 @@
 - [x] Implement texture loading
 - [x] Fix blending discontinuity at equal strength boundaries
 - [x] Implement distance-based reality fading
+- [x] Implement per-pixel/vertex reality blending (GPU-side)
+- [x] Implement Horror and Toon archetypes and correct arbitrary blending

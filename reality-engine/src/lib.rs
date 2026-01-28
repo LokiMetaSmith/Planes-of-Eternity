@@ -33,15 +33,23 @@ impl CameraUniform {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct RealityUniform {
-    blend_color: [f32; 4],
-    blend_params: [f32; 4], // x = alpha, y = roughness, z = scale, w = distortion
+    proj1_pos_fid: [f32; 4],
+    proj1_params: [f32; 4], // x=roughness, y=scale, z=distortion, w=archetype_id
+    proj1_color: [f32; 4],
+    proj2_pos_fid: [f32; 4],
+    proj2_params: [f32; 4],
+    proj2_color: [f32; 4],
 }
 
 impl RealityUniform {
     fn new() -> Self {
         Self {
-            blend_color: [0.0, 0.0, 0.0, 0.0],
-            blend_params: [0.0; 4],
+            proj1_pos_fid: [0.0; 4],
+            proj1_params: [0.0; 4],
+            proj1_color: [0.0; 4],
+            proj2_pos_fid: [0.0; 4],
+            proj2_params: [0.0; 4],
+            proj2_color: [0.0; 4],
         }
     }
 }
@@ -623,45 +631,38 @@ impl State {
         // Update Reality Projector Position (Player follows camera)
         self.player_projector.location = self.camera.eye;
 
-        // Calculate Blend
-        let blend_result = self.player_projector.calculate_reality_at_point(
-            self.camera.eye,
-            Some(&self.anomaly_projector)
-        );
+        // Helper to map archetype to ID and Color
+        fn get_archetype_data(archetype: reality_types::RealityArchetype) -> (f32, [f32; 4]) {
+             match archetype {
+                reality_types::RealityArchetype::Void => ( -1.0, [0.0, 0.0, 0.0, 0.0] ),
+                reality_types::RealityArchetype::Fantasy => ( 0.0, [0.0, 1.0, 0.0, 1.0] ),
+                reality_types::RealityArchetype::SciFi => ( 1.0, [0.0, 0.0, 1.0, 1.0] ),
+                reality_types::RealityArchetype::Horror => ( 2.0, [1.0, 0.0, 0.0, 1.0] ),
+                reality_types::RealityArchetype::Toon => ( 3.0, [1.0, 1.0, 0.0, 1.0] ),
+            }
+        }
 
-        // Map Archetype to Color
-        let color = match blend_result.dominant_archetype {
-            reality_types::RealityArchetype::Void => [0.0, 0.0, 0.0, 0.0],
-            reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0], // Green
-            reality_types::RealityArchetype::SciFi => [0.0, 0.0, 1.0, 1.0],   // Blue
-            reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],  // Red
-            reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],    // Yellow
-        };
+        let p1 = &self.player_projector;
+        let (id1, color1) = get_archetype_data(p1.reality_signature.active_style.archetype);
+        self.reality_uniform.proj1_pos_fid = [p1.location.x, p1.location.y, p1.location.z, p1.reality_signature.fidelity];
+        self.reality_uniform.proj1_params = [
+            p1.reality_signature.active_style.roughness,
+            p1.reality_signature.active_style.scale,
+            p1.reality_signature.active_style.distortion,
+            id1
+        ];
+        self.reality_uniform.proj1_color = color1;
 
-        self.reality_uniform.blend_color = color;
-
-        // Calculate blended generative parameters
-        let player_style = &self.player_projector.reality_signature.active_style;
-        let anomaly_style = &self.anomaly_projector.reality_signature.active_style;
-
-        // Identify which style is dominant to determine the direction of the blend
-        let (start_style, end_style) = if blend_result.dominant_archetype == player_style.archetype {
-            (player_style, anomaly_style)
-        } else {
-            (anomaly_style, player_style)
-        };
-
-        // Linear interpolation
-        let t = blend_result.blend_alpha;
-        let roughness = start_style.roughness * (1.0 - t) + end_style.roughness * t;
-        let scale = start_style.scale * (1.0 - t) + end_style.scale * t;
-        let distortion = start_style.distortion * (1.0 - t) + end_style.distortion * t;
-
-        // Use total_strength as the mix factor to fade in reality based on proximity.
-        // blend_alpha is used for parameter interpolation (above), but for visibility we use total signal strength.
-        let visibility_mix = blend_result.total_strength.min(1.0);
-
-        self.reality_uniform.blend_params = [visibility_mix, roughness, scale, distortion];
+        let p2 = &self.anomaly_projector;
+        let (id2, color2) = get_archetype_data(p2.reality_signature.active_style.archetype);
+        self.reality_uniform.proj2_pos_fid = [p2.location.x, p2.location.y, p2.location.z, p2.reality_signature.fidelity];
+        self.reality_uniform.proj2_params = [
+            p2.reality_signature.active_style.roughness,
+            p2.reality_signature.active_style.scale,
+            p2.reality_signature.active_style.distortion,
+            id2
+        ];
+        self.reality_uniform.proj2_color = color2;
 
         self.queue.write_buffer(
             &self.reality_buffer,

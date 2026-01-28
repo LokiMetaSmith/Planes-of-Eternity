@@ -1,4 +1,6 @@
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum RealityArchetype {
     #[default]
     Void,        // Default/Empty
@@ -8,7 +10,7 @@ pub enum RealityArchetype {
     Toon,        // Toon Logic
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RealityStyle {
     pub archetype: RealityArchetype,
     pub sub_theme: String, // e.g., "Necromancer_Castle"
@@ -33,13 +35,13 @@ impl Default for RealityStyle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct RealityInjection {
     pub injection_id: String,
     // Add other properties as needed
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RealitySignature {
     // The visual look the player is projecting
     pub active_style: RealityStyle,

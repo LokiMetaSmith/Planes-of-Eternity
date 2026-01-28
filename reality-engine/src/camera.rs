@@ -24,6 +24,23 @@ impl Camera {
         let proj = cgmath::perspective(Deg(self.fovy), self.aspect, self.znear, self.zfar);
         return OPENGL_TO_WGPU_MATRIX * proj * view;
     }
+
+    pub fn set_rotation(&mut self, yaw: f32, pitch: f32) {
+        let (sin_y, cos_y) = yaw.sin_cos();
+        let (sin_p, cos_p) = pitch.sin_cos();
+
+        // Direction vector from yaw/pitch
+        // Y-up system
+        let front = Vector3::new(
+            cos_p * sin_y,
+            sin_p,
+            cos_p * cos_y
+        ).normalize();
+
+        // Keep distance to target constant
+        let dist = (self.target - self.eye).magnitude();
+        self.target = self.eye + front * dist;
+    }
 }
 
 pub struct CameraController {

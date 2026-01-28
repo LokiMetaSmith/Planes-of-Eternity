@@ -35,6 +35,16 @@ features = [
   "MouseEvent",
   "DomRect",
   "Storage",
+  "Navigator",
+  "Geolocation",
+  "Coordinates",
+  "Position",
+  "MediaDevices",
+  "MediaStream",
+  "MediaStreamConstraints",
+  "HtmlVideoElement",
+  "DeviceOrientationEvent",
+  "PositionError"
   "WebSocket",
   "MessageEvent"
 ]

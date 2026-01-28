@@ -11,6 +11,7 @@ struct RealityUniform {
     proj2_pos_fid: vec4<f32>,
     proj2_params: vec4<f32>,
     proj2_color: vec4<f32>,
+    global_offset: vec4<f32>,
 };
 @group(2) @binding(0)
 var<uniform> reality: RealityUniform;
@@ -117,26 +118,29 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
     let scale = params.y;
     let id = params.w;
 
+    // Apply global offset (Geolocated map extraction)
+    let pos = xz + reality.global_offset.xy;
+
     if (id < -0.5) {
         // Void (Flat)
         return 0.0;
     } else if (id < 0.5) {
         // Fantasy (FBM)
-        return fbm(xz * scale, 4, roughness);
+        return fbm(pos * scale, 4, roughness);
     } else if (id < 1.5) {
         // SciFi (Voronoi)
         let snap = 5.0;
-        let p = floor(xz * scale * snap) / snap;
+        let p = floor(pos * scale * snap) / snap;
         var val = voronoi(p);
         return step(0.5, val) * 0.5;
     } else if (id < 2.5) {
         // Horror (Ridged / Jagged)
         // High frequency, spiky
-        let n = fbm(xz * scale * 2.0, 5, roughness + 0.2);
+        let n = fbm(pos * scale * 2.0, 5, roughness + 0.2);
         return (1.0 - abs(n * 2.0 - 1.0)) * 0.8;
     } else {
         // Toon (Stepped)
-        let n = fbm(xz * scale, 3, 0.5); // Smooth base
+        let n = fbm(pos * scale, 3, 0.5); // Smooth base
         // Quantize
         let steps = 4.0;
         return floor(n * steps) / steps;
@@ -214,10 +218,12 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     return out;
 }
 
-fn get_pattern_color(pos: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>) -> vec3<f32> {
+fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>) -> vec3<f32> {
     let roughness = params.x;
     let scale = params.y;
     let id = params.w;
+
+    let pos = pos_in + vec3<f32>(reality.global_offset.x, 0.0, reality.global_offset.y);
 
     if (id < -0.5) {
         // Void - Dark grid

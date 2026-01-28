@@ -34,3 +34,4 @@
 - [x] Implement Horror and Toon archetypes and correct arbitrary blending
 - [x] Implement Archetype Selector UI
 - [x] Implement dynamic lighting with normal calculation
+- [x] Implement Void archetype rendering

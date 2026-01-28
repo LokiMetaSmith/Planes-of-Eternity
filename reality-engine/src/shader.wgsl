@@ -117,7 +117,10 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
     let scale = params.y;
     let id = params.w;
 
-    if (id < 0.5) {
+    if (id < -0.5) {
+        // Void (Flat)
+        return 0.0;
+    } else if (id < 0.5) {
         // Fantasy (FBM)
         return fbm(xz * scale, 4, roughness);
     } else if (id < 1.5) {
@@ -216,7 +219,13 @@ fn get_pattern_color(pos: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>) -
     let scale = params.y;
     let id = params.w;
 
-    if (id < 0.5) {
+    if (id < -0.5) {
+        // Void - Dark grid
+        let gridSize = 1.0;
+        let lineThickness = 0.05;
+        let g = step(1.0 - lineThickness, fract(pos.x * gridSize)) + step(1.0 - lineThickness, fract(pos.z * gridSize));
+        return mix(vec3<f32>(0.01, 0.01, 0.01), vec3<f32>(0.2, 0.0, 0.2), clamp(g, 0.0, 1.0));
+    } else if (id < 0.5) {
         // Fantasy
         let n = fbm(pos.xz * scale * 2.0, 3, roughness);
         return mix(vec3<f32>(0.4, 0.3, 0.2), base_color, n);

@@ -2,7 +2,7 @@ use cgmath::{MetricSpace, Point3};
 use serde::{Serialize, Deserialize};
 use crate::reality_types::{BlendResult, RealitySignature};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RealityProjector {
     pub location: Point3<f32>,
     pub reality_signature: RealitySignature,

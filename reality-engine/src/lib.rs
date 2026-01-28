@@ -10,6 +10,7 @@ mod camera;
 mod texture;
 pub mod reality_types;
 pub mod projector;
+pub mod persistence;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -332,7 +333,7 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader.wgsl"))),
         });
 
-        let camera = camera::Camera {
+        let mut camera = camera::Camera {
             // position the camera one unit up and 2 units back
             // +z is out of the screen
             eye: (0.0, 1.0, 2.0).into(),
@@ -424,27 +425,39 @@ impl State {
         });
 
         use cgmath::Point3;
-        let mut player_sig = reality_types::RealitySignature::default();
-        player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
-        player_sig.active_style.roughness = 0.3; // Smooth, rolling hills
-        player_sig.active_style.scale = 2.0;     // Large features
-        player_sig.active_style.distortion = 0.1; // Low distortion
-        player_sig.fidelity = 100.0;
-        let player_projector = projector::RealityProjector::new(
-            Point3::new(0.0, 1.0, 2.0),
-            player_sig
-        );
+        // Attempt to load state
+        let loaded_state = persistence::load_from_local_storage("reality_engine_save");
 
-        let mut anomaly_sig = reality_types::RealitySignature::default();
-        anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
-        anomaly_sig.active_style.roughness = 0.8; // Jagged, techy
-        anomaly_sig.active_style.scale = 5.0;     // High frequency details
-        anomaly_sig.active_style.distortion = 0.8; // High distortion (glitchy)
-        anomaly_sig.fidelity = 100.0;
-        let anomaly_projector = projector::RealityProjector::new(
-            Point3::new(0.0, 0.0, 0.0), // At the tree
-            anomaly_sig
-        );
+        let (player_projector, anomaly_projector) = if let Some(state) = loaded_state {
+            log::info!("Restoring game state...");
+            // Restore camera position
+            camera.eye = state.player_projector.location;
+            camera_uniform.update_view_proj(&camera);
+            (state.player_projector, state.anomaly_projector)
+        } else {
+            let mut player_sig = reality_types::RealitySignature::default();
+            player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
+            player_sig.active_style.roughness = 0.3; // Smooth, rolling hills
+            player_sig.active_style.scale = 2.0;     // Large features
+            player_sig.active_style.distortion = 0.1; // Low distortion
+            player_sig.fidelity = 100.0;
+            let player_projector = projector::RealityProjector::new(
+                Point3::new(0.0, 1.0, 2.0),
+                player_sig
+            );
+
+            let mut anomaly_sig = reality_types::RealitySignature::default();
+            anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+            anomaly_sig.active_style.roughness = 0.8; // Jagged, techy
+            anomaly_sig.active_style.scale = 5.0;     // High frequency details
+            anomaly_sig.active_style.distortion = 0.8; // High distortion (glitchy)
+            anomaly_sig.fidelity = 100.0;
+            let anomaly_projector = projector::RealityProjector::new(
+                Point3::new(0.0, 0.0, 0.0), // At the tree
+                anomaly_sig
+            );
+            (player_projector, anomaly_projector)
+        };
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -615,6 +628,21 @@ impl State {
 
                  // Move Anomaly to click location
                  self.anomaly_projector.location = hit_point;
+
+                 // Save state
+                 let game_state = persistence::GameState {
+                    player_projector: projector::RealityProjector {
+                        location: self.player_projector.location,
+                        reality_signature: self.player_projector.reality_signature.clone(),
+                    },
+                    anomaly_projector: projector::RealityProjector {
+                        location: self.anomaly_projector.location,
+                        reality_signature: self.anomaly_projector.reality_signature.clone(),
+                    },
+                    chunk_hash: "root_hash_placeholder".to_string(),
+                    timestamp: js_sys::Date::now() as u64,
+                };
+                persistence::save_to_local_storage("reality_engine_save", &game_state);
              }
         }
     }
@@ -780,6 +808,7 @@ impl GameClient {
         state.anomaly_projector.reality_signature.active_style.roughness = roughness;
         state.anomaly_projector.reality_signature.active_style.scale = scale;
         state.anomaly_projector.reality_signature.active_style.distortion = distortion;
+        self.save_state(&state);
     }
 
     pub fn set_anomaly_archetype(&self, archetype_id: i32) {
@@ -792,6 +821,24 @@ impl GameClient {
             _ => reality_types::RealityArchetype::Void,
         };
         state.anomaly_projector.reality_signature.active_style.archetype = archetype;
+        self.save_state(&state);
+    }
+
+    fn save_state(&self, state: &State) {
+        // Construct GameState and save
+        let game_state = persistence::GameState {
+            player_projector: projector::RealityProjector {
+                location: state.player_projector.location,
+                reality_signature: state.player_projector.reality_signature.clone(),
+            },
+            anomaly_projector: projector::RealityProjector {
+                location: state.anomaly_projector.location,
+                reality_signature: state.anomaly_projector.reality_signature.clone(),
+            },
+            chunk_hash: "root_hash_placeholder".to_string(),
+            timestamp: js_sys::Date::now() as u64,
+        };
+        persistence::save_to_local_storage("reality_engine_save", &game_state);
     }
 }
 
@@ -897,6 +944,32 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     }));
 
     request_animation_frame(g.borrow().as_ref().unwrap());
+
+    // Autosave loop (every 5 seconds)
+    let state_autosave = state.clone();
+    let autosave_closure = Closure::wrap(Box::new(move || {
+        let state = state_autosave.borrow();
+        let game_state = persistence::GameState {
+            player_projector: projector::RealityProjector {
+                location: state.player_projector.location,
+                reality_signature: state.player_projector.reality_signature.clone(),
+            },
+            anomaly_projector: projector::RealityProjector {
+                location: state.anomaly_projector.location,
+                reality_signature: state.anomaly_projector.reality_signature.clone(),
+            },
+            chunk_hash: "root_hash_placeholder".to_string(),
+            timestamp: js_sys::Date::now() as u64,
+        };
+        persistence::save_to_local_storage("reality_engine_save", &game_state);
+        // log::info!("Autosaved game state");
+    }) as Box<dyn FnMut()>);
+
+    window.set_interval_with_callback_and_timeout_and_arguments_0(
+        autosave_closure.as_ref().unchecked_ref(),
+        5000, // 5 seconds
+    ).expect("Failed to set autosave interval");
+    autosave_closure.forget();
 
     Ok(GameClient { state })
 }

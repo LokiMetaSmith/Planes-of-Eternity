@@ -37,5 +37,5 @@
 - [x] Implement Void archetype rendering
 - [x] Implement Local Persistence (Save/Load to LocalStorage)
 - [x] Define "Git-like" Game State Structure (Chunk Hashes, Deltas)
-- [ ] Implement P2P Architecture (Pollen-based Discovery & WebRTC)
+- [x] Implement P2P Architecture (Pollen-based Discovery & WebRTC)
 - [ ] Implement Merge/Conflict Resolution Logic ("Anomaly" Events)

@@ -763,7 +763,24 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub async fn start(canvas_id: String) -> Result<(), JsValue> {
+pub struct GameClient {
+    state: Rc<RefCell<State>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+impl GameClient {
+    pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {
+        let mut state = self.state.borrow_mut();
+        state.anomaly_projector.reality_signature.active_style.roughness = roughness;
+        state.anomaly_projector.reality_signature.active_style.scale = scale;
+        state.anomaly_projector.reality_signature.active_style.distortion = distortion;
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
 
@@ -864,5 +881,5 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
 
     request_animation_frame(g.borrow().as_ref().unwrap());
 
-    Ok(())
+    Ok(GameClient { state })
 }

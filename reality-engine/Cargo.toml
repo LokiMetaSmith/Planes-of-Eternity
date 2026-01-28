@@ -34,5 +34,7 @@ features = [
   "KeyboardEvent",
   "MouseEvent",
   "DomRect",
-  "Storage"
+  "Storage",
+  "WebSocket",
+  "MessageEvent"
 ]

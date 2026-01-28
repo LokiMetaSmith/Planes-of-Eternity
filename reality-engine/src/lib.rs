@@ -12,6 +12,7 @@ pub mod reality_types;
 pub mod projector;
 pub mod persistence;
 pub mod world;
+pub mod network;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -857,6 +858,7 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
 #[wasm_bindgen]
 pub struct GameClient {
     state: Rc<RefCell<State>>,
+    network: Option<Rc<RefCell<network::NetworkManager>>>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1078,8 +1080,18 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     request_animation_frame(g.borrow().as_ref().unwrap());
 
+    // Initialize Network
+    let network_manager = match network::NetworkManager::new("ws://localhost:9000/ws") {
+        Ok(m) => Some(m),
+        Err(e) => {
+            log::warn!("Failed to connect to signaling server: {:?}", e);
+            None
+        }
+    };
+
     // Autosave loop (every 5 seconds)
     let state_autosave = state.clone();
+    let network_autosave = network_manager.clone();
     let autosave_closure = Closure::wrap(Box::new(move || {
         let state = state_autosave.borrow();
         let game_state = persistence::GameState {
@@ -1093,6 +1105,13 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             timestamp: js_sys::Date::now() as u64,
         };
         persistence::save_to_local_storage("reality_engine_save", &game_state);
+
+        // Pollinate (Broadcast Presence)
+        if let Some(net) = &network_autosave {
+             let loc = state.player_projector.location;
+             net.borrow().pollinate(&state.world_state.root_hash, [loc.x, loc.y, loc.z]);
+        }
+
         // log::info!("Autosaved game state");
     }) as Box<dyn FnMut()>);
 
@@ -1102,5 +1121,5 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     ).expect("Failed to set autosave interval");
     autosave_closure.forget();
 
-    Ok(GameClient { state })
+    Ok(GameClient { state, network: network_manager })
 }

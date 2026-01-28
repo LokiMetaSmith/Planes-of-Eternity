@@ -45,4 +45,6 @@ features = [
   "HtmlVideoElement",
   "DeviceOrientationEvent",
   "PositionError"
+  "WebSocket",
+  "MessageEvent"
 ]

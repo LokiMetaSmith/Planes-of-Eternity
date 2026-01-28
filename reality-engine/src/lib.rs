@@ -781,6 +781,18 @@ impl GameClient {
         state.anomaly_projector.reality_signature.active_style.scale = scale;
         state.anomaly_projector.reality_signature.active_style.distortion = distortion;
     }
+
+    pub fn set_anomaly_archetype(&self, archetype_id: i32) {
+        let mut state = self.state.borrow_mut();
+        let archetype = match archetype_id {
+            0 => reality_types::RealityArchetype::Fantasy,
+            1 => reality_types::RealityArchetype::SciFi,
+            2 => reality_types::RealityArchetype::Horror,
+            3 => reality_types::RealityArchetype::Toon,
+            _ => reality_types::RealityArchetype::Void,
+        };
+        state.anomaly_projector.reality_signature.active_style.archetype = archetype;
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

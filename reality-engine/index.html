@@ -140,9 +140,41 @@
             z-index: 999;
             opacity: 0.3;
         }
+
+        #ar-feed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: -1;
+            display: none;
+        }
+
+        .cyber-button {
+            width: 100%;
+            background: rgba(0, 240, 255, 0.1);
+            color: #00f0ff;
+            border: 1px solid #00f0ff;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            margin-top: 5px;
+        }
+
+        .cyber-button:hover {
+            background: #00f0ff;
+            color: #000;
+            box-shadow: 0 0 10px #00f0ff;
+        }
     </style>
 </head>
 <body>
+    <video id="ar-feed" autoplay playsinline></video>
     <div class="scanline"></div>
     <canvas id="reality-canvas"></canvas>
 
@@ -178,6 +210,10 @@
             <div style="margin-top: 20px; font-size: 0.8em; color: #888; border-top: 1px solid #333; padding-top: 10px;">
                 STATUS: <span style="color: #ff2a6d; font-weight: bold; animation: blink 1s infinite;">UNSTABLE</span>
             </div>
+        </div>
+
+        <div class="cyber-card" style="margin-top: 10px;">
+             <button id="btn-start-ar" class="cyber-button">INITIALIZE AR UPLINK</button>
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
@@ -265,6 +301,37 @@
                 distSlider.addEventListener('input', updateParams);
                  distSlider.addEventListener('change', () => {
                      log(`> PARAM_UPDATE: DISTORTION = ${distSlider.value}`);
+                });
+
+                // AR Button Logic
+                const btnAR = document.getElementById('btn-start-ar');
+                const videoFeed = document.getElementById('ar-feed');
+
+                btnAR.addEventListener('click', async () => {
+                    log("> INITIALIZING AR UPLINK...");
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: "environment" }
+                        });
+                        videoFeed.srcObject = stream;
+                        videoFeed.style.display = 'block';
+                        videoFeed.play();
+                        log("> VIDEO FEED ESTABLISHED");
+
+                        // iOS 13+ DeviceOrientation permission
+                        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                             log("> REQUESTING SENSOR PERMISSION...");
+                             const response = await DeviceOrientationEvent.requestPermission();
+                             if (response == 'granted') {
+                                 log("> SENSOR PERMISSION GRANTED");
+                             } else {
+                                 log("> SENSOR PERMISSION DENIED");
+                             }
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        log("> AR FAILURE: " + e.message);
+                    }
                 });
 
             } catch (e) {

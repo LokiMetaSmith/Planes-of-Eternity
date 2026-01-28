@@ -34,5 +34,15 @@ features = [
   "KeyboardEvent",
   "MouseEvent",
   "DomRect",
-  "Storage"
+  "Storage",
+  "Navigator",
+  "Geolocation",
+  "Coordinates",
+  "Position",
+  "MediaDevices",
+  "MediaStream",
+  "MediaStreamConstraints",
+  "HtmlVideoElement",
+  "DeviceOrientationEvent",
+  "PositionError"
 ]

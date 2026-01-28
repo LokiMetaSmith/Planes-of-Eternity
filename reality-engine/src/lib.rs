@@ -41,6 +41,7 @@ struct RealityUniform {
     proj2_pos_fid: [f32; 4],
     proj2_params: [f32; 4],
     proj2_color: [f32; 4],
+    global_offset: [f32; 4],
 }
 
 impl RealityUniform {
@@ -52,6 +53,7 @@ impl RealityUniform {
             proj2_pos_fid: [0.0; 4],
             proj2_params: [0.0; 4],
             proj2_color: [0.0; 4],
+            global_offset: [0.0; 4],
         }
     }
 }
@@ -231,6 +233,7 @@ struct State {
     active_anomaly: Option<projector::RealityProjector>, // The one we are currently placing/editing
     width: u32,
     height: u32,
+    global_offset: [f32; 4],
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -276,13 +279,19 @@ impl State {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
+        // Enable transparent background for AR overlay
+        let alpha_mode = surface_caps.alpha_modes.iter()
+            .find(|&&m| m == wgpu::CompositeAlphaMode::PreMultiplied)
+            .cloned()
+            .unwrap_or(surface_caps.alpha_modes[0]);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width,
             height,
             present_mode: surface_caps.present_modes[0],
-            alpha_mode: surface_caps.alpha_modes[0],
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -603,7 +612,12 @@ impl State {
             active_anomaly,
             width,
             height,
+            global_offset: [0.0; 4],
         }
+    }
+
+    pub fn set_global_offset(&mut self, x: f32, z: f32) {
+        self.global_offset = [x, z, 0.0, 0.0];
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
@@ -735,6 +749,7 @@ impl State {
             id2
         ];
         self.reality_uniform.proj2_color = color2;
+        self.reality_uniform.global_offset = self.global_offset;
 
         self.queue.write_buffer(
             &self.reality_buffer,
@@ -796,10 +811,10 @@ impl State {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 0.0,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
@@ -855,6 +870,22 @@ impl GameClient {
             anomaly.reality_signature.active_style.distortion = distortion;
         }
         self.save_state(&state);
+    }
+
+    pub fn set_world_origin(&self, lat: f32, lon: f32) {
+        let mut state = self.state.borrow_mut();
+        // Simple mapping: Lat/Lon -> X/Z Offset
+        // 1 deg ~ 111km = 111,000 meters.
+        // We scale this down so the coordinates aren't massive floats causing precision issues immediately.
+        // Or we use them as seeds.
+        // Let's use them as offset in "meters".
+        // 0.0001 deg ~ 11 meters.
+
+        let scale = 111000.0;
+        let x = lon * scale * 0.1; // Scale down a bit to make it manageable
+        let z = lat * scale * 0.1;
+
+        state.set_global_offset(x, z);
     }
 
     pub fn set_anomaly_archetype(&self, archetype_id: i32) {
@@ -974,6 +1005,62 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         .add_event_listener_with_callback("mousedown", mouse_closure.as_ref().unchecked_ref())
         .expect("Failed to add mousedown listener");
     mouse_closure.forget();
+
+    // Device Orientation Handler
+    let state_orient = state.clone();
+    let orient_closure = Closure::wrap(Box::new(move |event: web_sys::DeviceOrientationEvent| {
+        if let (Some(alpha), Some(beta), Some(_gamma)) = (event.alpha(), event.beta(), event.gamma()) {
+            // Map orientation to camera look
+            // alpha: 0-360 (Z axis)
+            // beta: -180 to 180 (X axis)
+            // gamma: -90 to 90 (Y axis)
+
+            // Simple mapping for "Magic Window"
+            let yaw = -alpha.to_radians() as f32;
+            let pitch = (beta - 90.0).to_radians() as f32; // Hold phone upright
+
+            let mut state = state_orient.borrow_mut();
+            state.camera.set_rotation(yaw, pitch);
+        }
+    }) as Box<dyn FnMut(_)>);
+
+    window
+        .add_event_listener_with_callback("deviceorientation", orient_closure.as_ref().unchecked_ref())
+        .expect("Failed to add deviceorientation listener");
+    orient_closure.forget();
+
+    // Geolocation Handler
+    let state_geo = state.clone();
+    if let Ok(navigator) = window.navigator().dyn_into::<web_sys::Navigator>() {
+        if let Ok(geolocation) = navigator.geolocation() {
+            let success_callback = Closure::wrap(Box::new(move |position: web_sys::Position| {
+                 let coords = position.coords();
+                 let lat = coords.latitude() as f32;
+                 let lon = coords.longitude() as f32;
+
+                 // Update global offset
+                 // Same logic as GameClient::set_world_origin
+                 let scale = 111000.0;
+                 let x = lon * scale * 0.1;
+                 let z = lat * scale * 0.1;
+
+                 state_geo.borrow_mut().set_global_offset(x, z);
+                 log::info!("Geolocation Acquired: {}, {}", lat, lon);
+            }) as Box<dyn FnMut(_)>);
+
+            let error_callback = Closure::wrap(Box::new(move |_error: web_sys::PositionError| {
+                log::warn!("Geolocation failed or denied.");
+            }) as Box<dyn FnMut(_)>);
+
+            geolocation.get_current_position_with_error_callback(
+                success_callback.as_ref().unchecked_ref(),
+                Some(error_callback.as_ref().unchecked_ref())
+            ).ok();
+
+            success_callback.forget();
+            error_callback.forget();
+        }
+    }
 
     // Render loop
     let f = Rc::new(RefCell::new(None));

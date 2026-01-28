@@ -81,6 +81,17 @@
             box-shadow: 0 0 10px #00f0ff;
         }
 
+        select {
+            width: 100%;
+            background: #222;
+            color: #00f0ff;
+            border: 1px solid #444;
+            padding: 5px;
+            font-family: 'Courier New', monospace;
+            outline: none;
+            cursor: pointer;
+        }
+
         .value-display {
             color: #00f0ff;
             font-family: monospace;
@@ -138,6 +149,16 @@
     <div id="ui-layer">
         <div class="cyber-card">
             <div class="cyber-header">Anomaly Projector</div>
+
+            <div class="control-group">
+                <label>Archetype</label>
+                <select id="param-archetype">
+                    <option value="1" selected>SciFi</option>
+                    <option value="0">Fantasy</option>
+                    <option value="2">Horror</option>
+                    <option value="3">Toon</option>
+                </select>
+            </div>
 
             <div class="control-group">
                 <label>Roughness <span id="val-rough" class="value-display">0.80</span></label>
@@ -199,6 +220,7 @@
                 log("> RENDER LOOP ACTIVE");
 
                 // UI Elements
+                const archetypeSelect = document.getElementById('param-archetype');
                 const roughSlider = document.getElementById('param-roughness');
                 const scaleSlider = document.getElementById('param-scale');
                 const distSlider = document.getElementById('param-distortion');
@@ -220,6 +242,12 @@
                 }
 
                 // Listeners
+                archetypeSelect.addEventListener('change', () => {
+                     const val = parseInt(archetypeSelect.value);
+                     log(`> PARAM_UPDATE: ARCHETYPE_ID = ${val}`);
+                     gameClient.set_anomaly_archetype(val);
+                });
+
                 roughSlider.addEventListener('input', () => {
                     updateParams();
                     // Optional: log occasionally or on change end

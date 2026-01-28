@@ -56,6 +56,8 @@ impl RealityProjector {
         let strength_a = self.reality_signature.fidelity / dist_a;
         let strength_b = rival_ref.reality_signature.fidelity / dist_b;
 
+        result.total_strength = strength_a + strength_b;
+
         const KINDA_SMALL_NUMBER: f32 = 1e-4;
 
         if strength_a >= strength_b {
@@ -117,6 +119,9 @@ mod tests {
         // Equal strength, code says StrengthA >= StrengthB -> A wins
         assert_eq!(result.dominant_archetype, RealityArchetype::Fantasy);
         assert!( (result.blend_alpha - 0.5).abs() < 1e-4 ); // Blend should be 0.5 at equal strength
+
+        // Strength A = 100/5 = 20. Strength B = 100/5 = 20. Total = 40.
+        assert!( (result.total_strength - 40.0).abs() < 1e-4 );
     }
 
     #[test]

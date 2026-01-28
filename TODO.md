@@ -33,3 +33,4 @@
 - [x] Implement per-pixel/vertex reality blending (GPU-side)
 - [x] Implement Horror and Toon archetypes and correct arbitrary blending
 - [x] Implement Archetype Selector UI
+- [ ] Add multiplayer elements

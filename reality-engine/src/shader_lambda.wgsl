@@ -55,3 +55,27 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     return vec4<f32>(final_color, in.color.a);
 }
+
+// Line Pipeline
+
+struct LineVertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+@vertex
+fn vs_line(
+    model: LineVertexInput,
+) -> VertexOutput {
+    var out: VertexOutput;
+    out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
+    out.color = model.color;
+    out.normal = vec3<f32>(0.0, 1.0, 0.0); // Dummy normal
+    out.world_pos = model.position;
+    return out;
+}
+
+@fragment
+fn fs_line(in: VertexOutput) -> @location(0) vec4<f32> {
+    return in.color;
+}

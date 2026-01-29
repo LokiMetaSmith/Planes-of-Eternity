@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
-use cgmath::{EuclideanSpace, InnerSpace, SquareMatrix};
+use cgmath::{EuclideanSpace, InnerSpace, SquareMatrix, Transform};
 
 mod camera;
 mod texture;
@@ -13,6 +13,8 @@ pub mod projector;
 pub mod persistence;
 pub mod world;
 pub mod network;
+pub mod lambda;
+pub mod visual_lambda;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -235,6 +237,8 @@ struct State {
     width: u32,
     height: u32,
     global_offset: [f32; 4],
+    lambda_renderer: visual_lambda::LambdaRenderer,
+    lambda_system: visual_lambda::LambdaSystem,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -586,6 +590,16 @@ impl State {
             multiview: None,
         });
 
+        let lambda_renderer = visual_lambda::LambdaRenderer::new(
+            &device,
+            config.format,
+            &camera_bind_group_layout,
+        );
+        let mut lambda_system = visual_lambda::LambdaSystem::new();
+        // Init with a test term: (\x.x) y
+        let term = lambda::parse("(\\x.x) y").unwrap();
+        lambda_system.set_term(term);
+
         Self {
             surface,
             device,
@@ -614,6 +628,8 @@ impl State {
             width,
             height,
             global_offset: [0.0; 4],
+            lambda_renderer,
+            lambda_system,
         }
     }
 
@@ -632,26 +648,72 @@ impl State {
         }
     }
 
-    pub fn process_mouse_click(&mut self, x: f32, y: f32) {
-        // x, y are in NDC coordinates (-1 to 1)
-        // Simple Ray-Plane intersection (Plane normal Y=1, d=0)
+    pub fn process_keyboard(&mut self, key_code: &str) {
+        if key_code == "KeyF" {
+            // Cast Spell
+            log::info!("Casting Lambda Spell!");
+            let archetype_id = self.lambda_system.get_archetype_from_term();
+            let archetype = match archetype_id {
+                0 => reality_types::RealityArchetype::Fantasy,
+                1 => reality_types::RealityArchetype::SciFi,
+                2 => reality_types::RealityArchetype::Horror,
+                _ => reality_types::RealityArchetype::Toon,
+            };
 
-        // Invert View Projection
-        use cgmath::SquareMatrix;
-        let view_proj = self.camera.build_view_projection_matrix();
-        let inv_view_proj = view_proj.invert().unwrap_or(cgmath::Matrix4::identity());
+            // Forward vector: Target - Eye
+            let forward = (self.camera.target - self.camera.eye).normalize();
+            let spawn_pos = self.camera.eye + forward * 10.0; // 10 units away
 
-        // Ray clip coordinates
-        let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);
-        // let mut ray_eye = inv_view_proj * ray_clip;
-        // ray_eye.z = -1.0;
-        // ray_eye.w = 0.0;
+            let mut sig = reality_types::RealitySignature::default();
+            sig.active_style.archetype = archetype;
+            sig.fidelity = 100.0;
+            sig.active_style.roughness = 0.5;
+            sig.active_style.scale = 2.0;
+            sig.active_style.distortion = 0.5;
 
-        let ray_world = (inv_view_proj * ray_clip).truncate();
-        let ray_origin = self.camera.eye.to_vec();
-        let ray_dir = (ray_world - ray_origin).normalize();
+            self.world_state.add_anomaly(projector::RealityProjector {
+                location: spawn_pos,
+                reality_signature: sig,
+            });
+            log::info!("Spell Cast: {:?} at {:?}", archetype, spawn_pos);
+        }
+    }
 
-        // Plane Intersection: P = O + tD
+    pub fn process_mouse_down(&mut self, x: f32, y: f32, button: i16) {
+        let (ray_origin, ray_dir) = self.get_ray(x, y);
+
+        if button == 0 { // Left
+            if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
+                self.lambda_system.start_drag(idx, ray_origin, ray_dir);
+            }
+        } else if button == 2 { // Right
+             if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
+                self.lambda_system.toggle_collapse(idx);
+            }
+        }
+    }
+
+    pub fn process_mouse_move(&mut self, x: f32, y: f32) {
+        let (ray_origin, ray_dir) = self.get_ray(x, y);
+        self.lambda_system.update_drag(ray_origin, ray_dir);
+    }
+
+    pub fn process_mouse_up(&mut self) {
+        self.lambda_system.end_drag();
+    }
+
+    pub fn process_click(&mut self, x: f32, y: f32) {
+        let (ray_origin, ray_dir) = self.get_ray(x, y);
+
+        // 1. Check Lambda Intersection (Reduce)
+        if let Some(_idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
+             log::info!("Clicked Lambda Node! Reducing...");
+             self.lambda_system.reduce_root();
+             return;
+        }
+
+        // 2. Plane Intersection (Terrain)
+        // P = O + tD
         // P.y = 0
         // O.y + t * D.y = 0
         // t = -O.y / D.y
@@ -691,6 +753,19 @@ impl State {
                 persistence::save_to_local_storage("reality_engine_save", &game_state);
              }
         }
+    }
+
+    fn get_ray(&self, x: f32, y: f32) -> (cgmath::Point3<f32>, cgmath::Vector3<f32>) {
+        use cgmath::SquareMatrix;
+        let view_proj = self.camera.build_view_projection_matrix();
+        let inv_view_proj = view_proj.invert().unwrap_or(cgmath::Matrix4::identity());
+        let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);
+        let ray_world_hom = inv_view_proj * ray_clip;
+        let ray_world_vec = ray_world_hom.truncate() / ray_world_hom.w;
+        let ray_world_point = cgmath::Point3::from_vec(ray_world_vec);
+        let ray_origin = self.camera.eye;
+        let ray_dir = (ray_world_point - ray_origin).normalize();
+        (ray_origin, ray_dir)
     }
 
     pub fn update(&mut self) {
@@ -790,6 +865,10 @@ impl State {
                 bytemuck::cast_slice(&visible_instances),
             );
         }
+
+        // Update Lambda System
+        self.lambda_system.update(0.016); // Fixed timestep for now
+        self.lambda_renderer.update_instances(&self.device, &self.queue, &self.lambda_system.nodes);
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -836,6 +915,11 @@ impl State {
                 render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..)); // Bind instance buffer to slot 1
                 render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
+            }
+
+            // Draw Lambda Nodes
+            if !self.lambda_system.nodes.is_empty() {
+                 self.lambda_renderer.render(&mut render_pass, &self.camera_bind_group, self.lambda_system.nodes.len() as u32);
             }
         }
 
@@ -960,10 +1044,15 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     // Keyboard handlers
     let state_keydown = state.clone();
     let keydown_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+        let code = event.code();
+        state_keydown
+            .borrow_mut()
+            .process_keyboard(&code);
+
         state_keydown
             .borrow_mut()
             .camera_controller
-            .process_events(&event.code(), true);
+            .process_events(&code, true);
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -987,26 +1076,87 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     // Mouse Handler
     let state_mouse = state.clone();
     let canvas_mouse = canvas.clone();
-    let mouse_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-        let rect = canvas_mouse.get_bounding_client_rect();
+
+    // Store click state in a RefCell to share between closures or use a single closure for all if possible?
+    // Using separate closures is easier if we can share state.
+    // Or we can just use `mouse_down` timestamp.
+    // Let's use a struct or Rc<RefCell> for local state.
+
+    struct MouseState {
+        down_pos: Option<(f32, f32)>,
+        down_time: f64,
+    }
+    let mouse_state = Rc::new(RefCell::new(MouseState { down_pos: None, down_time: 0.0 }));
+
+    let state_down = state.clone();
+    let canvas_down = canvas.clone();
+    let mouse_state_down = mouse_state.clone();
+    let mousedown_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let rect = canvas_down.get_bounding_client_rect();
         let x = event.client_x() as f32 - rect.left() as f32;
         let y = event.client_y() as f32 - rect.top() as f32;
-
         let width = rect.width() as f32;
         let height = rect.height() as f32;
-
-        // Convert to NDC (-1 to 1)
-        // Y is inverted in CSS vs NDC
         let ndc_x = (x / width) * 2.0 - 1.0;
         let ndc_y = -((y / height) * 2.0 - 1.0);
 
-        state_mouse.borrow_mut().process_mouse_click(ndc_x, ndc_y);
+        let button = event.button();
+        state_down.borrow_mut().process_mouse_down(ndc_x, ndc_y, button);
+
+        mouse_state_down.borrow_mut().down_pos = Some((ndc_x, ndc_y));
+        mouse_state_down.borrow_mut().down_time = js_sys::Date::now();
     }) as Box<dyn FnMut(_)>);
 
-    canvas
-        .add_event_listener_with_callback("mousedown", mouse_closure.as_ref().unchecked_ref())
-        .expect("Failed to add mousedown listener");
-    mouse_closure.forget();
+    canvas.add_event_listener_with_callback("mousedown", mousedown_closure.as_ref().unchecked_ref()).unwrap();
+    mousedown_closure.forget();
+
+    let state_move = state.clone();
+    let canvas_move = canvas.clone();
+    let mousemove_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let rect = canvas_move.get_bounding_client_rect();
+        let x = event.client_x() as f32 - rect.left() as f32;
+        let y = event.client_y() as f32 - rect.top() as f32;
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+        let ndc_x = (x / width) * 2.0 - 1.0;
+        let ndc_y = -((y / height) * 2.0 - 1.0);
+
+        state_move.borrow_mut().process_mouse_move(ndc_x, ndc_y);
+    }) as Box<dyn FnMut(_)>);
+
+    // Mousemove on window to catch drags outside canvas
+    window.add_event_listener_with_callback("mousemove", mousemove_closure.as_ref().unchecked_ref()).unwrap();
+    mousemove_closure.forget();
+
+    let state_up = state.clone();
+    let canvas_up = canvas.clone();
+    let mouse_state_up = mouse_state.clone();
+    let mouseup_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let rect = canvas_up.get_bounding_client_rect();
+        let x = event.client_x() as f32 - rect.left() as f32;
+        let y = event.client_y() as f32 - rect.top() as f32;
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+        let ndc_x = (x / width) * 2.0 - 1.0;
+        let ndc_y = -((y / height) * 2.0 - 1.0);
+
+        state_up.borrow_mut().process_mouse_up();
+
+        // Check for click
+        let mut ms = mouse_state_up.borrow_mut();
+        if let Some((sx, sy)) = ms.down_pos {
+             let dist = ((ndc_x - sx).powi(2) + (ndc_y - sy).powi(2)).sqrt();
+             let elapsed = js_sys::Date::now() - ms.down_time;
+
+             if dist < 0.05 && elapsed < 300.0 {
+                 state_up.borrow_mut().process_click(ndc_x, ndc_y);
+             }
+        }
+        ms.down_pos = None;
+    }) as Box<dyn FnMut(_)>);
+
+    window.add_event_listener_with_callback("mouseup", mouseup_closure.as_ref().unchecked_ref()).unwrap();
+    mouseup_closure.forget();
 
     // Device Orientation Handler
     let state_orient = state.clone();

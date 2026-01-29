@@ -47,20 +47,11 @@ impl Chunk {
 
     pub fn merge(&mut self, other: &Chunk) -> bool {
         let mut changed = false;
-        // Simple merge: append anomalies that are not present (by JSON representation to match hash logic)
+        // Simple merge: append anomalies that are not present.
         // This is O(N^2) but N (anomalies per chunk) is expected to be small.
+        // Uses PartialEq instead of JSON serialization for performance.
         for other_anomaly in &other.anomalies {
-            let other_json = serde_json::to_string(other_anomaly).unwrap_or_default();
-            let mut exists = false;
-            for my_anomaly in &self.anomalies {
-                let my_json = serde_json::to_string(my_anomaly).unwrap_or_default();
-                if my_json == other_json {
-                    exists = true;
-                    break;
-                }
-            }
-
-            if !exists {
+            if !self.anomalies.contains(other_anomaly) {
                 self.anomalies.push(other_anomaly.clone());
                 changed = true;
             }

@@ -713,6 +713,7 @@ impl State {
                 reality_types::RealityArchetype::SciFi => ( 1.0, [0.0, 0.0, 1.0, 1.0] ),
                 reality_types::RealityArchetype::Horror => ( 2.0, [1.0, 0.0, 0.0, 1.0] ),
                 reality_types::RealityArchetype::Toon => ( 3.0, [1.0, 1.0, 0.0, 1.0] ),
+                reality_types::RealityArchetype::HyperNature => ( 4.0, [0.2, 0.8, 0.2, 1.0] ),
             }
         }
 
@@ -897,6 +898,7 @@ impl GameClient {
             1 => reality_types::RealityArchetype::SciFi,
             2 => reality_types::RealityArchetype::Horror,
             3 => reality_types::RealityArchetype::Toon,
+            4 => reality_types::RealityArchetype::HyperNature,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.active_anomaly {

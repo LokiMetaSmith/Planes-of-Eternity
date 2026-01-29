@@ -4,6 +4,8 @@ use crate::world::WorldState;
 use web_sys::Storage;
 use log::{info, error};
 
+pub const SAVE_VERSION: u32 = 1;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PlayerState {
     pub projector: RealityProjector, // Contains location and self-signature
@@ -14,6 +16,8 @@ pub struct GameState {
     pub player: PlayerState,
     pub world: WorldState,
     pub timestamp: u64,
+    #[serde(default)]
+    pub version: u32,
 }
 
 pub fn save_to_local_storage(key: &str, state: &GameState) {
@@ -33,8 +37,15 @@ pub fn load_from_local_storage(key: &str) -> Option<GameState> {
     if let Ok(Some(storage)) = get_local_storage() {
         match storage.get_item(key) {
             Ok(Some(json)) => {
-                match serde_json::from_str(&json) {
+                match serde_json::from_str::<GameState>(&json) {
                     Ok(state) => {
+                        if state.version != SAVE_VERSION {
+                            if state.version == 0 {
+                                info!("Migrating legacy save (v0) to v{}", SAVE_VERSION);
+                            } else {
+                                log::warn!("Version mismatch: save is v{}, current is v{}", state.version, SAVE_VERSION);
+                            }
+                        }
                         info!("Loaded game state from local storage.");
                         Some(state)
                     },

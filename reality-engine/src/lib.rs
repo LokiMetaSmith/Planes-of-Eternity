@@ -1082,7 +1082,23 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     // Initialize Network
     let network_manager = match network::NetworkManager::new("ws://localhost:9000/ws") {
-        Ok(m) => Some(m),
+        Ok(m) => {
+            // Setup Sync Callback
+            let state_sync = state.clone();
+            m.borrow_mut().set_sync_callback(move |msg| {
+                match msg {
+                    network::SyncMessage::WorldUpdate(remote_world) => {
+                        let mut state = state_sync.borrow_mut();
+                        if state.world_state.merge(remote_world) {
+                            log::info!("Anomaly Conflict Resolved! World merged.");
+
+                            // Visual feedback could be added here (e.g. set a flag for shader)
+                        }
+                    }
+                }
+            });
+            Some(m)
+        },
         Err(e) => {
             log::warn!("Failed to connect to signaling server: {:?}", e);
             None
@@ -1110,6 +1126,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         if let Some(net) = &network_autosave {
              let loc = state.player_projector.location;
              net.borrow().pollinate(&state.world_state.root_hash, [loc.x, loc.y, loc.z]);
+
+             // Broadcast State (Simple Sync Strategy)
+             net.borrow().broadcast_world_state(&state.world_state);
         }
 
         // log::info!("Autosaved game state");

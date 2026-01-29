@@ -393,6 +393,7 @@ pub struct LambdaSystem {
     next_id: u64,
     pub dragged_node: Option<usize>,
     pub drag_distance: f32,
+    pub anchor_pos: Point3<f32>,
 }
 
 impl LambdaSystem {
@@ -404,6 +405,16 @@ impl LambdaSystem {
             next_id: 0,
             dragged_node: None,
             drag_distance: 0.0,
+            anchor_pos: Point3::new(0.0, 5.0, 0.0),
+        }
+    }
+
+    pub fn set_anchor(&mut self, new_anchor: Point3<f32>) {
+        let delta = new_anchor - self.anchor_pos;
+        self.anchor_pos = new_anchor;
+        for node in &mut self.nodes {
+            node.position += delta;
+            node.target_position += delta;
         }
     }
 
@@ -558,8 +569,8 @@ impl LambdaSystem {
 
         if let Some(term) = &self.root_term {
             // Calculate layout positions
-            // Start at 0,5,0 relative to World Origin (Floating above)
-            self.build_subtree(term.clone(), Point3::new(0.0, 5.0, 0.0), 0);
+            // Start at anchor_pos relative to World Origin
+            self.build_subtree(term.clone(), self.anchor_pos, 0);
         }
     }
 

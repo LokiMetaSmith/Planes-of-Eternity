@@ -749,6 +749,7 @@ impl State {
                     },
                     world: self.world_state.clone(),
                     timestamp: js_sys::Date::now() as u64,
+                    version: persistence::SAVE_VERSION,
                 };
                 persistence::save_to_local_storage("reality_engine_save", &game_state);
              }
@@ -1007,6 +1008,7 @@ impl GameClient {
             },
             world: state.world_state.clone(),
             timestamp: js_sys::Date::now() as u64,
+            version: persistence::SAVE_VERSION,
         };
         persistence::save_to_local_storage("reality_engine_save", &game_state);
     }
@@ -1276,6 +1278,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             },
             world: state.world_state.clone(),
             timestamp: js_sys::Date::now() as u64,
+            version: persistence::SAVE_VERSION,
         };
         persistence::save_to_local_storage("reality_engine_save", &game_state);
 

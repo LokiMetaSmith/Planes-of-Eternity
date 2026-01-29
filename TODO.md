@@ -12,7 +12,7 @@
 - [ ] **Connection UI**: Add visual indicators for PeerJS connection status (Connecting, Connected, Error) in the UI.
 
 ## Persistence
-- [ ] **Save Versioning**: Add a `version` field to `GameState` struct in `persistence.rs` to handle future schema migrations gracefully.
+- [x] **Save Versioning**: Add a `version` field to `GameState` struct in `persistence.rs` to handle future schema migrations gracefully.
 - [ ] **Save Management**: Allow multiple save slots or "World Resets" via UI.
 
 ## AR / WebXR

@@ -997,6 +997,15 @@ impl GameClient {
         self.save_state(&state);
     }
 
+    pub fn get_network_status(&self) -> String {
+        if let Some(network_manager) = &self.network {
+             let status = network_manager.borrow().get_status();
+             serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string())
+        } else {
+             "{}".to_string()
+        }
+    }
+
     fn save_state(&self, state: &State) {
         // Construct GameState and save
         let game_state = persistence::GameState {

@@ -13,6 +13,13 @@ pub enum SyncMessage {
     WorldUpdate(WorldState),
 }
 
+#[derive(Serialize)]
+pub struct NetworkStatus {
+    pub signaling_state: u16, // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
+    pub peer_id: String,
+    pub connected_peers: usize,
+}
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = Peer)]
@@ -235,6 +242,14 @@ impl NetworkManager {
             for conn in self.connections.values() {
                 conn.send(&js_val);
             }
+        }
+    }
+
+    pub fn get_status(&self) -> NetworkStatus {
+        NetworkStatus {
+            signaling_state: self.socket.ready_state(),
+            peer_id: self.peer_id.clone(),
+            connected_peers: self.connections.len(),
         }
     }
 }

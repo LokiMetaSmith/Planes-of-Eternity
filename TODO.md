@@ -1,7 +1,7 @@
 # Reality Engine Tasks
 
 ## Visual Lambda System
-- [ ] **Render Graph Edges**: Implement a Line Pipeline in `LambdaRenderer` to visualize connections (edges) between lambda nodes. Currently, only nodes are rendered as spheres.
+- [x] **Render Graph Edges**: Implement a Line Pipeline in `LambdaRenderer` to visualize connections (edges) between lambda nodes. Currently, only nodes are rendered as spheres.
 - [ ] **Dynamic Positioning**: Anchor the Lambda Graph to the Player/Camera position (or a specific "Casting" anchor) instead of the fixed `(0, 5, 0)` world coordinate.
 - [ ] **Visual Collapse**: Implement proper visual feedback for `toggle_collapse` (e.g., scale subtree to 0).
 - [ ] **Force-Directed Layout**: Improve physics in `LambdaSystem` to prevent node overlap and provide a clearer tree structure.

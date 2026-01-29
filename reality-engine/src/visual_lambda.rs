@@ -65,6 +65,34 @@ impl LambdaInstance {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LambdaLineVertex {
+    pub position: [f32; 3],
+    pub color: [f32; 4],
+}
+
+impl LambdaLineVertex {
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<LambdaLineVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
+
 pub struct LambdaRenderer {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
@@ -72,6 +100,12 @@ pub struct LambdaRenderer {
     num_indices: u32,
     instance_buffer: wgpu::Buffer,
     capacity: usize,
+
+    // Line Rendering
+    line_pipeline: wgpu::RenderPipeline,
+    line_vertex_buffer: wgpu::Buffer,
+    line_vertex_count: u32,
+    line_capacity: usize,
 }
 
 impl LambdaRenderer {
@@ -120,6 +154,40 @@ impl LambdaRenderer {
             multiview: None,
         });
 
+        // Line Pipeline
+        let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Lambda Line Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_line",
+                buffers: &[LambdaLineVertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_line",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
         // Create Sphere Mesh
         let (vertices, indices) = create_sphere_mesh(1.0, 16, 16);
 
@@ -144,6 +212,15 @@ impl LambdaRenderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
+        // Initial Line Buffer
+        let line_capacity = 200; // 100 edges = 200 vertices
+        let line_vertices = vec![LambdaLineVertex { position: [0.0; 3], color: [0.0; 4] }; line_capacity];
+        let line_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Lambda Line Vertex Buffer"),
+            contents: bytemuck::cast_slice(&line_vertices),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
         Self {
             pipeline,
             vertex_buffer,
@@ -151,12 +228,16 @@ impl LambdaRenderer {
             num_indices: indices.len() as u32,
             instance_buffer,
             capacity,
+            line_pipeline,
+            line_vertex_buffer,
+            line_vertex_count: 0,
+            line_capacity,
         }
     }
 
-    pub fn update_instances(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, nodes: &[VisualNode]) {
+    pub fn update_buffers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, nodes: &[VisualNode], edges: &[(usize, usize)]) {
+        // Update Instances
         if nodes.len() > self.capacity {
-            // Resize buffer
             self.capacity = (nodes.len() * 2).max(self.capacity * 2);
             let instances = vec![LambdaInstance { position: [0.0; 3], color: [0.0; 4], scale: 0.0 }; self.capacity];
             self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -175,9 +256,56 @@ impl LambdaRenderer {
         if !instances.is_empty() {
              queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
         }
+
+        // Update Lines
+        let required_line_vertices = edges.len() * 2;
+        if required_line_vertices > self.line_capacity {
+            self.line_capacity = (required_line_vertices * 2).max(self.line_capacity * 2);
+             let line_vertices = vec![LambdaLineVertex { position: [0.0; 3], color: [0.0; 4] }; self.line_capacity];
+            self.line_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Lambda Line Vertex Buffer Resized"),
+                contents: bytemuck::cast_slice(&line_vertices),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        }
+
+        let mut line_data = Vec::with_capacity(required_line_vertices);
+        for &(start_idx, end_idx) in edges {
+            if start_idx < nodes.len() && end_idx < nodes.len() {
+                let start_node = &nodes[start_idx];
+                let end_node = &nodes[end_idx];
+
+                // Let's use white for edges, 0.5 alpha
+                let color = [1.0, 1.0, 1.0, 0.5];
+
+                line_data.push(LambdaLineVertex {
+                    position: [start_node.position.x, start_node.position.y, start_node.position.z],
+                    color,
+                });
+                 line_data.push(LambdaLineVertex {
+                    position: [end_node.position.x, end_node.position.y, end_node.position.z],
+                    color,
+                });
+            }
+        }
+
+        self.line_vertex_count = line_data.len() as u32;
+
+        if !line_data.is_empty() {
+             queue.write_buffer(&self.line_vertex_buffer, 0, bytemuck::cast_slice(&line_data));
+        }
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup, num_instances: u32) {
+        // Draw Lines
+        if self.line_vertex_count > 0 {
+            render_pass.set_pipeline(&self.line_pipeline);
+            render_pass.set_bind_group(0, camera_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.line_vertex_buffer.slice(..));
+            render_pass.draw(0..self.line_vertex_count, 0..1);
+        }
+
+        // Draw Nodes
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));

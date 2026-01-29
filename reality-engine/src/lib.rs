@@ -869,7 +869,7 @@ impl State {
 
         // Update Lambda System
         self.lambda_system.update(0.016); // Fixed timestep for now
-        self.lambda_renderer.update_instances(&self.device, &self.queue, &self.lambda_system.nodes);
+        self.lambda_renderer.update_buffers(&self.device, &self.queue, &self.lambda_system.nodes, &self.lambda_system.edges);
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

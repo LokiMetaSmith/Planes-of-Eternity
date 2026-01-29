@@ -85,6 +85,15 @@ fn voronoi(x: vec2<f32>) -> f32 {
     return 1.0 - sqrt(min_dist);
 }
 
+// Domain Warping for organic, natural terrain
+fn domain_warp(p: vec2<f32>) -> f32 {
+    let q = vec2<f32>(
+        fbm(p + vec2<f32>(0.0, 0.0), 3, 0.5),
+        fbm(p + vec2<f32>(5.2, 1.3), 3, 0.5)
+    );
+    return fbm(p + 4.0 * q, 3, 0.5);
+}
+
 struct BlendResult {
     weight1: f32,
     weight2: f32,
@@ -138,12 +147,18 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         // High frequency, spiky
         let n = fbm(pos * scale * 2.0, 5, roughness + 0.2);
         return (1.0 - abs(n * 2.0 - 1.0)) * 0.8;
-    } else {
+    } else if (id < 3.5) {
         // Toon (Stepped)
         let n = fbm(pos * scale, 3, 0.5); // Smooth base
         // Quantize
         let steps = 4.0;
         return floor(n * steps) / steps;
+    } else {
+        // HyperNature (Domain Warp + Erosion)
+        let n = domain_warp(pos * scale * 0.5);
+        // Create "canyons" or "rivers" by using inverted ridges on top
+        let ridges = 1.0 - abs(fbm(pos * scale * 1.5, 4, roughness) * 2.0 - 1.0);
+        return n * 0.7 + ridges * 0.3 * params.z; // Use distortion param for ridge intensity
     }
 }
 
@@ -245,12 +260,26 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let n = fbm(pos.xz * scale * 3.0, 4, 0.8);
         // Blood red and darkness
         return mix(vec3<f32>(0.1, 0.0, 0.0), vec3<f32>(0.6, 0.0, 0.0), n);
-    } else {
+    } else if (id < 3.5) {
         // Toon
         let n = fbm(pos.xz * scale, 3, 0.5);
         // Cell shading bands
         let band = floor(n * 3.0) / 3.0;
         return mix(base_color, vec3<f32>(1.0), band * 0.5);
+    } else {
+        // HyperNature
+        // Biomes based on height-like value
+        let h = domain_warp(pos.xz * scale * 0.5);
+
+        let water = vec3<f32>(0.0, 0.3, 0.8);
+        let grass = vec3<f32>(0.1, 0.6, 0.1);
+        let rock = vec3<f32>(0.5, 0.5, 0.5);
+        let snow = vec3<f32>(0.9, 0.9, 0.9);
+
+        // Smooth blending using mix
+        let c1 = mix(water, grass, smoothstep(0.3, 0.35, h));
+        let c2 = mix(c1, rock, smoothstep(0.6, 0.65, h));
+        return mix(c2, snow, smoothstep(0.8, 0.85, h));
     }
 }
 

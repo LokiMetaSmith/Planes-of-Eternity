@@ -2,7 +2,7 @@ use cgmath::{MetricSpace, Point3};
 use serde::{Serialize, Deserialize};
 use crate::reality_types::{BlendResult, RealitySignature};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct RealityProjector {
     pub location: Point3<f32>,
     pub reality_signature: RealitySignature,
@@ -144,5 +144,16 @@ mod tests {
         // Weight = 100 / 110 = 0.90909...
         let weight = proj_a.get_blend_weight_at_location(Point3::new(0.0, 0.0, 0.0), Some(&proj_b));
         assert!((weight - (100.0 / 110.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_partial_eq() {
+        let sig = RealitySignature::default();
+        let proj1 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
+        let proj2 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
+        let proj3 = RealityProjector::new(Point3::new(1.0, 0.0, 0.0), sig.clone());
+
+        assert_eq!(proj1, proj2);
+        assert_ne!(proj1, proj3);
     }
 }

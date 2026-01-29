@@ -6,6 +6,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::collections::HashMap;
 use log::{info, error};
+use crate::world::WorldState;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum SyncMessage {
+    WorldUpdate(WorldState),
+}
 
 #[wasm_bindgen]
 extern "C" {
@@ -46,6 +52,7 @@ pub struct NetworkManager {
     peer_id: String,
     peer: Peer,
     connections: HashMap<String, DataConnection>,
+    sync_callback: Option<Box<dyn FnMut(SyncMessage)>>,
 }
 
 impl NetworkManager {
@@ -64,6 +71,7 @@ impl NetworkManager {
             peer_id: peer_id.clone(),
             peer: peer.clone().unchecked_into(), // Peer is a JsValue wrapper, so clone is cheap (reference)
             connections: HashMap::new(),
+            sync_callback: None,
         }));
 
         // Setup PeerJS Listeners
@@ -148,13 +156,20 @@ impl NetworkManager {
              }
          }
 
-         let _m_data = manager.clone();
+         let m_data = manager.clone();
          let pid_data = peer_id.clone();
          let on_data = Closure::wrap(Box::new(move |data: JsValue| {
              // Handle data sync
              if let Some(txt) = data.as_string() {
                  info!("Received WebRTC Data from {}: {}", pid_data, txt);
-                 // Future: Parse merge logic here
+
+                 // Try to parse SyncMessage
+                 if let Ok(msg) = serde_json::from_str::<SyncMessage>(&txt) {
+                     let mut inner = m_data.borrow_mut();
+                     if let Some(ref mut callback) = inner.sync_callback {
+                         callback(msg);
+                     }
+                 }
              }
          }) as Box<dyn FnMut(JsValue)>);
          conn.on("data", &on_data);
@@ -202,6 +217,23 @@ impl NetworkManager {
 
             if let Ok(json) = serde_json::to_string(&packet) {
                 let _ = self.socket.send_with_str(&json);
+            }
+        }
+    }
+
+    pub fn set_sync_callback<F>(&mut self, callback: F)
+    where
+        F: FnMut(SyncMessage) + 'static,
+    {
+        self.sync_callback = Some(Box::new(callback));
+    }
+
+    pub fn broadcast_world_state(&self, state: &WorldState) {
+        let msg = SyncMessage::WorldUpdate(state.clone());
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let js_val = JsValue::from_str(&json);
+            for conn in self.connections.values() {
+                conn.send(&js_val);
             }
         }
     }

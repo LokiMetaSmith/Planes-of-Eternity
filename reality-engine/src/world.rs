@@ -44,6 +44,34 @@ impl Chunk {
         self.hash = hash_string.clone();
         hash_string
     }
+
+    pub fn merge(&mut self, other: &Chunk) -> bool {
+        let mut changed = false;
+        // Simple merge: append anomalies that are not present (by JSON representation to match hash logic)
+        // This is O(N^2) but N (anomalies per chunk) is expected to be small.
+        for other_anomaly in &other.anomalies {
+            let other_json = serde_json::to_string(other_anomaly).unwrap_or_default();
+            let mut exists = false;
+            for my_anomaly in &self.anomalies {
+                let my_json = serde_json::to_string(my_anomaly).unwrap_or_default();
+                if my_json == other_json {
+                    exists = true;
+                    break;
+                }
+            }
+
+            if !exists {
+                self.anomalies.push(other_anomaly.clone());
+                changed = true;
+            }
+        }
+
+        if changed {
+            self.calculate_hash();
+        }
+
+        changed
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -96,6 +124,22 @@ impl WorldState {
         let result = hasher.finalize();
         self.root_hash = hex::encode(result);
     }
+
+    pub fn merge(&mut self, other: WorldState) -> bool {
+        let mut changed = false;
+        for (id, other_chunk) in other.chunks {
+            let chunk = self.get_or_create_chunk(id);
+            if chunk.merge(&other_chunk) {
+                changed = true;
+            }
+        }
+
+        if changed {
+            self.calculate_root_hash();
+        }
+
+        changed
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -105,4 +149,40 @@ pub struct WorldCommit {
     pub delta: Vec<RealityProjector>, // For now, just a list of changed projectors
     pub author: String,
     pub timestamp: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reality_types::{RealitySignature, RealityArchetype};
+    use cgmath::Point3;
+
+    #[test]
+    fn test_chunk_merge() {
+        let mut chunk1 = Chunk::new(ChunkId { x: 0, z: 0 });
+        let mut chunk2 = Chunk::new(ChunkId { x: 0, z: 0 });
+
+        let sig = RealitySignature::default();
+        let proj1 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
+        let mut sig2 = sig.clone();
+        sig2.active_style.archetype = RealityArchetype::Horror;
+        let proj2 = RealityProjector::new(Point3::new(1.0, 0.0, 0.0), sig2);
+
+        chunk1.anomalies.push(proj1.clone());
+        chunk1.calculate_hash();
+
+        chunk2.anomalies.push(proj1.clone()); // Same anomaly
+        chunk2.anomalies.push(proj2.clone()); // New anomaly
+        chunk2.calculate_hash();
+
+        // Merge chunk2 into chunk1
+        let changed = chunk1.merge(&chunk2);
+        assert!(changed);
+        assert_eq!(chunk1.anomalies.len(), 2);
+
+        // Merge again should not change
+        let changed_again = chunk1.merge(&chunk2);
+        assert!(!changed_again);
+        assert_eq!(chunk1.anomalies.len(), 2);
+    }
 }

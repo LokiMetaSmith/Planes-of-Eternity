@@ -1,41 +1,23 @@
-# Reality Engine
+# Reality Engine Tasks
 
-## Setup Instructions
+## Visual Lambda System
+- [ ] **Render Graph Edges**: Implement a Line Pipeline in `LambdaRenderer` to visualize connections (edges) between lambda nodes. Currently, only nodes are rendered as spheres.
+- [ ] **Dynamic Positioning**: Anchor the Lambda Graph to the Player/Camera position (or a specific "Casting" anchor) instead of the fixed `(0, 5, 0)` world coordinate.
+- [ ] **Visual Collapse**: Implement proper visual feedback for `toggle_collapse` (e.g., scale subtree to 0).
+- [ ] **Force-Directed Layout**: Improve physics in `LambdaSystem` to prevent node overlap and provide a clearer tree structure.
 
-1.  **Install Rust:** `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-2.  **Install wasm-pack:** `cargo install wasm-pack`
-3.  **Build:**
-    ```bash
-    cd reality-engine
-    wasm-pack build --target web
-    ```
-4.  **Serve:**
-    You can use any static file server. For example:
-    ```bash
-    python3 -m http.server
-    ```
-    Then open `http://localhost:8000/reality-engine/index.html`.
+## Networking & State
+- [ ] **Delta Sync**: Optimize `broadcast_world_state` to send only modified chunks or diffs, rather than the entire WorldState JSON.
+- [ ] **Conflict Resolution**: Implement timestamp-based or CRDT-like conflict resolution for Anomaly placement to handle race conditions better than the current append-only logic.
+- [ ] **Connection UI**: Add visual indicators for PeerJS connection status (Connecting, Connected, Error) in the UI.
 
-## Architecture
+## Persistence
+- [ ] **Save Versioning**: Add a `version` field to `GameState` struct in `persistence.rs` to handle future schema migrations gracefully.
+- [ ] **Save Management**: Allow multiple save slots or "World Resets" via UI.
 
-*   **reality-engine:** The core Rust + WebGPU engine.
-*   **reference_nanite_webgpu:** Reference implementation of Nanite logic in TypeScript.
-*   **legacy_epic_version:** Archived Unreal Engine 5 source code.
+## AR / WebXR
+- [ ] **WebXR Support**: Investigate `navigator.xr` integration for true `immersive-ar` sessions (placing content in real-world coordinates), replacing the current "Magic Window" video background approach.
 
-## Tasks
-
-- [x] Handle window resize events
-- [x] Implement vertex buffers
-- [x] Add camera control
-- [x] Implement texture loading
-- [x] Fix blending discontinuity at equal strength boundaries
-- [x] Implement distance-based reality fading
-- [x] Implement per-pixel/vertex reality blending (GPU-side)
-- [x] Implement Horror and Toon archetypes and correct arbitrary blending
-- [x] Implement Archetype Selector UI
-- [x] Implement dynamic lighting with normal calculation
-- [x] Implement Void archetype rendering
-- [x] Implement Local Persistence (Save/Load to LocalStorage)
-- [x] Define "Git-like" Game State Structure (Chunk Hashes, Deltas)
-- [x] Implement P2P Architecture (Pollen-based Discovery & WebRTC)
-- [x] Implement Merge/Conflict Resolution Logic ("Anomaly" Events)
+## Polishing
+- [ ] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
+- [ ] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.

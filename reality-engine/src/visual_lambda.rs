@@ -542,21 +542,67 @@ impl LambdaSystem {
     }
 
     pub fn update(&mut self, dt: f32) {
-        // Spring physics / Interpolation to target
-        for node in &mut self.nodes {
-            let diff = node.target_position - node.position;
-            let dist = diff.magnitude();
+        let node_count = self.nodes.len();
+        if node_count == 0 { return; }
 
-            if dist > 0.001 {
-                let speed = 5.0; // Units per second
-                let step = diff.normalize() * speed * dt;
+        let repulsion_strength = 20.0;
+        let spring_strength = 2.0;
+        let centering_strength = 0.5;
+        let damping = 0.9;
+        let rest_length = 2.0;
 
-                if step.magnitude() >= dist {
-                    node.position = node.target_position;
-                } else {
-                    node.position += step;
+        // 1. Repulsion (N^2 but N is small for lambda terms usually)
+        for i in 0..node_count {
+            if self.nodes[i].scale < 0.001 { continue; } // Skip invisible
+            for j in 0..node_count {
+                if i == j { continue; }
+                if self.nodes[j].scale < 0.001 { continue; } // Skip invisible
+
+                let dir = self.nodes[i].position - self.nodes[j].position;
+                let dist_sq = dir.magnitude2();
+                if dist_sq < 0.0001 {
+                    // Too close, random kick
+                     self.nodes[i].velocity += Vector3::new(0.1, 0.0, 0.0);
+                } else if dist_sq < 25.0 {
+                    let dist = dist_sq.sqrt();
+                    let force = dir.normalize() * (repulsion_strength / dist_sq);
+                    self.nodes[i].velocity += force * dt;
                 }
             }
+        }
+
+        // 2. Spring Forces (Edges)
+        for &(start, end) in &self.edges {
+             if start >= node_count || end >= node_count { continue; }
+             if self.nodes[start].scale < 0.001 || self.nodes[end].scale < 0.001 { continue; }
+
+             let dir = self.nodes[end].position - self.nodes[start].position;
+             let dist = dir.magnitude();
+             if dist > 0.0001 {
+                 let force = (dist - rest_length) * spring_strength;
+                 let force_vec = dir.normalize() * force;
+                 self.nodes[start].velocity += force_vec * dt;
+                 self.nodes[end].velocity -= force_vec * dt;
+             }
+        }
+
+        // 3. Centering / Target Force & Integration
+        for node in &mut self.nodes {
+            if node.scale < 0.001 {
+                node.position = node.target_position; // Snap hidden nodes
+                node.velocity = Vector3::new(0.0, 0.0, 0.0);
+                continue;
+            }
+
+            // Pull towards "ideal" tree layout target
+            let to_target = node.target_position - node.position;
+            node.velocity += to_target * centering_strength * dt;
+
+            // Update Position
+            node.position += node.velocity * dt;
+
+            // Damping
+            node.velocity *= damping;
         }
     }
 

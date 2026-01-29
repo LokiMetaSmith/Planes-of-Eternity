@@ -215,6 +215,15 @@
             </div>
         </div>
 
+        <div id="network-status-panel" class="cyber-card" style="margin-top: 10px;">
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 5px;">Network Uplink</div>
+            <div style="font-size: 0.8rem; color: #888;">
+                SIGNAL: <span id="status-signal" style="color: #555;">OFFLINE</span><br>
+                PEER ID: <span id="status-peer-id" style="color: #555;">---</span><br>
+                PEERS: <span id="status-peers-count" style="color: #00f0ff;">0</span>
+            </div>
+        </div>
+
         <div class="cyber-card" style="margin-top: 10px;">
              <button id="btn-start-ar" class="cyber-button">INITIALIZE AR UPLINK</button>
         </div>
@@ -307,6 +316,40 @@
                  distSlider.addEventListener('change', () => {
                      log(`> PARAM_UPDATE: DISTORTION = ${distSlider.value}`);
                 });
+
+                // Network Polling
+                setInterval(() => {
+                    try {
+                        const statusJson = gameClient.get_network_status();
+                        if (statusJson && statusJson !== "{}") {
+                            const status = JSON.parse(statusJson);
+
+                            const elSignal = document.getElementById('status-signal');
+                            const elPeerId = document.getElementById('status-peer-id');
+                            const elPeers = document.getElementById('status-peers-count');
+
+                            switch (status.signaling_state) {
+                                case 0: // CONNECTING
+                                    elSignal.innerText = "CONNECTING";
+                                    elSignal.style.color = "#ffff00";
+                                    break;
+                                case 1: // OPEN
+                                    elSignal.innerText = "ONLINE";
+                                    elSignal.style.color = "#00ff00";
+                                    break;
+                                default: // CLOSING, CLOSED
+                                    elSignal.innerText = "OFFLINE";
+                                    elSignal.style.color = "#ff0000";
+                                    break;
+                            }
+
+                            elPeerId.innerText = status.peer_id || "---";
+                            elPeers.innerText = status.connected_peers;
+                        }
+                    } catch (e) {
+                        // Ignore parse errors or if status is not ready
+                    }
+                }, 1000);
 
                 // AR Button Logic
                 const btnAR = document.getElementById('btn-start-ar');

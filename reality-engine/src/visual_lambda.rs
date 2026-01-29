@@ -275,6 +275,11 @@ impl LambdaRenderer {
                 let start_node = &nodes[start_idx];
                 let end_node = &nodes[end_idx];
 
+                // Skip edges connected to invisible nodes (collapsed)
+                if start_node.scale < 0.001 || end_node.scale < 0.001 {
+                    continue;
+                }
+
                 // Let's use white for edges, 0.5 alpha
                 let color = [1.0, 1.0, 1.0, 0.5];
 
@@ -486,13 +491,6 @@ impl LambdaSystem {
     pub fn toggle_collapse(&mut self, idx: usize) {
         if idx < self.nodes.len() {
             self.nodes[idx].collapsed = !self.nodes[idx].collapsed;
-            // TODO: In a real implementation, this would hide children.
-            // Since we use 'rebuild_graph', we might lose this on next update.
-            // For MVP visual toggle, we can just set scale of children to 0?
-            // Implementing full collapse is complex with current architecture.
-            // Let's change scale of children to 0 if collapsed.
-            // But we need to recurse down.
-
             let is_collapsed = self.nodes[idx].collapsed;
             self.set_subtree_visibility(idx, !is_collapsed);
             // Ensure the node itself remains visible

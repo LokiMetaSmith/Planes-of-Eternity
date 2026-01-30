@@ -771,6 +771,44 @@ impl State {
         (ray_origin, ray_dir)
     }
 
+    pub fn reset(&mut self) {
+        use cgmath::Point3;
+        // Reset World
+        self.world_state = world::WorldState::default();
+
+        // Reset Player
+        let mut player_sig = reality_types::RealitySignature::default();
+        player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
+        player_sig.active_style.roughness = 0.3;
+        player_sig.active_style.scale = 2.0;
+        player_sig.active_style.distortion = 0.1;
+        player_sig.fidelity = 100.0;
+        self.player_projector = projector::RealityProjector::new(
+            Point3::new(0.0, 1.0, 2.0),
+            player_sig
+        );
+        self.camera.eye = self.player_projector.location;
+
+        // Reset Active Anomaly
+        let mut anomaly_sig = reality_types::RealitySignature::default();
+        anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+        anomaly_sig.active_style.roughness = 0.8;
+        anomaly_sig.active_style.scale = 5.0;
+        anomaly_sig.active_style.distortion = 0.8;
+        anomaly_sig.fidelity = 100.0;
+        self.active_anomaly = Some(projector::RealityProjector::new(
+            Point3::new(0.0, 0.0, 0.0),
+            anomaly_sig
+        ));
+
+        // Reset Lambda System
+        self.lambda_system = visual_lambda::LambdaSystem::new();
+        let term = lambda::parse("(\\x.x) y").unwrap();
+        self.lambda_system.set_term(term);
+
+        log::info!("World State Reset.");
+    }
+
     pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
@@ -952,6 +990,7 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
 pub struct GameClient {
     state: Rc<RefCell<State>>,
     network: Option<Rc<RefCell<network::NetworkManager>>>,
+    current_save_slot: Rc<RefCell<String>>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1008,6 +1047,63 @@ impl GameClient {
         }
     }
 
+    pub fn save_game(&self, slot_name: String) {
+        *self.current_save_slot.borrow_mut() = slot_name;
+        let state = self.state.borrow();
+        self.save_state(&state);
+    }
+
+    pub fn load_game(&self, slot_name: String) {
+        *self.current_save_slot.borrow_mut() = slot_name.clone();
+        let key = persistence::get_save_key(&slot_name);
+        if let Some(loaded_state) = persistence::load_from_local_storage(&key) {
+            let mut state = self.state.borrow_mut();
+
+            // Apply loaded state
+            state.world_state = loaded_state.world;
+            state.player_projector = loaded_state.player.projector;
+            state.camera.eye = state.player_projector.location;
+
+            // Re-init active anomaly as default (or we should persist it too, but for now reset)
+            use cgmath::Point3;
+            let mut anomaly_sig = reality_types::RealitySignature::default();
+            anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+            anomaly_sig.active_style.roughness = 0.8;
+            anomaly_sig.active_style.scale = 5.0;
+            anomaly_sig.active_style.distortion = 0.8;
+            anomaly_sig.fidelity = 100.0;
+            state.active_anomaly = Some(projector::RealityProjector::new(
+                Point3::new(0.0, 0.0, 0.0),
+                anomaly_sig
+            ));
+
+            // Lambda system reset or persist?
+            // Currently Persistence doesn't cover LambdaSystem, so reset it.
+            state.lambda_system = visual_lambda::LambdaSystem::new();
+            let term = lambda::parse("(\\x.x) y").unwrap();
+            state.lambda_system.set_term(term);
+
+            log::info!("Game Loaded from slot: {}", slot_name);
+        } else {
+            log::warn!("Failed to load save slot: {}", slot_name);
+        }
+    }
+
+    pub fn list_saves(&self) -> String {
+        let saves = persistence::list_saves();
+        serde_json::to_string(&saves).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    pub fn delete_save(&self, slot_name: String) {
+        persistence::delete_save(&slot_name);
+    }
+
+    pub fn reset_world(&self) {
+        let mut state = self.state.borrow_mut();
+        state.reset();
+        self.save_state(&state); // Save empty state to current slot
+    }
+
     fn save_state(&self, state: &State) {
         // Construct GameState and save
         let game_state = persistence::GameState {
@@ -1021,7 +1117,9 @@ impl GameClient {
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
-        persistence::save_to_local_storage("reality_engine_save", &game_state);
+        let slot = self.current_save_slot.borrow().clone();
+        let key = persistence::get_save_key(&slot);
+        persistence::save_to_local_storage(&key, &game_state);
     }
 }
 
@@ -1041,6 +1139,8 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     let state = State::new(canvas.clone()).await;
     let state = Rc::new(RefCell::new(state));
+
+    let current_save_slot = Rc::new(RefCell::new("default".to_string()));
 
     // Resize handler
     let state_resize = state.clone();
@@ -1287,6 +1387,8 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     // Autosave loop (every 5 seconds)
     let state_autosave = state.clone();
     let network_autosave = network_manager.clone();
+    let slot_autosave = current_save_slot.clone();
+
     let autosave_closure = Closure::wrap(Box::new(move || {
         let mut state = state_autosave.borrow_mut();
         let game_state = persistence::GameState {
@@ -1300,7 +1402,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
-        persistence::save_to_local_storage("reality_engine_save", &game_state);
+        let slot = slot_autosave.borrow().clone();
+        let key = persistence::get_save_key(&slot);
+        persistence::save_to_local_storage(&key, &game_state);
 
         // Pollinate (Broadcast Presence)
         if let Some(net) = &network_autosave {
@@ -1336,5 +1440,5 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     ).expect("Failed to set autosave interval");
     autosave_closure.forget();
 
-    Ok(GameClient { state, network: network_manager })
+    Ok(GameClient { state, network: network_manager, current_save_slot })
 }

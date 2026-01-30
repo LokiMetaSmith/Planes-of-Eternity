@@ -225,6 +225,28 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Save Manager</div>
+            <div class="control-group">
+                <label>Slot Name</label>
+                <input type="text" id="input-save-name" placeholder="default" style="width: 100%; background: #222; color: #00f0ff; border: 1px solid #444; padding: 5px; font-family: monospace;">
+            </div>
+            <div class="control-group">
+                 <label>Existing Saves</label>
+                 <select id="select-save-slot">
+                     <option value="default">default</option>
+                 </select>
+            </div>
+            <div style="display: flex; gap: 5px;">
+                <button id="btn-save" class="cyber-button" style="flex: 1;">SAVE</button>
+                <button id="btn-load" class="cyber-button" style="flex: 1;">LOAD</button>
+            </div>
+            <div style="display: flex; gap: 5px; margin-top: 5px;">
+                <button id="btn-delete" class="cyber-button" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">DEL</button>
+                <button id="btn-reset" class="cyber-button" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">RESET</button>
+            </div>
+        </div>
+
+        <div class="cyber-card" style="margin-top: 10px;">
              <button id="btn-start-ar" class="cyber-button">INITIALIZE AR UPLINK</button>
         </div>
 
@@ -316,6 +338,73 @@
                  distSlider.addEventListener('change', () => {
                      log(`> PARAM_UPDATE: DISTORTION = ${distSlider.value}`);
                 });
+
+                // Save Management
+                const inputSaveName = document.getElementById('input-save-name');
+                const selectSaveSlot = document.getElementById('select-save-slot');
+                const btnSave = document.getElementById('btn-save');
+                const btnLoad = document.getElementById('btn-load');
+                const btnDelete = document.getElementById('btn-delete');
+                const btnReset = document.getElementById('btn-reset');
+
+                function updateSaveList() {
+                    try {
+                        const savesJson = gameClient.list_saves();
+                        const saves = JSON.parse(savesJson);
+                        selectSaveSlot.innerHTML = '';
+                        saves.forEach(s => {
+                            const opt = document.createElement('option');
+                            opt.value = s;
+                            opt.innerText = s;
+                            selectSaveSlot.appendChild(opt);
+                        });
+                    } catch (e) {
+                        log("> ERROR LISTING SAVES: " + e);
+                    }
+                }
+
+                // Initial load
+                updateSaveList();
+
+                selectSaveSlot.addEventListener('change', () => {
+                    inputSaveName.value = selectSaveSlot.value;
+                });
+
+                btnSave.addEventListener('click', () => {
+                    const name = inputSaveName.value.trim() || "default";
+                    log(`> SAVING GAME TO SLOT: ${name}`);
+                    gameClient.save_game(name);
+                    updateSaveList();
+                });
+
+                btnLoad.addEventListener('click', () => {
+                     const name = inputSaveName.value.trim() || selectSaveSlot.value || "default";
+                     log(`> LOADING GAME FROM SLOT: ${name}`);
+                     gameClient.load_game(name);
+                     // Also update input to match
+                     inputSaveName.value = name;
+                });
+
+                btnDelete.addEventListener('click', () => {
+                     const name = inputSaveName.value.trim() || selectSaveSlot.value;
+                     if (name) {
+                         if(confirm(`Delete save slot '${name}'?`)) {
+                             log(`> DELETING SLOT: ${name}`);
+                             gameClient.delete_save(name);
+                             updateSaveList();
+                             inputSaveName.value = "";
+                         }
+                     }
+                });
+
+                btnReset.addEventListener('click', () => {
+                     if(confirm("RESET WORLD? ALL UNSAVED PROGRESS WILL BE LOST.")) {
+                         log("> SYSTEM RESET INITIATED...");
+                         gameClient.reset_world();
+                         log("> WORLD STATE CLEARED.");
+                     }
+                });
+
 
                 // Network Polling
                 setInterval(() => {

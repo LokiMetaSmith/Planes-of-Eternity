@@ -9,6 +9,7 @@ pub enum RealityArchetype {
     Horror,      // Eldritch Horror
     Toon,        // Toon Logic
     HyperNature, // Procedural Nature
+    Genie,       // Generative Dream
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

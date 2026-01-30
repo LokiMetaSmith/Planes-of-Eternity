@@ -153,12 +153,23 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         // Quantize
         let steps = 4.0;
         return floor(n * steps) / steps;
-    } else {
+    } else if (id < 4.5) {
         // HyperNature (Domain Warp + Erosion)
         let n = domain_warp(pos * scale * 0.5);
         // Create "canyons" or "rivers" by using inverted ridges on top
         let ridges = 1.0 - abs(fbm(pos * scale * 1.5, 4, roughness) * 2.0 - 1.0);
         return n * 0.7 + ridges * 0.3 * params.z; // Use distortion param for ridge intensity
+    } else {
+        // Genie (Generative Dream)
+        let time = reality.global_offset.z;
+        let p = pos * scale * 0.5;
+        // Animated domain warp
+        let q = vec2<f32>(
+            fbm(p + vec2<f32>(time * 0.1, time * 0.2), 3, roughness),
+            fbm(p + vec2<f32>(5.2 - time * 0.1, 1.3 + time * 0.05), 3, roughness)
+        );
+        let n = fbm(p + 4.0 * q, 4, roughness);
+        return n * params.z; // Use distortion to control height
     }
 }
 
@@ -266,7 +277,7 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         // Cell shading bands
         let band = floor(n * 3.0) / 3.0;
         return mix(base_color, vec3<f32>(1.0), band * 0.5);
-    } else {
+    } else if (id < 4.5) {
         // HyperNature
         // Biomes based on height-like value
         let h = domain_warp(pos.xz * scale * 0.5);
@@ -280,6 +291,22 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let c1 = mix(water, grass, smoothstep(0.3, 0.35, h));
         let c2 = mix(c1, rock, smoothstep(0.6, 0.65, h));
         return mix(c2, snow, smoothstep(0.8, 0.85, h));
+    } else {
+        // Genie (Generative Dream)
+        let time = reality.global_offset.z;
+        let n = fbm(pos.xz * scale + vec2<f32>(time * 0.1), 3, roughness);
+
+        let c1 = vec3<f32>(1.0, 0.8, 0.2); // Gold
+        let c2 = vec3<f32>(0.5, 0.0, 0.8); // Purple
+        let c3 = vec3<f32>(0.0, 0.8, 1.0); // Cyan
+
+        // Cyclic blending
+        let phase = n + time * 0.2;
+        let w1 = 0.5 + 0.5 * sin(phase * 6.28);
+        let w2 = 0.5 + 0.5 * sin((phase + 0.33) * 6.28);
+        let w3 = 0.5 + 0.5 * sin((phase + 0.66) * 6.28);
+
+        return (c1 * w1 + c2 * w2 + c3 * w3) / (w1 + w2 + w3);
     }
 }
 

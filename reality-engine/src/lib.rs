@@ -240,6 +240,7 @@ struct State {
     lambda_renderer: visual_lambda::LambdaRenderer,
     lambda_system: visual_lambda::LambdaSystem,
     pending_full_sync: bool,
+    time: f32,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -632,6 +633,7 @@ impl State {
             lambda_renderer,
             lambda_system,
             pending_full_sync: false,
+            time: 0.0,
         }
     }
 
@@ -810,6 +812,7 @@ impl State {
     }
 
     pub fn update(&mut self) {
+        self.time += 0.01;
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(
@@ -830,6 +833,7 @@ impl State {
                 reality_types::RealityArchetype::Horror => ( 2.0, [1.0, 0.0, 0.0, 1.0] ),
                 reality_types::RealityArchetype::Toon => ( 3.0, [1.0, 1.0, 0.0, 1.0] ),
                 reality_types::RealityArchetype::HyperNature => ( 4.0, [0.2, 0.8, 0.2, 1.0] ),
+                reality_types::RealityArchetype::Genie => ( 5.0, [1.0, 0.8, 0.0, 1.0] ), // Gold
             }
         }
 
@@ -868,6 +872,7 @@ impl State {
         ];
         self.reality_uniform.proj2_color = color2;
         self.reality_uniform.global_offset = self.global_offset;
+        self.reality_uniform.global_offset[2] = self.time; // Pass time in Z
 
         self.queue.write_buffer(
             &self.reality_buffer,
@@ -1030,6 +1035,7 @@ impl GameClient {
             2 => reality_types::RealityArchetype::Horror,
             3 => reality_types::RealityArchetype::Toon,
             4 => reality_types::RealityArchetype::HyperNature,
+            5 => reality_types::RealityArchetype::Genie,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.active_anomaly {

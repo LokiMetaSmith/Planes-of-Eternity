@@ -20,6 +20,45 @@ pub struct GameState {
     pub version: u32,
 }
 
+pub fn get_save_key(slot: &str) -> String {
+    if slot == "default" || slot.is_empty() {
+        "reality_engine_save".to_string()
+    } else {
+        format!("reality_engine_save_{}", slot)
+    }
+}
+
+pub fn list_saves() -> Vec<String> {
+    let mut saves = Vec::new();
+    // Always include default if it exists? Or just list what's there.
+    // "default" maps to "reality_engine_save".
+
+    if let Ok(Some(storage)) = get_local_storage() {
+        let len = storage.length().unwrap_or(0);
+        for i in 0..len {
+            if let Ok(Some(key)) = storage.key(i) {
+                if key == "reality_engine_save" {
+                    saves.push("default".to_string());
+                } else if let Some(stripped) = key.strip_prefix("reality_engine_save_") {
+                    saves.push(stripped.to_string());
+                }
+            }
+        }
+    }
+    saves
+}
+
+pub fn delete_save(slot: &str) {
+    let key = get_save_key(slot);
+    if let Ok(Some(storage)) = get_local_storage() {
+        if let Err(e) = storage.remove_item(&key) {
+            error!("Failed to remove save '{}': {:?}", slot, e);
+        } else {
+            info!("Deleted save slot: {}", slot);
+        }
+    }
+}
+
 pub fn save_to_local_storage(key: &str, state: &GameState) {
     if let Ok(Some(storage)) = get_local_storage() {
         match serde_json::to_string(state) {

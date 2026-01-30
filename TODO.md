@@ -7,7 +7,7 @@
 - [x] **Force-Directed Layout**: Improve physics in `LambdaSystem` to prevent node overlap and provide a clearer tree structure.
 
 ## Networking & State
-- [ ] **Delta Sync**: Optimize `broadcast_world_state` to send only modified chunks or diffs, rather than the entire WorldState JSON.
+- [x] **Delta Sync**: Optimize `broadcast_world_state` to send only modified chunks or diffs, rather than the entire WorldState JSON.
 - [ ] **Conflict Resolution**: Implement timestamp-based or CRDT-like conflict resolution for Anomaly placement to handle race conditions better than the current append-only logic.
 - [x] **Connection UI**: Add visual indicators for PeerJS connection status (Connecting, Connected, Error) in the UI.
 

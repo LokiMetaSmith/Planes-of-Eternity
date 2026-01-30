@@ -6,11 +6,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::collections::HashMap;
 use log::{info, error};
-use crate::world::WorldState;
+use crate::world::{WorldState, Chunk};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SyncMessage {
     WorldUpdate(WorldState),
+    ChunkUpdate(Vec<Chunk>),
+    RequestSync,
 }
 
 #[derive(Serialize)]
@@ -224,6 +226,26 @@ impl NetworkManager {
 
             if let Ok(json) = serde_json::to_string(&packet) {
                 let _ = self.socket.send_with_str(&json);
+            }
+        }
+    }
+
+    pub fn broadcast_chunk_update(&self, chunks: Vec<Chunk>) {
+        let msg = SyncMessage::ChunkUpdate(chunks);
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let js_val = JsValue::from_str(&json);
+            for conn in self.connections.values() {
+                conn.send(&js_val);
+            }
+        }
+    }
+
+    pub fn broadcast_request_sync(&self) {
+        let msg = SyncMessage::RequestSync;
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let js_val = JsValue::from_str(&json);
+            for conn in self.connections.values() {
+                conn.send(&js_val);
             }
         }
     }

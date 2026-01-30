@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
 use crate::projector::RealityProjector;
 use sha2::{Sha256, Digest};
@@ -69,6 +69,8 @@ impl Chunk {
 pub struct WorldState {
     pub chunks: HashMap<ChunkId, Chunk>,
     pub root_hash: String,
+    #[serde(skip, default)]
+    pub dirty_chunks: HashSet<ChunkId>,
 }
 
 impl Default for WorldState {
@@ -76,6 +78,7 @@ impl Default for WorldState {
         Self {
             chunks: HashMap::new(),
             root_hash: String::new(),
+            dirty_chunks: HashSet::new(),
         }
     }
 }
@@ -93,6 +96,7 @@ impl WorldState {
         chunk.anomalies.push(projector);
         chunk.calculate_hash();
         self.calculate_root_hash();
+        self.dirty_chunks.insert(id);
     }
 
     pub fn calculate_root_hash(&mut self) {
@@ -122,6 +126,7 @@ impl WorldState {
             let chunk = self.get_or_create_chunk(id);
             if chunk.merge(&other_chunk) {
                 changed = true;
+                self.dirty_chunks.insert(id);
             }
         }
 
@@ -130,6 +135,34 @@ impl WorldState {
         }
 
         changed
+    }
+
+    pub fn merge_chunks(&mut self, chunks: Vec<Chunk>) -> bool {
+        let mut changed = false;
+        for other_chunk in chunks {
+            let id = other_chunk.id;
+            let chunk = self.get_or_create_chunk(id);
+            if chunk.merge(&other_chunk) {
+                changed = true;
+                self.dirty_chunks.insert(id);
+            }
+        }
+
+        if changed {
+            self.calculate_root_hash();
+        }
+
+        changed
+    }
+
+    pub fn extract_dirty_chunks(&mut self) -> Vec<Chunk> {
+        let mut dirty = Vec::new();
+        for id in self.dirty_chunks.drain() {
+            if let Some(chunk) = self.chunks.get(&id) {
+                dirty.push(chunk.clone());
+            }
+        }
+        dirty
     }
 }
 

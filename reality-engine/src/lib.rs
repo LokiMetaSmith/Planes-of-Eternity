@@ -239,6 +239,7 @@ struct State {
     global_offset: [f32; 4],
     lambda_renderer: visual_lambda::LambdaRenderer,
     lambda_system: visual_lambda::LambdaSystem,
+    pending_full_sync: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -630,6 +631,7 @@ impl State {
             global_offset: [0.0; 4],
             lambda_renderer,
             lambda_system,
+            pending_full_sync: false,
         }
     }
 
@@ -1259,9 +1261,18 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
                         let mut state = state_sync.borrow_mut();
                         if state.world_state.merge(remote_world) {
                             log::info!("Anomaly Conflict Resolved! World merged.");
-
-                            // Visual feedback could be added here (e.g. set a flag for shader)
                         }
+                    }
+                    network::SyncMessage::ChunkUpdate(chunks) => {
+                        let mut state = state_sync.borrow_mut();
+                        if state.world_state.merge_chunks(chunks) {
+                            log::info!("Chunk Update Merged.");
+                        }
+                    }
+                    network::SyncMessage::RequestSync => {
+                        let mut state = state_sync.borrow_mut();
+                        state.pending_full_sync = true;
+                        log::info!("Received Sync Request. Scheduled Full Broadcast.");
                     }
                 }
             });
@@ -1277,7 +1288,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_autosave = state.clone();
     let network_autosave = network_manager.clone();
     let autosave_closure = Closure::wrap(Box::new(move || {
-        let state = state_autosave.borrow();
+        let mut state = state_autosave.borrow_mut();
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
                 projector: projector::RealityProjector {
@@ -1294,10 +1305,26 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         // Pollinate (Broadcast Presence)
         if let Some(net) = &network_autosave {
              let loc = state.player_projector.location;
-             net.borrow().pollinate(&state.world_state.root_hash, [loc.x, loc.y, loc.z]);
+             let net = net.borrow();
 
-             // Broadcast State (Simple Sync Strategy)
-             net.borrow().broadcast_world_state(&state.world_state);
+             net.pollinate(&state.world_state.root_hash, [loc.x, loc.y, loc.z]);
+
+             // Check pending full sync
+             if state.pending_full_sync {
+                 net.broadcast_world_state(&state.world_state);
+                 state.pending_full_sync = false;
+             }
+             // Check if world empty (Request Sync)
+             else if state.world_state.chunks.is_empty() {
+                 net.broadcast_request_sync();
+             }
+             // Check dirty chunks (Delta Sync)
+             else {
+                 let dirty = state.world_state.extract_dirty_chunks();
+                 if !dirty.is_empty() {
+                     net.broadcast_chunk_update(dirty);
+                 }
+             }
         }
 
         // log::info!("Autosaved game state");

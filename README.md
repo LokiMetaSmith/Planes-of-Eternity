@@ -9,6 +9,9 @@ This project implements a procedural reality generation system where different "
 ## Architecture
 
 *   **`reality-engine/`**: The core Rust + WebGPU engine source code.
+    *   **`src/engine.rs`**: Core game logic, platform-agnostic (WorldState, Camera, Projectors).
+    *   **`src/lib.rs`**: WGPU rendering pipeline and WASM bindings (`State` struct).
+    *   **`tests/host_test.rs`**: Integration tests for verifying logic on the host (non-WASM) environment.
 *   **`reference_nanite_webgpu/`**: Reference implementation of Nanite-like logic in TypeScript.
 *   **`legacy_epic_version/`**: Archived Unreal Engine 5 source code for reference parity.
 
@@ -24,14 +27,22 @@ This project implements a procedural reality generation system where different "
     cargo install wasm-pack
     ```
 
-3.  **Build:**
+3.  **Build (Web):**
     Navigate to the engine directory and build for the web target:
     ```bash
     cd reality-engine
     wasm-pack build --target web
     ```
 
-4.  **Serve:**
+4.  **Test (Host):**
+    You can run logic tests directly on your machine without a browser:
+    ```bash
+    cd reality-engine
+    cargo test --test host_test
+    ```
+    This verifies engine initialization, interaction logic, and P2P state synchronization.
+
+5.  **Serve:**
     The engine requires a local server to serve the WASM and assets. You can use Python's built-in HTTP server:
     ```bash
     python3 -m http.server
@@ -42,3 +53,4 @@ This project implements a procedural reality generation system where different "
 
 *   **Camera Movement:** Use `WASD` or Arrow keys to move the camera.
 *   **Anomaly Injection:** Click anywhere on the ground (Projected Plane) to move the "Anomaly" projector to that location, blending the reality around it.
+*   **Lambda Casting:** Press `F` to cast the current Lambda expression as a reality anomaly.

@@ -31,6 +31,7 @@ struct InstanceInput {
     @location(3) model_matrix_1: vec4<f32>,
     @location(4) model_matrix_2: vec4<f32>,
     @location(5) model_matrix_3: vec4<f32>,
+    @location(6) stability: f32,
 };
 
 // Pseudo-random number generator
@@ -199,6 +200,7 @@ struct VertexOutput {
     @location(4) weight2: f32,
     @location(5) visibility: f32,
     @location(6) normal: vec3<f32>,
+    @location(7) instability: f32,
 };
 
 @vertex
@@ -217,6 +219,18 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     // Calculate height
     let h = get_height_at(flat_pos);
 
+    // Apply Instability (Glitch)
+    let instability = 1.0 - instance.stability;
+    var glitch_offset = 0.0;
+    if (instability > 0.01) {
+        // High frequency noise based on time
+        let t = reality.global_offset.z * 10.0;
+        let n = hash(flat_pos.xz + vec2<f32>(t));
+        if (n > 0.95 - (instability * 0.5)) {
+             glitch_offset = (n - 0.5) * instability * 5.0; // Spikes
+        }
+    }
+
     // Calculate Normal using Finite Difference
     let e = 0.05;
     let hx = get_height_at(flat_pos + vec3<f32>(e, 0.0, 0.0));
@@ -226,7 +240,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let normal = normalize(vec3<f32>(h - hx, e, h - hz));
 
     // Apply displacement
-    pos.y = pos.y + h;
+    pos.y = pos.y + h + glitch_offset;
 
     // Recalculate blend for Fragment Shader usage
     let blend = calculate_blend(flat_pos);
@@ -240,6 +254,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.weight2 = blend.weight2;
     out.visibility = min(blend.total_strength, 1.0);
     out.normal = normal;
+    out.instability = instability;
 
     return out;
 }
@@ -343,6 +358,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let lit_base = base_texture.rgb * (base_diffuse + ambient);
 
     let result = mix(lit_base, lit_reality, in.visibility);
+
+    // Visual Glitch Overlay (Chromatic Aberration simulation via color shift)
+    if (in.instability > 0.1) {
+         let shift = in.instability * 0.1;
+         return vec4<f32>(result.r + shift, result.g - shift, result.b, 1.0);
+    }
 
     return vec4<f32>(result, 1.0);
 }

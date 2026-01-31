@@ -1,7 +1,8 @@
+use std::rc::Rc;
 use cgmath::{EuclideanSpace, InnerSpace, Point3, Vector3};
 use crate::camera::{Camera, CameraController};
 use crate::input::{InputConfig, Action};
-use crate::lambda;
+use crate::lambda::{self, Term, Primitive};
 use crate::persistence::GameState;
 use crate::projector::RealityProjector;
 use crate::reality_types::{RealityArchetype, RealitySignature};
@@ -147,30 +148,14 @@ impl Engine {
                      if pressed {
                          // Cast Spell
                          log::info!("Casting Lambda Spell!");
-                         let archetype_id = self.lambda_system.get_archetype_from_term();
-                         let archetype = match archetype_id {
-                             0 => RealityArchetype::Fantasy,
-                             1 => RealityArchetype::SciFi,
-                             2 => RealityArchetype::Horror,
-                             _ => RealityArchetype::Toon,
-                         };
-
-                         // Forward vector: Target - Eye
-                         let forward = (self.camera.target - self.camera.eye).normalize();
-                         let spawn_pos = self.camera.eye + forward * 10.0; // 10 units away
-
-                         let mut sig = RealitySignature::default();
-                         sig.active_style.archetype = archetype;
-                         sig.fidelity = 100.0;
-                         sig.active_style.roughness = 0.5;
-                         sig.active_style.scale = 2.0;
-                         sig.active_style.distortion = 0.5;
-
-                         self.world_state.add_anomaly(RealityProjector {
-                             location: spawn_pos,
-                             reality_signature: sig,
-                         });
-                         log::info!("Spell Cast: {:?} at {:?}", archetype, spawn_pos);
+                         if let Some(term) = &self.lambda_system.root_term {
+                             if let Some(anomaly) = self.compile_spell(term.clone()) {
+                                 self.world_state.add_anomaly(anomaly.clone());
+                                 log::info!("Spell Cast Successfully: {:?}", anomaly.reality_signature.active_style.archetype);
+                             } else {
+                                 log::warn!("Spell Failed: Term did not compile to a valid anomaly.");
+                             }
+                         }
                      }
                  },
                  Action::MoveForward | Action::MoveBackward | Action::MoveLeft | Action::MoveRight => {
@@ -181,6 +166,9 @@ impl Engine {
                      // For now, let's keep CameraController "dumb" about bindings and just set its flags.
                      // But CameraController takes key_code string.
                      // We should modify CameraController to take Action enum? Or just bool flags.
+                 },
+                 Action::Inscribe => {
+                     // Handled by GameClient (lib.rs) triggering window.prompt
                  }
              }
         }
@@ -270,6 +258,114 @@ impl Engine {
         let ray_origin = self.camera.eye;
         let ray_dir = (ray_world_point - ray_origin).normalize();
         (ray_origin, ray_dir)
+    }
+
+    fn compile_spell(&self, term: Rc<Term>) -> Option<RealityProjector> {
+        // 1. Fully reduce the term
+        let mut current = term;
+        for _ in 0..100 { // Max reduction steps to prevent infinite loops
+             let (next, changed) = current.reduce();
+             if !changed {
+                 current = next;
+                 break;
+             }
+             current = next;
+        }
+
+        // 2. Interpret the result
+        // Default spawn position
+        let forward = (self.camera.target - self.camera.eye).normalize();
+        let spawn_pos = self.camera.eye + forward * 10.0;
+
+        match &*current {
+            Term::Prim(p) => self.primitive_to_anomaly(*p, spawn_pos),
+            Term::App(func, arg) => {
+                // Check if it's Prim App Prim
+                if let Term::Prim(op) = &**func {
+                    if let Term::Prim(target) = &**arg {
+                        return self.combine_primitives(*op, *target, spawn_pos);
+                    }
+                }
+                // Also check if it's Prim App (App...) - recursive evaluation is hard without specific logic.
+                // For now, only support 1 level of application (Modifier Target).
+                None
+            },
+            _ => None
+        }
+    }
+
+    fn primitive_to_anomaly(&self, p: Primitive, pos: Point3<f32>) -> Option<RealityProjector> {
+         let mut sig = RealitySignature::default();
+         sig.fidelity = 100.0;
+         sig.active_style.scale = 5.0;
+
+         match p {
+             Primitive::Fire => {
+                 sig.active_style.archetype = RealityArchetype::Horror; // Use Horror for Fire visual
+                 sig.active_style.roughness = 1.0;
+                 sig.active_style.distortion = 0.8;
+             },
+             Primitive::Water => {
+                 sig.active_style.archetype = RealityArchetype::HyperNature; // Watery?
+                 sig.active_style.roughness = 0.2;
+                 sig.active_style.distortion = 0.5;
+             },
+             Primitive::Growth => {
+                 sig.active_style.archetype = RealityArchetype::Fantasy;
+                 sig.active_style.roughness = 0.5;
+             },
+             Primitive::Energy => {
+                 sig.active_style.archetype = RealityArchetype::SciFi;
+                 sig.active_style.roughness = 0.0;
+                 sig.active_style.distortion = 0.2;
+             },
+             Primitive::Void => {
+                 sig.active_style.archetype = RealityArchetype::Void;
+             },
+             _ => return None,
+         }
+
+         Some(RealityProjector {
+             location: pos,
+             reality_signature: sig,
+         })
+    }
+
+    fn combine_primitives(&self, op: Primitive, target: Primitive, pos: Point3<f32>) -> Option<RealityProjector> {
+        let mut base = self.primitive_to_anomaly(target, pos)?;
+
+        match op {
+            Primitive::Growth => {
+                base.reality_signature.active_style.scale *= 2.0;
+            },
+            Primitive::Decay => {
+                base.reality_signature.active_style.scale *= 0.5;
+                base.reality_signature.active_style.distortion = 1.0;
+            },
+            Primitive::Energy => {
+                base.reality_signature.fidelity = 200.0; // Boost fidelity?
+                base.reality_signature.active_style.roughness = 0.0;
+            },
+            Primitive::Fire => {
+                // Fire + Something = Burnt Something?
+                base.reality_signature.active_style.archetype = RealityArchetype::Horror;
+            },
+            _ => {}
+        }
+
+        Some(base)
+    }
+
+    pub fn process_inscription(&mut self, text: &str) {
+        log::info!("Inscribing: {}", text);
+        // Clean up input (trim)
+        let clean_text = text.trim();
+        if let Some(term) = lambda::parse(clean_text) {
+             self.lambda_system.set_term(term);
+             log::info!("Inscription successful. Term updated.");
+        } else {
+             log::warn!("Invalid inscription syntax.");
+        }
     }
 
     pub fn reset(&mut self) {

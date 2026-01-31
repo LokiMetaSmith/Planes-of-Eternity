@@ -1,6 +1,6 @@
 use cgmath::{Point3, Vector3, InnerSpace, MetricSpace};
 use std::rc::Rc;
-use crate::lambda::Term;
+use crate::lambda::{Term, Primitive};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -389,6 +389,7 @@ pub enum NodeType {
     Var(String),
     Abs(String),
     App,
+    Prim(Primitive),
 }
 
 pub struct LambdaSystem {
@@ -627,6 +628,7 @@ impl LambdaSystem {
             Term::Var(name) => (NodeType::Var(name.clone()), self.hash_color(name)),
             Term::Abs(param, _) => (NodeType::Abs(param.clone()), [1.0, 1.0, 1.0, 1.0]), // White for Lambda
             Term::App(_, _) => (NodeType::App, [0.5, 0.5, 0.5, 1.0]), // Grey for App
+            Term::Prim(p) => (NodeType::Prim(*p), self.get_primitive_color(*p)),
         };
 
         let node_index = self.nodes.len();
@@ -654,7 +656,7 @@ impl LambdaSystem {
         // For now, just build everything.
 
         match &*term {
-            Term::Var(_) => {
+            Term::Var(_) | Term::Prim(_) => {
                 // Leaf
             }
             Term::Abs(_, body) => {
@@ -689,5 +691,19 @@ impl LambdaSystem {
         let b = ((sum * 789) % 255) as f32 / 255.0;
 
         [r, g, b, 1.0]
+    }
+
+    fn get_primitive_color(&self, p: Primitive) -> [f32; 4] {
+        match p {
+            Primitive::Fire => [1.0, 0.0, 0.0, 1.0],
+            Primitive::Water => [0.0, 0.0, 1.0, 1.0],
+            Primitive::Earth => [0.6, 0.4, 0.2, 1.0],
+            Primitive::Air => [0.0, 1.0, 1.0, 0.5],
+            Primitive::Growth => [0.0, 1.0, 0.0, 1.0],
+            Primitive::Decay => [0.5, 0.0, 0.5, 1.0],
+            Primitive::Energy => [1.0, 1.0, 0.0, 1.0],
+            Primitive::Stable => [1.0, 1.0, 1.0, 1.0],
+            Primitive::Void => [0.1, 0.1, 0.1, 1.0],
+        }
     }
 }

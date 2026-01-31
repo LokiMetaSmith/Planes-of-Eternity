@@ -32,13 +32,15 @@ impl Texture {
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
+        // Use Rgba8Unorm instead of Rgba8UnormSrgb for better compatibility
+        // The sRGB conversion can be handled in the shader if needed
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });

@@ -279,9 +279,10 @@ impl State {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features: wgpu::Features::empty(),
-                    // WebGL doesn't support all limits, but we are targeting WebGPU
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
+                    // Use adapter limits directly for WebGPU compatibility
+                    // Avoid using downlevel_webgl2_defaults() as it includes limits
+                    // not recognized by browser WebGPU implementations
+                    required_limits: adapter.limits(),
                     memory_hints: Default::default(),
                 },
                 None,

@@ -317,7 +317,13 @@ impl State {
         surface.configure(&device, &config);
 
         let diffuse_bytes = include_bytes!("happy-tree.png");
-        let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+        let diffuse_texture = match texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png") {
+            Ok(tex) => tex,
+            Err(e) => {
+                log::warn!("Failed to load happy-tree.png: {:?}. Using fallback.", e);
+                texture::Texture::create_fallback(&device, &queue, "happy-tree-fallback")
+            }
+        };
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

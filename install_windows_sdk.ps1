@@ -29,7 +29,7 @@ try {
         "--add", "Microsoft.VisualStudio.Component.Windows10SDK",
         "--quiet",
         "--norestart"
-    ) -Wait -PassThru -NoNewWindow
+    ) -Wait -PassThru -Verb RunAs
 
     if ($process.ExitCode -eq 0) {
         Write-Host "Windows SDK installation completed successfully!"

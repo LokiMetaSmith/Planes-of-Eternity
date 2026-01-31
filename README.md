@@ -17,14 +17,18 @@ This project implements a procedural reality generation system where different "
 ## Setup Instructions
 
 1.  **Install Rust:**
-    ```bash
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    ```
+    *   **macOS / Linux:**
+        ```bash
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+        ```
+    *   **Windows:**
+        Download and run [rustup-init.exe](https://win.rustup.rs/).
 
 2.  **Install wasm-pack:**
     ```bash
     cargo install wasm-pack
     ```
+    *Note: On Windows, you can also download the installer from the [wasm-pack website](https://rustwasm.github.io/wasm-pack/installer/).*
 
 3.  **Build (Web):**
     Navigate to the engine directory and build for the web target:
@@ -44,7 +48,11 @@ This project implements a procedural reality generation system where different "
 5.  **Serve:**
     The engine requires a local server to serve the WASM and assets. You can use Python's built-in HTTP server:
     ```bash
+    # macOS / Linux
     python3 -m http.server
+
+    # Windows (if python3 is not available)
+    python -m http.server
     ```
     Then open your browser to `http://localhost:8000/reality-engine/index.html`.
 

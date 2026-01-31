@@ -8,7 +8,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2"
-console_error_panic_hook = "0.1"
 wgpu = { version = "0.20", features = ["webgl"] }
 log = "0.4"
 console_log = "1"
@@ -46,5 +45,6 @@ features = [
   "DeviceOrientationEvent",
   "PositionError",
   "WebSocket",
-  "MessageEvent"
+  "MessageEvent",
+  "console"
 ]

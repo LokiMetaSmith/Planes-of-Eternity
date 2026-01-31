@@ -43,3 +43,9 @@ Reality Engine is a Rust + WebGPU procedural reality generation system targeting
 *   **Unused Code Warnings**: `cargo test` on host produces many "unused code" warnings because WASM entry points are compiled out. This is expected.
 *   **PeerJS**: The global `Peer` object is injected via `index.html` script tag. `network.rs` assumes it exists.
 *   **AR Mode**: Currently "Magic Window" (Video Background + Device Orientation). True WebXR `immersive-ar` is not yet implemented.
+
+## Toolchain Status
+
+*   **`wasm-pack` Archival**: As of July 2025, the `rustwasm` organization (maintainers of `wasm-pack`) has been sunset. `wasm-pack` is currently archived but functional.
+*   **Future Migration**: If `wasm-pack` ceases to function, the project should migrate to **[Trunk](https://trunkrs.dev/)**.
+*   **Dependencies**: `wasm-bindgen` and related crates (`web-sys`, `js-sys`) have moved to the `wasm-bindgen` organization and remain actively maintained. We have removed dependencies on archived `rustwasm` crates (e.g., `console_error_panic_hook`) to mitigate risks.

@@ -28,7 +28,7 @@ This project implements a procedural reality generation system where different "
     ```bash
     cargo install wasm-pack
     ```
-    *Note: On Windows, you can also download the installer from the [wasm-pack website](https://rustwasm.github.io/wasm-pack/installer/).*
+    *Note: `wasm-pack` is currently in maintenance mode following the sunsetting of the `rustwasm` organization. It is still the recommended build tool for this project, but migration to `Trunk` may be considered in the future.*
 
 3.  **Build (Web):**
     Navigate to the engine directory and build for the web target:

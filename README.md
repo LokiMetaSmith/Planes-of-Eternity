@@ -14,6 +14,21 @@ This project implements a procedural reality generation system where different "
     *   **`tests/host_test.rs`**: Integration tests for verifying logic on the host (non-WASM) environment.
 *   **`legacy_epic_version/`**: Archived Unreal Engine 5 source code for reference parity.
 
+## Quick Start
+
+We provide setup scripts to automate the installation of Rust and required tools.
+
+**Windows (PowerShell):**
+```powershell
+.\setup_dev.ps1
+```
+
+**macOS / Linux:**
+```bash
+chmod +x setup_dev.sh
+./setup_dev.sh
+```
+
 ## Setup Instructions
 
 1.  **Install Rust:**

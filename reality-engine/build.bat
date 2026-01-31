@@ -46,15 +46,46 @@ if not defined LIB (
     set "LIB=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\lib\x64"
 )
 REM Add Windows SDK to LIB if it exists
-if exist "C:\Program Files (x86)\Windows Kits\10\Lib" (
-    for /f "delims=" %%d in ('dir /b /ad "C:\Program Files (x86)\Windows Kits\10\Lib" 2^>nul') do (
-        set "SDK_VERSION=%%d"
-        goto :found_sdk
+set "SDK_FOUND=0"
+
+REM First check if LIB already contains Windows Kits (set by vcvarsall)
+echo %LIB% | findstr /i /c:"Windows Kits" >nul
+if not errorlevel 1 (
+    set "SDK_FOUND=1"
+    echo Windows SDK detected in LIB environment variable.
+)
+
+REM If not found, try to find it manually
+if "!SDK_FOUND!"=="0" (
+    if exist "C:\Program Files (x86)\Windows Kits\10\Lib" (
+        set "SDK_VERSION="
+        REM Loop through all to get the last one (highest version)
+        for /f "delims=" %%d in ('dir /b /ad "C:\Program Files (x86)\Windows Kits\10\Lib" 2^>nul') do (
+            set "SDK_VERSION=%%d"
+        )
+
+        if defined SDK_VERSION (
+            echo Found Windows SDK version: !SDK_VERSION! - Adding to LIB...
+            set "LIB=!LIB!;C:\Program Files (x86)\Windows Kits\10\Lib\!SDK_VERSION!\um\x64;C:\Program Files (x86)\Windows Kits\10\Lib\!SDK_VERSION!\ucrt\x64"
+            set "SDK_FOUND=1"
+        )
     )
-    :found_sdk
-    if defined SDK_VERSION (
-        set "LIB=!LIB!;C:\Program Files (x86)\Windows Kits\10\Lib\!SDK_VERSION!\um\x64;C:\Program Files (x86)\Windows Kits\10\Lib\!SDK_VERSION!\ucrt\x64"
-    )
+)
+
+if "!SDK_FOUND!"=="0" (
+    echo.
+    echo **********************************************************************
+    echo * ERROR: Windows SDK not found!                                      *
+    echo *                                                                    *
+    echo * The build requires 'kernel32.lib' which is part of the Windows SDK.*
+    echo *                                                                    *
+    echo * Please run the installation script in PowerShell:                  *
+    echo *     ..\install_windows_sdk.ps1                                     *
+    echo *                                                                    *
+    echo * Or install "Windows 10/11 SDK" via Visual Studio Installer.        *
+    echo **********************************************************************
+    echo.
+    exit /b 1
 )
 
 echo Building with wasm-pack...

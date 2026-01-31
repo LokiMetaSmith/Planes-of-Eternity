@@ -78,4 +78,18 @@ if (-not (Get-Command wasm-pack -ErrorAction SilentlyContinue)) {
     Write-Host "wasm-pack is already installed."
 }
 
+Write-Host "Checking for Windows SDK..."
+$sdkPath = "${env:ProgramFiles(x86)}\Windows Kits\10\Lib"
+if (-not (Test-Path $sdkPath)) {
+    Write-Warning "⚠️  WINDOWS SDK NOT FOUND ⚠️"
+    Write-Warning "The Windows SDK appears to be missing. This is required for building with MSVC."
+    Write-Warning "Without it, you may encounter linker errors (e.g., missing kernel32.lib)."
+    Write-Warning ""
+    Write-Warning "To install it automatically, run:"
+    Write-Warning "    .\install_windows_sdk.ps1"
+    Write-Warning ""
+} else {
+    Write-Host "Windows SDK found."
+}
+
 Write-Host "Environment setup complete!"

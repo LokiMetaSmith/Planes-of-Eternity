@@ -282,6 +282,7 @@ impl State {
                     // WebGL doesn't support all limits, but we are targeting WebGPU
                     required_limits: wgpu::Limits::downlevel_webgl2_defaults()
                         .using_resolution(adapter.limits()),
+                    memory_hints: Default::default(),
                 },
                 None,
             )
@@ -500,15 +501,16 @@ impl State {
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
+            cache: None,
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[Vertex::desc(), Instance::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState::REPLACE),

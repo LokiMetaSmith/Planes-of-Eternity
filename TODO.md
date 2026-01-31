@@ -19,5 +19,5 @@
 - [ ] **WebXR Support**: Investigate `navigator.xr` integration for true `immersive-ar` sessions (placing content in real-world coordinates), replacing the current "Magic Window" video background approach.
 
 ## Polishing
-- [ ] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
+- [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
 - [ ] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.

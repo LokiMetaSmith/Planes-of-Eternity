@@ -4,9 +4,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
-use cgmath::{EuclideanSpace, InnerSpace, SquareMatrix, Transform};
+use cgmath::{InnerSpace, SquareMatrix};
 
-mod camera;
+pub mod camera;
 mod texture;
 pub mod reality_types;
 pub mod projector;
@@ -15,6 +15,7 @@ pub mod world;
 pub mod network;
 pub mod lambda;
 pub mod visual_lambda;
+pub mod engine;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -160,8 +161,6 @@ fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
     (vertices, indices)
 }
 
-// Kept Instance struct to satisfy any potential future upstream merge,
-// though we use Chunking for now.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Instance {
@@ -206,7 +205,7 @@ struct ChunkData {
     aabb_max: cgmath::Point3<f32>,
 }
 
-struct State {
+pub struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -223,24 +222,27 @@ struct State {
 
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
-    camera: camera::Camera,
+    // camera moved to engine
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    camera_controller: camera::CameraController,
+    // camera_controller moved to engine
     reality_uniform: RealityUniform,
     reality_buffer: wgpu::Buffer,
     reality_bind_group: wgpu::BindGroup,
-    player_projector: projector::RealityProjector,
-    world_state: world::WorldState, // Replaces single anomaly_projector
-    active_anomaly: Option<projector::RealityProjector>, // The one we are currently placing/editing
+    // player_projector moved to engine
+    // world_state moved to engine
+    // active_anomaly moved to engine
+    // width/height logic in engine, but config needs it
     width: u32,
     height: u32,
-    global_offset: [f32; 4],
+    // global_offset moved to engine
     lambda_renderer: visual_lambda::LambdaRenderer,
-    lambda_system: visual_lambda::LambdaSystem,
-    pending_full_sync: bool,
-    time: f32,
+    // lambda_system moved to engine
+    // pending_full_sync moved to engine
+    // time moved to engine
+
+    pub engine: engine::Engine,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -351,22 +353,12 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader.wgsl"))),
         });
 
-        let mut camera = camera::Camera {
-            // position the camera one unit up and 2 units back
-            // +z is out of the screen
-            eye: (0.0, 1.0, 2.0).into(),
-            // have it look at the origin
-            target: (0.0, 0.0, 0.0).into(),
-            // which way is "up"
-            up: cgmath::Vector3::unit_y(),
-            aspect: config.width as f32 / config.height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
+        // Init Engine Logic
+        let loaded_state = persistence::load_from_local_storage("reality_engine_save");
+        let engine = engine::Engine::new(width, height, loaded_state);
 
         let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera);
+        camera_uniform.update_view_proj(&engine.camera);
 
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -402,8 +394,6 @@ impl State {
             ],
             label: Some("camera_bind_group"),
         });
-
-        let camera_controller = camera::CameraController::new(0.2);
 
         // Reality System Setup
         let reality_uniform = RealityUniform::new();
@@ -442,59 +432,6 @@ impl State {
             label: Some("reality_bind_group"),
         });
 
-        use cgmath::Point3;
-        // Attempt to load state
-        let loaded_state = persistence::load_from_local_storage("reality_engine_save");
-
-        let (player_projector, mut world_state, mut active_anomaly) = if let Some(state) = loaded_state {
-            log::info!("Restoring game state...");
-            // Restore camera position
-            camera.eye = state.player.projector.location;
-            camera_uniform.update_view_proj(&camera);
-
-            // Create a default active anomaly if we had one saved?
-            // For now, let's just create a new one to edit, or use the last one from the world?
-            // To keep logic simple, we init a fresh active anomaly
-            let mut anomaly_sig = reality_types::RealitySignature::default();
-            anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
-            anomaly_sig.active_style.roughness = 0.8;
-            anomaly_sig.active_style.scale = 5.0;
-            anomaly_sig.active_style.distortion = 0.8;
-            anomaly_sig.fidelity = 100.0;
-            let active_anomaly = projector::RealityProjector::new(
-                Point3::new(0.0, 0.0, 0.0),
-                anomaly_sig
-            );
-
-            (state.player.projector, state.world, Some(active_anomaly))
-        } else {
-            let mut player_sig = reality_types::RealitySignature::default();
-            player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
-            player_sig.active_style.roughness = 0.3; // Smooth, rolling hills
-            player_sig.active_style.scale = 2.0;     // Large features
-            player_sig.active_style.distortion = 0.1; // Low distortion
-            player_sig.fidelity = 100.0;
-            let player_projector = projector::RealityProjector::new(
-                Point3::new(0.0, 1.0, 2.0),
-                player_sig
-            );
-
-            let mut anomaly_sig = reality_types::RealitySignature::default();
-            anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
-            anomaly_sig.active_style.roughness = 0.8; // Jagged, techy
-            anomaly_sig.active_style.scale = 5.0;     // High frequency details
-            anomaly_sig.active_style.distortion = 0.8; // High distortion (glitchy)
-            anomaly_sig.fidelity = 100.0;
-            let active_anomaly = projector::RealityProjector::new(
-                Point3::new(0.0, 0.0, 0.0), // At the tree
-                anomaly_sig
-            );
-
-            let world_state = world::WorldState::default();
-
-            (player_projector, world_state, Some(active_anomaly))
-        };
-
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -531,9 +468,6 @@ impl State {
         let half_grid = (grid_count as f32 * chunk_size) / 2.0;
         let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
 
-        // Mesh generated from -5 to 5.
-        // We want chunks at -10, 0, 10 centers.
-
         for z in 0..grid_count {
             for x in 0..grid_count {
                 let x_pos = (x as f32 * chunk_size) - chunk_size; // 0->-10, 1->0, 2->10
@@ -547,7 +481,7 @@ impl State {
             }
         }
 
-        // Initial Instance Buffer (Empty or full, will update in update loop)
+        // Initial Instance Buffer
         let instances = vec![Instance { model: cgmath::Matrix4::identity().into() }; chunk_data.len()];
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
@@ -597,10 +531,6 @@ impl State {
             config.format,
             &camera_bind_group_layout,
         );
-        let mut lambda_system = visual_lambda::LambdaSystem::new();
-        // Init with a test term: (\x.x) y
-        let term = lambda::parse("(\\x.x) y").unwrap();
-        lambda_system.set_term(term);
 
         Self {
             surface,
@@ -616,29 +546,17 @@ impl State {
             chunk_data,
             diffuse_bind_group,
             diffuse_texture,
-            camera,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            camera_controller,
             reality_uniform,
             reality_buffer,
             reality_bind_group,
-            player_projector,
-            world_state,
-            active_anomaly,
             width,
             height,
-            global_offset: [0.0; 4],
             lambda_renderer,
-            lambda_system,
-            pending_full_sync: false,
-            time: 0.0,
+            engine,
         }
-    }
-
-    pub fn set_global_offset(&mut self, x: f32, z: f32) {
-        self.global_offset = [x, z, 0.0, 0.0];
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
@@ -648,181 +566,83 @@ impl State {
             self.config.width = new_width;
             self.config.height = new_height;
             self.surface.configure(&self.device, &self.config);
-            self.camera.aspect = self.config.width as f32 / self.config.height as f32;
+            self.engine.resize(new_width, new_height);
         }
     }
 
     pub fn process_keyboard(&mut self, key_code: &str) {
-        if key_code == "KeyF" {
-            // Cast Spell
-            log::info!("Casting Lambda Spell!");
-            let archetype_id = self.lambda_system.get_archetype_from_term();
-            let archetype = match archetype_id {
-                0 => reality_types::RealityArchetype::Fantasy,
-                1 => reality_types::RealityArchetype::SciFi,
-                2 => reality_types::RealityArchetype::Horror,
-                _ => reality_types::RealityArchetype::Toon,
-            };
+        // Logic moved to engine
+        // But we need to know if we need to track pressed state for engine.
+        // Engine's process_keyboard takes (key_code, pressed).
+        // The original State::process_keyboard only took key_code (implied press).
+        // Wait, original State::process_keyboard was called by keydown_closure, so it was "pressed".
+        // But camera controller needed both press and release.
+        // Original: process_keyboard(code) -> logic for casting spell (on press)
+        // AND camera_controller.process_events(code, true) (on press)
 
-            // Forward vector: Target - Eye
-            let forward = (self.camera.target - self.camera.eye).normalize();
-            let spawn_pos = self.camera.eye + forward * 10.0; // 10 units away
+        // I will update State::process_keyboard to match what's needed or update the closure.
+        // The closure calls:
+        // state.process_keyboard(&code);
+        // state.camera_controller.process_events(&code, true);
 
-            let mut sig = reality_types::RealitySignature::default();
-            sig.active_style.archetype = archetype;
-            sig.fidelity = 100.0;
-            sig.active_style.roughness = 0.5;
-            sig.active_style.scale = 2.0;
-            sig.active_style.distortion = 0.5;
+        // I'll make State::process_keyboard take `pressed`?
+        // Or keep it as "on press" trigger.
+        // Engine::process_keyboard handles both logic (spell) and camera.
 
-            self.world_state.add_anomaly(projector::RealityProjector {
-                location: spawn_pos,
-                reality_signature: sig,
-            });
-            log::info!("Spell Cast: {:?} at {:?}", archetype, spawn_pos);
-        }
+        // Let's update `process_keyboard` to just call `engine.process_keyboard(code, true)`.
+        // And update `process_keyup` equivalent?
+        // Original `process_keyboard` was only called on keydown.
+        // I'll change the signature in `lib.rs` closures later? No, I am rewriting `lib.rs` now.
+        // I can change `process_keyboard` signature to take `pressed`.
+
+        self.engine.process_keyboard(key_code, true);
+    }
+
+    // Helper for keyup
+    pub fn process_keyup(&mut self, key_code: &str) {
+        self.engine.process_keyboard(key_code, false);
     }
 
     pub fn process_mouse_down(&mut self, x: f32, y: f32, button: i16) {
-        let (ray_origin, ray_dir) = self.get_ray(x, y);
-
-        if button == 0 { // Left
-            if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
-                self.lambda_system.start_drag(idx, ray_origin, ray_dir);
-            }
-        } else if button == 2 { // Right
-             if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
-                self.lambda_system.toggle_collapse(idx);
-            }
-        }
+        self.engine.process_mouse_down(x, y, button);
     }
 
     pub fn process_mouse_move(&mut self, x: f32, y: f32) {
-        let (ray_origin, ray_dir) = self.get_ray(x, y);
-        self.lambda_system.update_drag(ray_origin, ray_dir);
+        self.engine.process_mouse_move(x, y);
     }
 
     pub fn process_mouse_up(&mut self) {
-        self.lambda_system.end_drag();
+        self.engine.process_mouse_up();
     }
 
     pub fn process_click(&mut self, x: f32, y: f32) {
-        let (ray_origin, ray_dir) = self.get_ray(x, y);
-
-        // 1. Check Lambda Intersection (Reduce)
-        if let Some(_idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
-             log::info!("Clicked Lambda Node! Reducing...");
-             self.lambda_system.reduce_root();
-             return;
+        if self.engine.process_click(x, y) {
+             // State changed, save
+             let game_state = persistence::GameState {
+                player: persistence::PlayerState {
+                    projector: projector::RealityProjector {
+                        location: self.engine.player_projector.location,
+                        reality_signature: self.engine.player_projector.reality_signature.clone(),
+                    }
+                },
+                world: self.engine.world_state.clone(),
+                timestamp: js_sys::Date::now() as u64,
+                version: persistence::SAVE_VERSION,
+            };
+            persistence::save_to_local_storage("reality_engine_save", &game_state);
         }
-
-        // 2. Plane Intersection (Terrain)
-        // P = O + tD
-        // P.y = 0
-        // O.y + t * D.y = 0
-        // t = -O.y / D.y
-
-        if ray_dir.y.abs() > 1e-6 {
-             let t = -self.camera.eye.y / ray_dir.y;
-             if t > 0.0 {
-                 let hit_point = self.camera.eye + ray_dir * t;
-                 log::warn!("Injection at: {:?}", hit_point);
-
-                 // Move Active Anomaly to click location
-                 if let Some(ref mut anomaly) = self.active_anomaly {
-                     anomaly.location = hit_point;
-
-                     // "Commit" the anomaly to the world state (Append it)
-                     // Note: For now, we just Clone it into the world.
-                     // A real "Commit" would be an explicit UI action, but for "Click to Place", this works.
-                     self.world_state.add_anomaly(projector::RealityProjector {
-                         location: anomaly.location,
-                         reality_signature: anomaly.reality_signature.clone(),
-                     });
-
-                     log::info!("World Root Hash Updated: {}", self.world_state.root_hash);
-                 }
-
-                 // Save state
-                 let game_state = persistence::GameState {
-                    player: persistence::PlayerState {
-                        projector: projector::RealityProjector {
-                            location: self.player_projector.location,
-                            reality_signature: self.player_projector.reality_signature.clone(),
-                        }
-                    },
-                    world: self.world_state.clone(),
-                    timestamp: js_sys::Date::now() as u64,
-                    version: persistence::SAVE_VERSION,
-                };
-                persistence::save_to_local_storage("reality_engine_save", &game_state);
-             }
-        }
-    }
-
-    fn get_ray(&self, x: f32, y: f32) -> (cgmath::Point3<f32>, cgmath::Vector3<f32>) {
-        use cgmath::SquareMatrix;
-        let view_proj = self.camera.build_view_projection_matrix();
-        let inv_view_proj = view_proj.invert().unwrap_or(cgmath::Matrix4::identity());
-        let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);
-        let ray_world_hom = inv_view_proj * ray_clip;
-        let ray_world_vec = ray_world_hom.truncate() / ray_world_hom.w;
-        let ray_world_point = cgmath::Point3::from_vec(ray_world_vec);
-        let ray_origin = self.camera.eye;
-        let ray_dir = (ray_world_point - ray_origin).normalize();
-        (ray_origin, ray_dir)
-    }
-
-    pub fn reset(&mut self) {
-        use cgmath::Point3;
-        // Reset World
-        self.world_state = world::WorldState::default();
-
-        // Reset Player
-        let mut player_sig = reality_types::RealitySignature::default();
-        player_sig.active_style.archetype = reality_types::RealityArchetype::Fantasy;
-        player_sig.active_style.roughness = 0.3;
-        player_sig.active_style.scale = 2.0;
-        player_sig.active_style.distortion = 0.1;
-        player_sig.fidelity = 100.0;
-        self.player_projector = projector::RealityProjector::new(
-            Point3::new(0.0, 1.0, 2.0),
-            player_sig
-        );
-        self.camera.eye = self.player_projector.location;
-
-        // Reset Active Anomaly
-        let mut anomaly_sig = reality_types::RealitySignature::default();
-        anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
-        anomaly_sig.active_style.roughness = 0.8;
-        anomaly_sig.active_style.scale = 5.0;
-        anomaly_sig.active_style.distortion = 0.8;
-        anomaly_sig.fidelity = 100.0;
-        self.active_anomaly = Some(projector::RealityProjector::new(
-            Point3::new(0.0, 0.0, 0.0),
-            anomaly_sig
-        ));
-
-        // Reset Lambda System
-        self.lambda_system = visual_lambda::LambdaSystem::new();
-        let term = lambda::parse("(\\x.x) y").unwrap();
-        self.lambda_system.set_term(term);
-
-        log::info!("World State Reset.");
     }
 
     pub fn update(&mut self) {
-        self.time += 0.01;
-        self.camera_controller.update_camera(&mut self.camera);
-        self.camera_uniform.update_view_proj(&self.camera);
+        self.engine.update(0.016); // Assuming ~60fps fixed step in update
+
+        // Sync WGPU buffers with Engine State
+        self.camera_uniform.update_view_proj(&self.engine.camera);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-
-        // Update Reality Projector Position (Player follows camera)
-        self.player_projector.location = self.camera.eye;
 
         // Helper to map archetype to ID and Color
         fn get_archetype_data(archetype: reality_types::RealityArchetype) -> (f32, [f32; 4]) {
@@ -837,7 +657,7 @@ impl State {
             }
         }
 
-        let p1 = &self.player_projector;
+        let p1 = &self.engine.player_projector;
         let (id1, color1) = get_archetype_data(p1.reality_signature.active_style.archetype);
         self.reality_uniform.proj1_pos_fid = [p1.location.x, p1.location.y, p1.location.z, p1.reality_signature.fidelity];
         self.reality_uniform.proj1_params = [
@@ -848,19 +668,11 @@ impl State {
         ];
         self.reality_uniform.proj1_color = color1;
 
-        // Render Active Anomaly (Ghost) if exists, OR find nearest from world state
-        // For this step, we'll render the "active_anomaly" if present, otherwise void.
-        // In the future, we need to iterate world chunks and upload arrays.
-
-        let p2 = if let Some(ref anomaly) = self.active_anomaly {
+        let p2 = if let Some(ref anomaly) = self.engine.active_anomaly {
              anomaly
         } else {
-            // Find closest from world? Or just a dummy
-             &self.player_projector // Hack to hide it if null, or create a Void projector
+             &self.engine.player_projector
         };
-
-        // If we really want to see the stored world, we need to pick an anomaly from self.world_state
-        // For "Edit Mode", we show active_anomaly.
 
         let (id2, color2) = get_archetype_data(p2.reality_signature.active_style.archetype);
         self.reality_uniform.proj2_pos_fid = [p2.location.x, p2.location.y, p2.location.z, p2.reality_signature.fidelity];
@@ -871,8 +683,8 @@ impl State {
             id2
         ];
         self.reality_uniform.proj2_color = color2;
-        self.reality_uniform.global_offset = self.global_offset;
-        self.reality_uniform.global_offset[2] = self.time; // Pass time in Z
+        self.reality_uniform.global_offset = self.engine.global_offset;
+        self.reality_uniform.global_offset[2] = self.engine.time;
 
         self.queue.write_buffer(
             &self.reality_buffer,
@@ -881,13 +693,11 @@ impl State {
         );
 
         // Update Frustum Culling & Instances
-        let view_proj = self.camera.build_view_projection_matrix();
+        let view_proj = self.engine.camera.build_view_projection_matrix();
 
-        // Filter visible chunks and build instance data
         let mut visible_instances = Vec::new();
         for chunk in &self.chunk_data {
             if is_aabb_visible(chunk.aabb_min, chunk.aabb_max, &view_proj) {
-                // Calculate model matrix for this chunk
                 let model = cgmath::Matrix4::from_translation(chunk.position);
                 visible_instances.push(Instance {
                     model: model.into(),
@@ -895,17 +705,8 @@ impl State {
             }
         }
 
-        // Update Instance Buffer
         self.num_instances = visible_instances.len() as u32;
         if self.num_instances > 0 {
-            // Re-create buffer if size grows?
-            // For now, our buffer is size 9 (max), so we can just write into it if count <= max.
-            // If we had dynamic count > max, we'd need to resize.
-            // Since max is 9, and visible is <= 9, write_buffer is fine.
-            // But write_buffer requires exact size match? No, just offset.
-            // We can write the slice.
-
-            // Note: If visible count is 0, we just don't draw.
             self.queue.write_buffer(
                 &self.instance_buffer,
                 0,
@@ -913,14 +714,13 @@ impl State {
             );
         }
 
-        // Update Lambda System
-        use cgmath::InnerSpace;
-        let forward = (self.camera.target - self.camera.eye).normalize();
-        let anchor = self.camera.eye + forward * 8.0; // Place it 8 units away
-        self.lambda_system.set_anchor(anchor);
-
-        self.lambda_system.update(0.016); // Fixed timestep for now
-        self.lambda_renderer.update_buffers(&self.device, &self.queue, &self.lambda_system.nodes, &self.lambda_system.edges);
+        // Update Lambda System buffers
+        self.lambda_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &self.engine.lambda_system.nodes,
+            &self.engine.lambda_system.edges
+        );
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -961,17 +761,15 @@ impl State {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
 
-            // Draw instances
             if self.num_instances > 0 {
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..)); // Bind instance buffer to slot 1
+                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
             }
 
-            // Draw Lambda Nodes
-            if !self.lambda_system.nodes.is_empty() {
-                 self.lambda_renderer.render(&mut render_pass, &self.camera_bind_group, self.lambda_system.nodes.len() as u32);
+            if !self.engine.lambda_system.nodes.is_empty() {
+                 self.lambda_renderer.render(&mut render_pass, &self.camera_bind_group, self.engine.lambda_system.nodes.len() as u32);
             }
         }
 
@@ -1003,7 +801,7 @@ pub struct GameClient {
 impl GameClient {
     pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {
         let mut state = self.state.borrow_mut();
-        if let Some(ref mut anomaly) = state.active_anomaly {
+        if let Some(ref mut anomaly) = state.engine.active_anomaly {
             anomaly.reality_signature.active_style.roughness = roughness;
             anomaly.reality_signature.active_style.scale = scale;
             anomaly.reality_signature.active_style.distortion = distortion;
@@ -1013,18 +811,11 @@ impl GameClient {
 
     pub fn set_world_origin(&self, lat: f32, lon: f32) {
         let mut state = self.state.borrow_mut();
-        // Simple mapping: Lat/Lon -> X/Z Offset
-        // 1 deg ~ 111km = 111,000 meters.
-        // We scale this down so the coordinates aren't massive floats causing precision issues immediately.
-        // Or we use them as seeds.
-        // Let's use them as offset in "meters".
-        // 0.0001 deg ~ 11 meters.
-
         let scale = 111000.0;
-        let x = lon * scale * 0.1; // Scale down a bit to make it manageable
+        let x = lon * scale * 0.1;
         let z = lat * scale * 0.1;
 
-        state.set_global_offset(x, z);
+        state.engine.set_global_offset(x, z);
     }
 
     pub fn set_anomaly_archetype(&self, archetype_id: i32) {
@@ -1038,7 +829,7 @@ impl GameClient {
             5 => reality_types::RealityArchetype::Genie,
             _ => reality_types::RealityArchetype::Void,
         };
-        if let Some(ref mut anomaly) = state.active_anomaly {
+        if let Some(ref mut anomaly) = state.engine.active_anomaly {
             anomaly.reality_signature.active_style.archetype = archetype;
         }
         self.save_state(&state);
@@ -1065,12 +856,10 @@ impl GameClient {
         if let Some(loaded_state) = persistence::load_from_local_storage(&key) {
             let mut state = self.state.borrow_mut();
 
-            // Apply loaded state
-            state.world_state = loaded_state.world;
-            state.player_projector = loaded_state.player.projector;
-            state.camera.eye = state.player_projector.location;
+            state.engine.world_state = loaded_state.world;
+            state.engine.player_projector = loaded_state.player.projector;
+            state.engine.camera.eye = state.engine.player_projector.location;
 
-            // Re-init active anomaly as default (or we should persist it too, but for now reset)
             use cgmath::Point3;
             let mut anomaly_sig = reality_types::RealitySignature::default();
             anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
@@ -1078,16 +867,14 @@ impl GameClient {
             anomaly_sig.active_style.scale = 5.0;
             anomaly_sig.active_style.distortion = 0.8;
             anomaly_sig.fidelity = 100.0;
-            state.active_anomaly = Some(projector::RealityProjector::new(
+            state.engine.active_anomaly = Some(projector::RealityProjector::new(
                 Point3::new(0.0, 0.0, 0.0),
                 anomaly_sig
             ));
 
-            // Lambda system reset or persist?
-            // Currently Persistence doesn't cover LambdaSystem, so reset it.
-            state.lambda_system = visual_lambda::LambdaSystem::new();
+            state.engine.lambda_system = visual_lambda::LambdaSystem::new();
             let term = lambda::parse("(\\x.x) y").unwrap();
-            state.lambda_system.set_term(term);
+            state.engine.lambda_system.set_term(term);
 
             log::info!("Game Loaded from slot: {}", slot_name);
         } else {
@@ -1106,20 +893,19 @@ impl GameClient {
 
     pub fn reset_world(&self) {
         let mut state = self.state.borrow_mut();
-        state.reset();
-        self.save_state(&state); // Save empty state to current slot
+        state.engine.reset();
+        self.save_state(&state);
     }
 
     fn save_state(&self, state: &State) {
-        // Construct GameState and save
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
                 projector: projector::RealityProjector {
-                    location: state.player_projector.location,
-                    reality_signature: state.player_projector.reality_signature.clone(),
+                    location: state.engine.player_projector.location,
+                    reality_signature: state.engine.player_projector.reality_signature.clone(),
                 }
             },
-            world: state.world_state.clone(),
+            world: state.engine.world_state.clone(),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
@@ -1174,11 +960,12 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         state_keydown
             .borrow_mut()
             .process_keyboard(&code);
-
-        state_keydown
-            .borrow_mut()
-            .camera_controller
-            .process_events(&code, true);
+        // Note: process_keyboard in State now calls engine.process_keyboard(code, true)
+        // AND the old code called camera_controller.process_events(code, true) explicitly.
+        // Engine::process_keyboard handles BOTH logic and camera.
+        // So we don't need to call camera_controller separately.
+        // Wait, I removed explicit camera_controller call from State::process_keyboard wrapper.
+        // So it's fine.
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -1190,8 +977,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let keyup_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
         state_keyup
             .borrow_mut()
-            .camera_controller
-            .process_events(&event.code(), false);
+            .process_keyup(&event.code());
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -1203,11 +989,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_mouse = state.clone();
     let canvas_mouse = canvas.clone();
 
-    // Store click state in a RefCell to share between closures or use a single closure for all if possible?
-    // Using separate closures is easier if we can share state.
-    // Or we can just use `mouse_down` timestamp.
-    // Let's use a struct or Rc<RefCell> for local state.
-
+    // MouseState tracking for click detection
     struct MouseState {
         down_pos: Option<(f32, f32)>,
         down_time: f64,
@@ -1250,7 +1032,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         state_move.borrow_mut().process_mouse_move(ndc_x, ndc_y);
     }) as Box<dyn FnMut(_)>);
 
-    // Mousemove on window to catch drags outside canvas
+    // Mousemove on window
     window.add_event_listener_with_callback("mousemove", mousemove_closure.as_ref().unchecked_ref()).unwrap();
     mousemove_closure.forget();
 
@@ -1288,17 +1070,11 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_orient = state.clone();
     let orient_closure = Closure::wrap(Box::new(move |event: web_sys::DeviceOrientationEvent| {
         if let (Some(alpha), Some(beta), Some(_gamma)) = (event.alpha(), event.beta(), event.gamma()) {
-            // Map orientation to camera look
-            // alpha: 0-360 (Z axis)
-            // beta: -180 to 180 (X axis)
-            // gamma: -90 to 90 (Y axis)
-
-            // Simple mapping for "Magic Window"
             let yaw = -alpha.to_radians() as f32;
-            let pitch = (beta - 90.0).to_radians() as f32; // Hold phone upright
+            let pitch = (beta - 90.0).to_radians() as f32;
 
             let mut state = state_orient.borrow_mut();
-            state.camera.set_rotation(yaw, pitch);
+            state.engine.camera.set_rotation(yaw, pitch);
         }
     }) as Box<dyn FnMut(_)>);
 
@@ -1316,13 +1092,11 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
                  let lat = coords.latitude() as f32;
                  let lon = coords.longitude() as f32;
 
-                 // Update global offset
-                 // Same logic as GameClient::set_world_origin
                  let scale = 111000.0;
                  let x = lon * scale * 0.1;
                  let z = lat * scale * 0.1;
 
-                 state_geo.borrow_mut().set_global_offset(x, z);
+                 state_geo.borrow_mut().engine.set_global_offset(x, z);
                  log::info!("Geolocation Acquired: {}, {}", lat, lon);
             }) as Box<dyn FnMut(_)>);
 
@@ -1350,7 +1124,6 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         state.update();
         state.render().expect("Render failed");
 
-        // Request next frame
         request_animation_frame(f.borrow().as_ref().unwrap());
     }));
 
@@ -1365,19 +1138,19 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
                 match msg {
                     network::SyncMessage::WorldUpdate(remote_world) => {
                         let mut state = state_sync.borrow_mut();
-                        if state.world_state.merge(remote_world) {
+                        if state.engine.world_state.merge(remote_world) {
                             log::info!("Anomaly Conflict Resolved! World merged.");
                         }
                     }
                     network::SyncMessage::ChunkUpdate(chunks) => {
                         let mut state = state_sync.borrow_mut();
-                        if state.world_state.merge_chunks(chunks) {
+                        if state.engine.world_state.merge_chunks(chunks) {
                             log::info!("Chunk Update Merged.");
                         }
                     }
                     network::SyncMessage::RequestSync => {
                         let mut state = state_sync.borrow_mut();
-                        state.pending_full_sync = true;
+                        state.engine.pending_full_sync = true;
                         log::info!("Received Sync Request. Scheduled Full Broadcast.");
                     }
                 }
@@ -1400,11 +1173,11 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
                 projector: projector::RealityProjector {
-                    location: state.player_projector.location,
-                    reality_signature: state.player_projector.reality_signature.clone(),
+                    location: state.engine.player_projector.location,
+                    reality_signature: state.engine.player_projector.reality_signature.clone(),
                 }
             },
-            world: state.world_state.clone(),
+            world: state.engine.world_state.clone(),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
@@ -1414,30 +1187,28 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
         // Pollinate (Broadcast Presence)
         if let Some(net) = &network_autosave {
-             let loc = state.player_projector.location;
+             let loc = state.engine.player_projector.location;
              let net = net.borrow();
 
-             net.pollinate(&state.world_state.root_hash, [loc.x, loc.y, loc.z]);
+             net.pollinate(&state.engine.world_state.root_hash, [loc.x, loc.y, loc.z]);
 
              // Check pending full sync
-             if state.pending_full_sync {
-                 net.broadcast_world_state(&state.world_state);
-                 state.pending_full_sync = false;
+             if state.engine.pending_full_sync {
+                 net.broadcast_world_state(&state.engine.world_state);
+                 state.engine.pending_full_sync = false;
              }
              // Check if world empty (Request Sync)
-             else if state.world_state.chunks.is_empty() {
+             else if state.engine.world_state.chunks.is_empty() {
                  net.broadcast_request_sync();
              }
              // Check dirty chunks (Delta Sync)
              else {
-                 let dirty = state.world_state.extract_dirty_chunks();
+                 let dirty = state.engine.world_state.extract_dirty_chunks();
                  if !dirty.is_empty() {
                      net.broadcast_chunk_update(dirty);
                  }
              }
         }
-
-        // log::info!("Autosaved game state");
     }) as Box<dyn FnMut()>);
 
     window.set_interval_with_callback_and_timeout_and_arguments_0(

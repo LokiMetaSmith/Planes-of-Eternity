@@ -1,5 +1,6 @@
 use cgmath::{EuclideanSpace, InnerSpace, Point3, Vector3};
 use crate::camera::{Camera, CameraController};
+use crate::input::{InputConfig, Action};
 use crate::lambda;
 use crate::persistence::GameState;
 use crate::projector::RealityProjector;
@@ -14,6 +15,7 @@ pub struct Engine {
     pub lambda_system: LambdaSystem,
     pub camera: Camera,
     pub camera_controller: CameraController,
+    pub input_config: InputConfig,
     pub global_offset: [f32; 4],
     pub time: f32,
     pub pending_full_sync: bool,
@@ -100,6 +102,7 @@ impl Engine {
             lambda_system,
             camera,
             camera_controller,
+            input_config: InputConfig::default(),
             global_offset: [0.0; 4],
             time: 0.0,
             pending_full_sync: false,
@@ -137,36 +140,61 @@ impl Engine {
     }
 
     pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) {
-        if pressed && key_code == "KeyF" {
-             // Cast Spell
-             log::info!("Casting Lambda Spell!");
-             let archetype_id = self.lambda_system.get_archetype_from_term();
-             let archetype = match archetype_id {
-                 0 => RealityArchetype::Fantasy,
-                 1 => RealityArchetype::SciFi,
-                 2 => RealityArchetype::Horror,
-                 _ => RealityArchetype::Toon,
-             };
+        // Map raw key to Action
+        if let Some(action) = self.input_config.map_key(key_code) {
+             match action {
+                 Action::CastSpell => {
+                     if pressed {
+                         // Cast Spell
+                         log::info!("Casting Lambda Spell!");
+                         let archetype_id = self.lambda_system.get_archetype_from_term();
+                         let archetype = match archetype_id {
+                             0 => RealityArchetype::Fantasy,
+                             1 => RealityArchetype::SciFi,
+                             2 => RealityArchetype::Horror,
+                             _ => RealityArchetype::Toon,
+                         };
 
-             // Forward vector: Target - Eye
-             let forward = (self.camera.target - self.camera.eye).normalize();
-             let spawn_pos = self.camera.eye + forward * 10.0; // 10 units away
+                         // Forward vector: Target - Eye
+                         let forward = (self.camera.target - self.camera.eye).normalize();
+                         let spawn_pos = self.camera.eye + forward * 10.0; // 10 units away
 
-             let mut sig = RealitySignature::default();
-             sig.active_style.archetype = archetype;
-             sig.fidelity = 100.0;
-             sig.active_style.roughness = 0.5;
-             sig.active_style.scale = 2.0;
-             sig.active_style.distortion = 0.5;
+                         let mut sig = RealitySignature::default();
+                         sig.active_style.archetype = archetype;
+                         sig.fidelity = 100.0;
+                         sig.active_style.roughness = 0.5;
+                         sig.active_style.scale = 2.0;
+                         sig.active_style.distortion = 0.5;
 
-             self.world_state.add_anomaly(RealityProjector {
-                 location: spawn_pos,
-                 reality_signature: sig,
-             });
-             log::info!("Spell Cast: {:?} at {:?}", archetype, spawn_pos);
+                         self.world_state.add_anomaly(RealityProjector {
+                             location: spawn_pos,
+                             reality_signature: sig,
+                         });
+                         log::info!("Spell Cast: {:?} at {:?}", archetype, spawn_pos);
+                     }
+                 },
+                 Action::MoveForward | Action::MoveBackward | Action::MoveLeft | Action::MoveRight => {
+                     // Camera controller handles WASD implicitly, but we need to map our Config to it.
+                     // The CameraController currently hardcodes KeyW, etc.
+                     // We need to update CameraController to accept generic Actions or boolean flags.
+
+                     // For now, let's keep CameraController "dumb" about bindings and just set its flags.
+                     // But CameraController takes key_code string.
+                     // We should modify CameraController to take Action enum? Or just bool flags.
+                 }
+             }
         }
 
-        self.camera_controller.process_events(key_code, pressed);
+        // TEMPORARY: CameraController still hardcodes keys.
+        // We will pass the key_code to it, but really we should refactor it to use Actions.
+        // To support rebinding for movement, we must map the *bound key* to the *hardcoded internal logic* OR update CameraController.
+        // Let's do the clean way: Update CameraController to take Action.
+
+        // Wait, Engine owns CameraController.
+        // Let's act as the bridge.
+        if let Some(action) = self.input_config.map_key(key_code) {
+             self.camera_controller.process_action(action, pressed);
+        }
     }
 
     pub fn process_mouse_down(&mut self, x: f32, y: f32, button: i16) {

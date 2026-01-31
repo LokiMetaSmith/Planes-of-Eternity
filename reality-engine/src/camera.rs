@@ -1,4 +1,5 @@
 use cgmath::*;
+use crate::input::Action;
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
@@ -62,6 +63,17 @@ impl CameraController {
         }
     }
 
+    pub fn process_action(&mut self, action: Action, pressed: bool) {
+        match action {
+            Action::MoveForward => self.is_forward_pressed = pressed,
+            Action::MoveBackward => self.is_backward_pressed = pressed,
+            Action::MoveLeft => self.is_left_pressed = pressed,
+            Action::MoveRight => self.is_right_pressed = pressed,
+            _ => (),
+        }
+    }
+
+    // Kept for legacy tests that might still pass strings, though ideally they use Actions now
     pub fn process_events(&mut self, key_code: &str, pressed: bool) -> bool {
         match key_code {
             "KeyW" | "ArrowUp" => {

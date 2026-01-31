@@ -1,4 +1,5 @@
 use reality_engine::engine::Engine;
+use reality_engine::input::{Action, InputConfig};
 use cgmath::{Point3, Vector3};
 
 #[test]
@@ -81,4 +82,46 @@ fn test_p2p_merge_logic() {
 
     assert_eq!(count_b, 1, "Peer B should have synchronized the anomaly from Peer A");
     assert_eq!(engine_b.world_state.root_hash, engine_a.world_state.root_hash, "World hashes should match after sync");
+}
+
+#[test]
+fn test_input_rebinding() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // Default binding: CastSpell -> KeyF
+    assert_eq!(engine.input_config.get_binding(Action::CastSpell).unwrap(), "KeyF");
+
+    // Simulate pressing KeyF -> Should cast spell
+    // (We check logs or side effect? Anomaly count)
+    // Clear initial anomalies
+    engine.world_state.chunks.clear();
+
+    engine.process_keyboard("KeyF", true);
+
+    // Verify anomaly added (Cast Spell adds an anomaly)
+    let count_f = engine.world_state.chunks.values()
+        .map(|c| c.anomalies.len())
+        .sum::<usize>();
+    assert_eq!(count_f, 1, "Pressing KeyF should cast spell by default");
+
+    // Rebind CastSpell to KeyG
+    engine.input_config.set_binding(Action::CastSpell, "KeyG".to_string());
+    assert_eq!(engine.input_config.get_binding(Action::CastSpell).unwrap(), "KeyG");
+
+    // Press KeyF -> Should do nothing now
+    engine.process_keyboard("KeyF", false); // Release
+    engine.process_keyboard("KeyF", true);  // Press
+
+    let count_f_2 = engine.world_state.chunks.values()
+        .map(|c| c.anomalies.len())
+        .sum::<usize>();
+    assert_eq!(count_f_2, 1, "Pressing KeyF should NOT cast spell after rebinding");
+
+    // Press KeyG -> Should cast spell
+    engine.process_keyboard("KeyG", true);
+
+    let count_g = engine.world_state.chunks.values()
+        .map(|c| c.anomalies.len())
+        .sum::<usize>();
+    assert_eq!(count_g, 2, "Pressing KeyG should cast spell after rebinding");
 }

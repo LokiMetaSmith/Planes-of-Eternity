@@ -71,6 +71,16 @@ chmod +x setup_dev.sh
     ```
     Then open your browser to `http://localhost:8000/reality-engine/index.html`.
 
+## Troubleshooting
+
+### Windows: "linking with `link.exe` failed"
+
+If you encounter an error like `link: extra operand` or `linking with link.exe failed` during build, it usually means the GNU `link.exe` (often from Git Bash or MinGW) is shadowing the Microsoft Visual Studio linker in your system PATH.
+
+**Solution:**
+1.  **Use the Developer Command Prompt:** Open the **"Developer Command Prompt for VS 2019/2022"** (search in Start Menu) and run your build commands from there. This ensures the correct Microsoft build tools are prioritized.
+2.  **Install C++ Build Tools:** Ensure you have the "Desktop development with C++" workload installed via the Visual Studio Installer.
+
 ## Controls
 
 *   **Camera Movement:** Use `WASD` or Arrow keys to move the camera.

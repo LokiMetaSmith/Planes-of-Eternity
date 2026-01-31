@@ -56,7 +56,7 @@ impl Engine {
             );
 
             let mut ls = LambdaSystem::new();
-            let term = lambda::parse("(\\x.x) y").unwrap();
+            let term = lambda::parse("FIRE").unwrap();
             ls.set_term(term);
 
             (state.player.projector, state.world, Some(active_anomaly), ls)
@@ -86,7 +86,7 @@ impl Engine {
             let world_state = WorldState::default();
 
             let mut ls = LambdaSystem::new();
-            let term = lambda::parse("(\\x.x) y").unwrap();
+            let term = lambda::parse("FIRE").unwrap();
             ls.set_term(term);
 
             (player_projector, world_state, Some(active_anomaly), ls)
@@ -399,7 +399,7 @@ impl Engine {
 
         // Reset Lambda System
         self.lambda_system = LambdaSystem::new();
-        let term = lambda::parse("(\\x.x) y").unwrap();
+        let term = lambda::parse("FIRE").unwrap();
         self.lambda_system.set_term(term);
 
         log::info!("World State Reset.");

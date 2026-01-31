@@ -1,13 +1,39 @@
 use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use crate::projector::RealityProjector;
 use sha2::{Sha256, Digest};
 use std::fmt::Write;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq, Copy)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Copy)]
 pub struct ChunkId {
     pub x: i32,
     pub z: i32,
+}
+
+impl Serialize for ChunkId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = format!("{}:{}", self.x, self.z);
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for ChunkId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let parts: Vec<&str> = s.split(':').collect();
+        if parts.len() != 2 {
+            return Err(serde::de::Error::custom("Invalid ChunkId format"));
+        }
+        let x = parts[0].parse().map_err(serde::de::Error::custom)?;
+        let z = parts[1].parse().map_err(serde::de::Error::custom)?;
+        Ok(ChunkId { x, z })
+    }
 }
 
 impl ChunkId {
@@ -235,5 +261,30 @@ mod tests {
         let changed_again = chunk1.merge(&chunk2);
         assert!(!changed_again);
         assert_eq!(chunk1.anomalies.len(), 2);
+    }
+
+    #[test]
+    fn test_chunk_id_serialization() {
+        let id = ChunkId { x: 5, z: -10 };
+        let serialized = serde_json::to_string(&id).unwrap();
+        assert_eq!(serialized, "\"5:-10\"");
+
+        let deserialized: ChunkId = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(id, deserialized);
+    }
+
+    #[test]
+    fn test_world_state_map_serialization() {
+        let mut world = WorldState::default();
+        let id = ChunkId { x: 1, z: 2 };
+        world.chunks.insert(id, Chunk::new(id));
+
+        let serialized = serde_json::to_string(&world).unwrap();
+        println!("Serialized WorldState: {}", serialized);
+        // Should contain "1:2" key
+        assert!(serialized.contains("\"1:2\":"));
+
+        let deserialized: WorldState = serde_json::from_str(&serialized).unwrap();
+        assert!(deserialized.chunks.contains_key(&id));
     }
 }

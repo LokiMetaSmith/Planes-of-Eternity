@@ -1,6 +1,7 @@
 use serde::{Serialize, Deserialize};
 use crate::projector::RealityProjector;
 use crate::world::WorldState;
+#[cfg(target_arch = "wasm32")]
 use web_sys::Storage;
 use log::{info, error};
 
@@ -28,6 +29,7 @@ pub fn get_save_key(slot: &str) -> String {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 pub fn list_saves() -> Vec<String> {
     let mut saves = Vec::new();
     // Always include default if it exists? Or just list what's there.
@@ -48,6 +50,12 @@ pub fn list_saves() -> Vec<String> {
     saves
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub fn list_saves() -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(target_arch = "wasm32")]
 pub fn delete_save(slot: &str) {
     let key = get_save_key(slot);
     if let Ok(Some(storage)) = get_local_storage() {
@@ -59,6 +67,12 @@ pub fn delete_save(slot: &str) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub fn delete_save(_slot: &str) {
+    log::warn!("delete_save not implemented on host");
+}
+
+#[cfg(target_arch = "wasm32")]
 pub fn save_to_local_storage(key: &str, state: &GameState) {
     if let Ok(Some(storage)) = get_local_storage() {
         match serde_json::to_string(state) {
@@ -72,6 +86,12 @@ pub fn save_to_local_storage(key: &str, state: &GameState) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_to_local_storage(_key: &str, _state: &GameState) {
+    // No-op on host
+}
+
+#[cfg(target_arch = "wasm32")]
 pub fn load_from_local_storage(key: &str) -> Option<GameState> {
     if let Ok(Some(storage)) = get_local_storage() {
         match storage.get_item(key) {
@@ -108,6 +128,12 @@ pub fn load_from_local_storage(key: &str) -> Option<GameState> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_from_local_storage(_key: &str) -> Option<GameState> {
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
 fn get_local_storage() -> Result<Option<Storage>, web_sys::wasm_bindgen::JsValue> {
     let window = web_sys::window().ok_or("No window found")?;
     window.local_storage()

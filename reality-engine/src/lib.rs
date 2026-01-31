@@ -424,7 +424,7 @@ impl State {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -919,7 +919,7 @@ impl GameClient {
             ));
 
             state.engine.lambda_system = visual_lambda::LambdaSystem::new();
-            let term = lambda::parse("(\\x.x) y").unwrap();
+            let term = lambda::parse("FIRE").unwrap();
             state.engine.lambda_system.set_term(term);
 
             log::info!("Game Loaded from slot: {}", slot_name);

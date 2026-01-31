@@ -166,6 +166,8 @@ fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Instance {
     model: [[f32; 4]; 4],
+    stability: f32,
+    padding: [f32; 3],
 }
 
 impl Instance {
@@ -194,6 +196,11 @@ impl Instance {
                     offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
                     shader_location: 5,
                     format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Float32,
                 },
             ],
         }
@@ -483,7 +490,7 @@ impl State {
         }
 
         // Initial Instance Buffer
-        let instances = vec![Instance { model: cgmath::Matrix4::identity().into() }; chunk_data.len()];
+        let instances = vec![Instance { model: cgmath::Matrix4::identity().into(), stability: 1.0, padding: [0.0; 3] }; chunk_data.len()];
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
             contents: bytemuck::cast_slice(&instances),
@@ -697,11 +704,23 @@ impl State {
         let view_proj = self.engine.camera.build_view_projection_matrix();
 
         let mut visible_instances = Vec::new();
-        for chunk in &self.chunk_data {
-            if is_aabb_visible(chunk.aabb_min, chunk.aabb_max, &view_proj) {
-                let model = cgmath::Matrix4::from_translation(chunk.position);
+        for chunk_data in &self.chunk_data {
+            if is_aabb_visible(chunk_data.aabb_min, chunk_data.aabb_max, &view_proj) {
+                let model = cgmath::Matrix4::from_translation(chunk_data.position);
+
+                // Get Stability from World State
+                let chunk_size = 10.0;
+                let id = world::ChunkId::from_world_pos(chunk_data.position.x, chunk_data.position.z, chunk_size);
+                let stability = if let Some(chunk) = self.engine.world_state.chunks.get(&id) {
+                    chunk.stability
+                } else {
+                    1.0
+                };
+
                 visible_instances.push(Instance {
                     model: model.into(),
+                    stability,
+                    padding: [0.0; 3],
                 });
             }
         }
@@ -976,15 +995,28 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_keydown = state.clone();
     let keydown_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
         let code = event.code();
+
+        // Check for Inscribe Key
+        let is_inscribe = {
+             let state = state_keydown.borrow();
+             state.engine.input_config.get_binding(input::Action::Inscribe) == Some(&code)
+        };
+
+        if is_inscribe {
+             // Pause/Unlock pointer if needed?
+             // web_sys::window().unwrap().document().unwrap().exit_pointer_lock();
+
+             if let Ok(Some(text)) = web_sys::window().unwrap().prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):") {
+                 if !text.is_empty() {
+                    state_keydown.borrow_mut().engine.process_inscription(&text);
+                 }
+             }
+             return;
+        }
+
         state_keydown
             .borrow_mut()
             .process_keyboard(&code);
-        // Note: process_keyboard in State now calls engine.process_keyboard(code, true)
-        // AND the old code called camera_controller.process_events(code, true) explicitly.
-        // Engine::process_keyboard handles BOTH logic and camera.
-        // So we don't need to call camera_controller separately.
-        // Wait, I removed explicit camera_controller call from State::process_keyboard wrapper.
-        // So it's fine.
     }) as Box<dyn FnMut(_)>);
 
     window

@@ -1,11 +1,58 @@
 use std::fmt;
 use std::rc::Rc;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Primitive {
+    Fire,
+    Water,
+    Earth,
+    Air,
+    Growth,
+    Decay,
+    Energy,
+    Stable,
+    Void,
+}
+
+impl fmt::Display for Primitive {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Primitive::Fire => write!(f, "FIRE"),
+            Primitive::Water => write!(f, "WATER"),
+            Primitive::Earth => write!(f, "EARTH"),
+            Primitive::Air => write!(f, "AIR"),
+            Primitive::Growth => write!(f, "GROWTH"),
+            Primitive::Decay => write!(f, "DECAY"),
+            Primitive::Energy => write!(f, "ENERGY"),
+            Primitive::Stable => write!(f, "STABLE"),
+            Primitive::Void => write!(f, "VOID"),
+        }
+    }
+}
+
+impl Primitive {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_uppercase().as_str() {
+            "FIRE" => Some(Primitive::Fire),
+            "WATER" => Some(Primitive::Water),
+            "EARTH" => Some(Primitive::Earth),
+            "AIR" => Some(Primitive::Air),
+            "GROWTH" => Some(Primitive::Growth),
+            "DECAY" => Some(Primitive::Decay),
+            "ENERGY" => Some(Primitive::Energy),
+            "STABLE" => Some(Primitive::Stable),
+            "VOID" => Some(Primitive::Void),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Term {
     Var(String),
     Abs(String, Rc<Term>), // \x. Body
     App(Rc<Term>, Rc<Term>), // (Function Argument)
+    Prim(Primitive),
 }
 
 impl fmt::Display for Term {
@@ -14,6 +61,7 @@ impl fmt::Display for Term {
             Term::Var(name) => write!(f, "{}", name),
             Term::Abs(param, body) => write!(f, "(λ{}.{})", param, body),
             Term::App(func, arg) => write!(f, "({} {})", func, arg),
+            Term::Prim(p) => write!(f, "{}", p),
         }
     }
 }
@@ -29,6 +77,10 @@ impl Term {
 
     pub fn app(func: Rc<Term>, arg: Rc<Term>) -> Rc<Term> {
         Rc::new(Term::App(func, arg))
+    }
+
+    pub fn prim(p: Primitive) -> Rc<Term> {
+        Rc::new(Term::Prim(p))
     }
 
     // Capture-avoiding substitution: self[val/var]
@@ -66,6 +118,7 @@ impl Term {
                     ))
                 }
             }
+            Term::Prim(p) => Rc::new(Term::Prim(*p)),
         }
     }
 
@@ -84,6 +137,7 @@ impl Term {
                 vars.retain(|v| v != param);
                 vars
             }
+            Term::Prim(_) => vec![],
         }
     }
 
@@ -229,7 +283,12 @@ fn parse_atom(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
             }
         }
         Token::Ident(name) => {
-            Some((Term::var(name), &tokens[1..]))
+            // Check if it's a Primitive
+            if let Some(prim) = Primitive::from_str(name) {
+                Some((Term::prim(prim), &tokens[1..]))
+            } else {
+                Some((Term::var(name), &tokens[1..]))
+            }
         }
         _ => None,
     }
@@ -238,6 +297,23 @@ fn parse_atom(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_primitive_parse() {
+        let term = parse("FIRE").unwrap();
+        match *term {
+            Term::Prim(Primitive::Fire) => assert!(true),
+            _ => assert!(false, "Expected Prim(Fire)"),
+        }
+    }
+
+    #[test]
+    fn test_primitive_app() {
+        let term = parse("GROWTH TREE").unwrap(); // TREE is var, GROWTH is prim
+        // "TREE" is not a known prim, so it's a Var("TREE")
+        println!("{}", term);
+        assert_eq!(term.to_string(), "(GROWTH TREE)");
+    }
 
     #[test]
     fn test_identity() {
@@ -275,19 +351,7 @@ mod tests {
         // Inner param 'y' should be renamed to avoid capturing the free 'y' being passed in.
         // The implementation appends '
         // Expect: (\y'.y)
-        // Let's verify our substitute logic handles this.
         println!("Reduced: {}", reduced);
-
-        // My implementation:
-        // Abs(param="y", body="x").substitute("x", "y")
-        // val.free_vars() contains "y". "y" == param.
-        // Rename param to "y'".
-        // body.substitute("y", "y'") -> "x" (no change)
-        // new_body.substitute("x", "y") -> "y"
-        // Result: \y'.y
-
-        // String check might be fragile due to exact naming, but let's check structure or string
-        // The display implementation might not be perfect for checking, but let's see.
         assert!(reduced.to_string().contains("y'"));
     }
 }

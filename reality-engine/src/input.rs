@@ -8,6 +8,7 @@ pub enum Action {
     MoveLeft,
     MoveRight,
     CastSpell,
+    Inscribe,
     // Add more actions as needed
 }
 
@@ -19,6 +20,7 @@ impl Action {
             "MoveLeft" => Some(Action::MoveLeft),
             "MoveRight" => Some(Action::MoveRight),
             "CastSpell" => Some(Action::CastSpell),
+            "Inscribe" => Some(Action::Inscribe),
             _ => None,
         }
     }
@@ -30,6 +32,7 @@ impl Action {
             Action::MoveLeft => "MoveLeft".to_string(),
             Action::MoveRight => "MoveRight".to_string(),
             Action::CastSpell => "CastSpell".to_string(),
+            Action::Inscribe => "Inscribe".to_string(),
         }
     }
 }
@@ -48,6 +51,7 @@ impl Default for InputConfig {
         bindings.insert(Action::MoveLeft, "KeyA".to_string());
         bindings.insert(Action::MoveRight, "KeyD".to_string());
         bindings.insert(Action::CastSpell, "KeyF".to_string());
+        bindings.insert(Action::Inscribe, "KeyI".to_string());
 
         let mut config = Self {
             bindings,

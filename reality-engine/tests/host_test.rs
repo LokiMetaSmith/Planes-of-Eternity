@@ -88,6 +88,10 @@ fn test_p2p_merge_logic() {
 fn test_input_rebinding() {
     let mut engine = Engine::new(800, 600, None);
 
+    // Set up a valid spell term so casting actually does something
+    let term = reality_engine::lambda::parse("FIRE").unwrap();
+    engine.lambda_system.set_term(term);
+
     // Default binding: CastSpell -> KeyF
     assert_eq!(engine.input_config.get_binding(Action::CastSpell).unwrap(), "KeyF");
 

@@ -23,6 +23,12 @@ pub struct Chunk {
     pub id: ChunkId,
     pub anomalies: Vec<RealityProjector>,
     pub hash: String,
+    #[serde(default = "default_stability")]
+    pub stability: f32, // 1.0 = Stable, 0.0 = Chaotic
+}
+
+fn default_stability() -> f32 {
+    1.0
 }
 
 impl Chunk {
@@ -31,6 +37,7 @@ impl Chunk {
             id,
             anomalies: Vec::new(),
             hash: String::new(),
+            stability: 1.0,
         }
     }
 
@@ -55,6 +62,12 @@ impl Chunk {
                 self.anomalies.push(other_anomaly.clone());
                 changed = true;
             }
+        }
+
+        // Merge stability (take the minimum to represent damage/entropy propagation)
+        if other.stability < self.stability {
+            self.stability = other.stability;
+            changed = true;
         }
 
         if changed {
@@ -92,6 +105,20 @@ impl WorldState {
         let chunk_size = 10.0; // Match the grid size from lib.rs
         let id = ChunkId::from_world_pos(projector.location.x, projector.location.z, chunk_size);
         let chunk = self.get_or_create_chunk(id);
+
+        // Apply stability impact based on archetype
+        use crate::reality_types::RealityArchetype;
+        let stability_cost = match projector.reality_signature.active_style.archetype {
+            RealityArchetype::Horror => 0.2,
+            RealityArchetype::SciFi => 0.1,
+            RealityArchetype::Fantasy => 0.05,
+            RealityArchetype::Void => 0.5,
+            RealityArchetype::HyperNature => -0.1, // Healing
+            RealityArchetype::Toon => 0.0,
+            RealityArchetype::Genie => 0.05,
+        };
+
+        chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);
 
         chunk.anomalies.push(projector);
         chunk.calculate_hash();

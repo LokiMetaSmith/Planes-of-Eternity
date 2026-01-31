@@ -28,7 +28,7 @@ try {
         "--installPath", "`"C:\Program Files\Microsoft Visual Studio\2022\Community`"",
         "--add", "Microsoft.VisualStudio.Component.Windows10SDK",
         "--quiet",
-        "--wait"
+        "--norestart"
     ) -Wait -PassThru -NoNewWindow
 
     if ($process.ExitCode -eq 0) {

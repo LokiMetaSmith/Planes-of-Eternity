@@ -48,4 +48,5 @@ Reality Engine is a Rust + WebGPU procedural reality generation system targeting
 
 *   **`wasm-pack` Archival**: As of July 2025, the `rustwasm` organization (maintainers of `wasm-pack`) has been sunset. `wasm-pack` is currently archived but functional.
 *   **Future Migration**: If `wasm-pack` ceases to function, the project should migrate to **[Trunk](https://trunkrs.dev/)**.
+*   **Windows Setup**: `setup_dev.ps1` downloads a pre-built binary (v0.13.0) of `wasm-pack` to avoid compilation issues with `link.exe` on some Windows environments.
 *   **Dependencies**: `wasm-bindgen` and related crates (`web-sys`, `js-sys`) have moved to the `wasm-bindgen` organization and remain actively maintained. We have removed dependencies on archived `rustwasm` crates (e.g., `console_error_panic_hook`) to mitigate risks.

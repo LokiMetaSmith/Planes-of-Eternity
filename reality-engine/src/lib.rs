@@ -15,6 +15,7 @@ pub mod world;
 pub mod network;
 pub mod lambda;
 pub mod visual_lambda;
+pub mod input;
 pub mod engine;
 
 #[repr(C)]
@@ -833,6 +834,24 @@ impl GameClient {
             anomaly.reality_signature.active_style.archetype = archetype;
         }
         self.save_state(&state);
+    }
+
+    pub fn get_key_binding(&self, action_name: String) -> String {
+        let state = self.state.borrow();
+        if let Some(action) = input::Action::from_string(&action_name) {
+             if let Some(key) = state.engine.input_config.get_binding(action) {
+                 return key.clone();
+             }
+        }
+        "".to_string()
+    }
+
+    pub fn set_key_binding(&self, action_name: String, key_code: String) {
+        let mut state = self.state.borrow_mut();
+        if let Some(action) = input::Action::from_string(&action_name) {
+             state.engine.input_config.set_binding(action, key_code);
+             // TODO: Persist input config
+        }
     }
 
     pub fn get_network_status(&self) -> String {

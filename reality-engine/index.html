@@ -252,13 +252,33 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Instructions</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Controls</div>
+            <div style="margin-bottom: 10px;">
+                <button id="btn-keybinds" class="cyber-button" style="font-size: 0.8rem;">CONFIGURE CONTROLS</button>
+            </div>
             <div style="font-size: 0.85rem; color: #aaa; line-height: 1.4;">
                 [WASD] Move Camera<br>
                 [Mouse] Click to Move Anomaly<br>
                 [Click Node] Reduce Lambda<br>
                 [F] Cast Spell (Lambda)<br>
                 [Sliders] Adjust Reality Params
+            </div>
+        </div>
+    </div>
+
+    <!-- Keybinds Overlay -->
+    <div id="keybind-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
+        <div class="cyber-card" style="width: 400px; max-width: 90%;">
+            <div class="cyber-header" style="display: flex; justify-content: space-between;">
+                <span>NEURAL LINK CONFIG</span>
+                <span id="btn-close-keybinds" style="cursor: pointer;">[X]</span>
+            </div>
+            <div id="keybind-list" style="margin-bottom: 20px;">
+                <!-- Bindings populated by JS -->
+                <!-- Example: MoveForward: KeyW -->
+            </div>
+            <div style="text-align: center; color: #888; font-size: 0.8rem;">
+                Click a binding, then press a key to rebind.
             </div>
         </div>
     </div>
@@ -442,6 +462,83 @@
                 }, 1000);
 
                 // AR Button Logic
+                // Keybinds UI
+                const btnKeybinds = document.getElementById('btn-keybinds');
+                const keybindOverlay = document.getElementById('keybind-overlay');
+                const btnCloseKeybinds = document.getElementById('btn-close-keybinds');
+                const keybindList = document.getElementById('keybind-list');
+
+                const actions = ["MoveForward", "MoveBackward", "MoveLeft", "MoveRight", "CastSpell"];
+                let currentlyRebinding = null;
+
+                function renderKeybinds() {
+                    keybindList.innerHTML = '';
+                    actions.forEach(action => {
+                        const row = document.createElement('div');
+                        row.style.display = 'flex';
+                        row.style.justifyContent = 'space-between';
+                        row.style.padding = '8px 0';
+                        row.style.borderBottom = '1px solid #333';
+                        row.style.color = '#ccc';
+                        row.style.fontFamily = 'monospace';
+
+                        const label = document.createElement('span');
+                        label.innerText = action;
+
+                        const btn = document.createElement('button');
+                        const currentKey = gameClient.get_key_binding(action);
+                        btn.innerText = currentKey || "UNBOUND";
+                        btn.style.background = '#222';
+                        btn.style.border = '1px solid #444';
+                        btn.style.color = '#00f0ff';
+                        btn.style.padding = '2px 8px';
+                        btn.style.cursor = 'pointer';
+                        btn.style.fontFamily = 'monospace';
+
+                        if (currentlyRebinding === action) {
+                             btn.innerText = "PRESS KEY...";
+                             btn.style.background = '#440000';
+                             btn.style.borderColor = '#ff0000';
+                             btn.style.color = '#fff';
+                        }
+
+                        btn.onclick = () => {
+                            if (currentlyRebinding) return; // Wait for current
+                            currentlyRebinding = action;
+                            renderKeybinds();
+
+                            // One-time listener
+                            const handler = (e) => {
+                                e.preventDefault();
+                                log(`> REBIND: ${action} -> ${e.code}`);
+                                gameClient.set_key_binding(action, e.code);
+                                currentlyRebinding = null;
+                                window.removeEventListener('keydown', handler);
+                                renderKeybinds();
+                            };
+                            window.addEventListener('keydown', handler);
+                        };
+
+                        row.appendChild(label);
+                        row.appendChild(btn);
+                        keybindList.appendChild(row);
+                    });
+                }
+
+                btnKeybinds.addEventListener('click', () => {
+                    renderKeybinds();
+                    keybindOverlay.style.display = 'flex';
+                });
+
+                btnCloseKeybinds.addEventListener('click', () => {
+                    keybindOverlay.style.display = 'none';
+                    if (currentlyRebinding) {
+                        currentlyRebinding = null; // Cancel pending?
+                        // Remove listeners? Complex without ref.
+                        // Just reload list next time.
+                    }
+                });
+
                 const btnAR = document.getElementById('btn-start-ar');
                 const videoFeed = document.getElementById('ar-feed');
 

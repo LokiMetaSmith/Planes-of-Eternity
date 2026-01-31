@@ -1,5 +1,22 @@
 Write-Host "Checking environment for Reality Engine development..."
 
+# Check for conflicting link.exe (GNU vs MSVC)
+$linkCmd = Get-Command link -ErrorAction SilentlyContinue
+if ($linkCmd) {
+    # Heuristic: If path contains "Git", "MinGW", or "usr\bin", it's likely the GNU linker which conflicts with Rust/MSVC
+    if ($linkCmd.Source -match "Git" -or $linkCmd.Source -match "MinGW" -or $linkCmd.Source -match "usr\\bin") {
+        Write-Warning "⚠️  POTENTIAL CONFLICT DETECTED ⚠️"
+        Write-Warning "The 'link' command in your PATH appears to be from Git/MinGW:"
+        Write-Warning "   $($linkCmd.Source)"
+        Write-Warning "This will likely cause 'link: extra operand' errors during build."
+        Write-Warning ""
+        Write-Warning "SOLUTION:"
+        Write-Warning "1. Run this script from the 'Developer Command Prompt for VS'."
+        Write-Warning "2. Or ensure Visual Studio C++ Build Tools are installed and their paths precede Git in your PATH."
+        Write-Warning "----------------------------------------------------------------"
+    }
+}
+
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     Write-Error "Rust (cargo) is not installed or not in your PATH."
     Write-Host "Please install Rust from https://win.rustup.rs/"

@@ -12,7 +12,6 @@ This project implements a procedural reality generation system where different "
     *   **`src/engine.rs`**: Core game logic, platform-agnostic (WorldState, Camera, Projectors).
     *   **`src/lib.rs`**: WGPU rendering pipeline and WASM bindings (`State` struct).
     *   **`tests/host_test.rs`**: Integration tests for verifying logic on the host (non-WASM) environment.
-*   **`reference_nanite_webgpu/`**: Reference implementation of Nanite-like logic in TypeScript.
 *   **`legacy_epic_version/`**: Archived Unreal Engine 5 source code for reference parity.
 
 ## Setup Instructions

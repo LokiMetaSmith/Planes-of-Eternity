@@ -241,10 +241,10 @@ impl Engine {
                      anomaly.location = hit_point;
 
                      // "Commit" the anomaly to the world state (Append it)
-                     self.world_state.add_anomaly(RealityProjector {
-                         location: anomaly.location,
-                         reality_signature: anomaly.reality_signature.clone(),
-                     });
+                     self.world_state.add_anomaly(RealityProjector::new(
+                         anomaly.location,
+                         anomaly.reality_signature.clone(),
+                     ));
 
                      log::info!("World Root Hash Updated: {}", self.world_state.root_hash);
                      return true; // State changed, request save
@@ -332,10 +332,7 @@ impl Engine {
              _ => return None,
          }
 
-         Some(RealityProjector {
-             location: pos,
-             reality_signature: sig,
-         })
+         Some(RealityProjector::new(pos, sig))
     }
 
     fn combine_primitives(&self, op: Primitive, target: Primitive, pos: Point3<f32>) -> Option<RealityProjector> {

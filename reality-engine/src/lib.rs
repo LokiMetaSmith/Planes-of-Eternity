@@ -639,10 +639,7 @@ impl State {
              // State changed, save
              let game_state = persistence::GameState {
                 player: persistence::PlayerState {
-                    projector: projector::RealityProjector {
-                        location: self.engine.player_projector.location,
-                        reality_signature: self.engine.player_projector.reality_signature.clone(),
-                    }
+                    projector: self.engine.player_projector.clone(),
                 },
                 world: self.engine.world_state.clone(),
                 timestamp: js_sys::Date::now() as u64,
@@ -949,10 +946,7 @@ impl GameClient {
     fn save_state(&self, state: &State) {
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
-                projector: projector::RealityProjector {
-                    location: state.engine.player_projector.location,
-                    reality_signature: state.engine.player_projector.reality_signature.clone(),
-                }
+                projector: state.engine.player_projector.clone(),
             },
             world: state.engine.world_state.clone(),
             timestamp: js_sys::Date::now() as u64,
@@ -1258,10 +1252,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let mut state = state_autosave.borrow_mut();
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
-                projector: projector::RealityProjector {
-                    location: state.engine.player_projector.location,
-                    reality_signature: state.engine.player_projector.reality_signature.clone(),
-                }
+                projector: state.engine.player_projector.clone(),
             },
             world: state.engine.world_state.clone(),
             timestamp: js_sys::Date::now() as u64,

@@ -1,11 +1,36 @@
 use cgmath::{MetricSpace, Point3};
 use serde::{Serialize, Deserialize};
 use crate::reality_types::{BlendResult, RealitySignature};
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct RealityProjector {
     pub location: Point3<f32>,
     pub reality_signature: RealitySignature,
+    #[serde(default = "default_uuid")]
+    pub uuid: String,
+    #[serde(default = "default_timestamp")]
+    pub last_updated: u64,
+}
+
+fn default_uuid() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn default_timestamp() -> u64 {
+    0
+}
+
+pub fn get_current_timestamp() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::time::SystemTime;
+        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    }
 }
 
 impl RealityProjector {
@@ -13,6 +38,8 @@ impl RealityProjector {
         Self {
             location,
             reality_signature: signature,
+            uuid: Uuid::new_v4().to_string(),
+            last_updated: get_current_timestamp(),
         }
     }
 
@@ -150,10 +177,18 @@ mod tests {
     fn test_partial_eq() {
         let sig = RealitySignature::default();
         let proj1 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
-        let proj2 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
+        let mut proj2 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
         let proj3 = RealityProjector::new(Point3::new(1.0, 0.0, 0.0), sig.clone());
 
-        assert_eq!(proj1, proj2);
+        // Because of unique UUIDs, these should be NE
+        assert_ne!(proj1, proj2);
+
+        // proj3 is definitely different location
         assert_ne!(proj1, proj3);
+
+        // Force equality
+        proj2.uuid = proj1.uuid.clone();
+        proj2.last_updated = proj1.last_updated;
+        assert_eq!(proj1, proj2);
     }
 }

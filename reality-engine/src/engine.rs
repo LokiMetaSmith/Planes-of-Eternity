@@ -227,7 +227,7 @@ impl Engine {
              let t = -self.camera.eye.y / ray_dir.y;
              if t > 0.0 {
                  let hit_point = self.camera.eye + ray_dir * t;
-                 log::warn!("Injection at: {:?}", hit_point);
+                 log::info!("Injection at: {:?}", hit_point);
 
                  // Move Active Anomaly to click location
                  if let Some(ref mut anomaly) = self.active_anomaly {

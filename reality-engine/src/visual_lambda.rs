@@ -303,17 +303,6 @@ impl LambdaRenderer {
         }
 
         // Sort Nodes: Opaque first, then Transparent
-        // We can't sort the actual `nodes` slice (it's borrowed).
-        // We create the vector of instances and sort that.
-        // But wait, `edges` refer to indices in `nodes`!
-        // If we render with sorted instances, the visual positions will be correct,
-        // BUT `edges` are lines, rendered separately from `nodes`.
-        // The instances are just for the spheres.
-        // As long as we don't change `nodes` order, `edges` logic (which reads `nodes`) is fine.
-        // BUT the `draw_indexed` calls rely on the instance buffer order.
-        // We are submitting instances. The Vertex Shader uses `instance_index`.
-        // So yes, we just fill `instances` buffer in sorted order.
-
         let mut instances: Vec<LambdaInstance> = nodes.iter().map(|n| LambdaInstance {
             position: [n.position.x, n.position.y, n.position.z],
             color: n.color,
@@ -387,16 +376,25 @@ impl LambdaRenderer {
             render_pass.draw(0..self.line_vertex_count, 0..1);
         }
 
-        // Draw Nodes
-        // We really should separate Opaque and Transparent rendering here.
-        // But for step 1 (Refactor Graph Construction), we keep rendering as is.
-        // Step 2 will split this.
-        render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, camera_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..num_instances);
+        // Draw Opaque Nodes
+        if self.opaque_count > 0 {
+            render_pass.set_pipeline(&self.pipeline);
+            render_pass.set_bind_group(0, camera_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.opaque_count);
+        }
+
+        // Draw Transparent Nodes
+        if num_instances > self.opaque_count {
+            render_pass.set_pipeline(&self.transparent_pipeline);
+            render_pass.set_bind_group(0, camera_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, self.opaque_count..num_instances);
+        }
     }
 }
 
@@ -473,6 +471,21 @@ pub enum NodeType {
     Port, // New: Represents a variable usage port (bound variable)
 }
 
+#[derive(Clone, Debug)]
+pub enum AnimationState {
+    Idle,
+    Reducing {
+        // We are reducing: (\x.Body) Arg
+        // Abs index is the bubble. Arg index is the root of the argument.
+        // We want to visually move Arg to Ports.
+        abs_idx: usize,
+        arg_idx: usize,
+        ports: Vec<usize>,
+        progress: f32,
+        new_term: Rc<Term>, // The result to switch to after animation
+    },
+}
+
 pub struct LambdaSystem {
     pub nodes: Vec<VisualNode>,
     pub edges: Vec<(usize, usize)>, // Indices into nodes
@@ -481,6 +494,7 @@ pub struct LambdaSystem {
     pub dragged_node: Option<usize>,
     pub drag_distance: f32,
     pub anchor_pos: Point3<f32>,
+    pub animation_state: AnimationState,
 }
 
 impl LambdaSystem {
@@ -493,6 +507,7 @@ impl LambdaSystem {
             dragged_node: None,
             drag_distance: 0.0,
             anchor_pos: Point3::new(0.0, 5.0, 0.0),
+            animation_state: AnimationState::Idle,
         }
     }
 
@@ -599,9 +614,77 @@ impl LambdaSystem {
     }
 
     pub fn reduce_root(&mut self) -> bool {
+        // Don't interrupt animation
+        if let AnimationState::Reducing { .. } = self.animation_state {
+            return false;
+        }
+
         if let Some(root) = &self.root_term {
              let (new_root, reduced) = root.reduce();
              if reduced {
+                 // Detect Reduction Type for Animation
+                 // We want to animate Beta Reduction: (\x.M) N
+                 // Check if root is App(Abs(x, M), N)
+                 if let Term::App(func, arg) = &**root {
+                     if let Term::Abs(param, _body) = &**func {
+                         // Found a Beta Reduction!
+                         // Need to find visual nodes corresponding to Abs and Arg
+                         // This is tricky because `nodes` is flat.
+                         // But we built the graph. The root is node 0.
+                         // App is node 0.
+                         // Func (Abs) is the left child of 0.
+                         // Arg is the right child of 0.
+
+                         // Find children of 0
+                         let mut left_child = None;
+                         let mut right_child = None;
+                         for &(p, c) in &self.edges {
+                             if p == 0 {
+                                 // How to distinguish left/right?
+                                 // In build_subtree, we pushed left then right.
+                                 // So left_child < right_child usually?
+                                 // Or check node type/term?
+                                 // We know Func is Abs.
+                                 if matches!(self.nodes[c].node_type, NodeType::Abs(_)) {
+                                     left_child = Some(c);
+                                 } else {
+                                     right_child = Some(c);
+                                 }
+                             }
+                         }
+
+                         if let (Some(abs_idx), Some(arg_idx)) = (left_child, right_child) {
+                             // Find Ports for 'param' inside Abs
+                             // We need to scan nodes for NodeType::Port that link to abs_idx
+                             // In build_subtree, Port -> Binder edge is created.
+                             // Wait, Edge direction is (Port, Binder)?
+                             // Yes: `self.edges.push((node_index, binder_idx));`
+
+                             let mut ports = Vec::new();
+                             for i in 0..self.nodes.len() {
+                                 if matches!(self.nodes[i].node_type, NodeType::Port) {
+                                     // Check if this port connects to abs_idx
+                                     for &(src, dst) in &self.edges {
+                                         if src == i && dst == abs_idx {
+                                             ports.push(i);
+                                         }
+                                     }
+                                 }
+                             }
+
+                             self.animation_state = AnimationState::Reducing {
+                                 abs_idx,
+                                 arg_idx,
+                                 ports,
+                                 progress: 0.0,
+                                 new_term: new_root,
+                             };
+                             return true;
+                         }
+                     }
+                 }
+
+                 // Fallback for other reductions (e.g. inner)
                  self.set_term(new_root);
                  return true;
              }
@@ -610,6 +693,102 @@ impl LambdaSystem {
     }
 
     pub fn update(&mut self, dt: f32) {
+        // Animation Logic
+        if let AnimationState::Reducing { ref abs_idx, ref arg_idx, ref ports, ref mut progress, ref new_term } = self.animation_state {
+            *progress += dt * 2.0; // 0.5s duration
+
+            if *progress >= 1.0 {
+                // Animation Complete
+                let term = new_term.clone();
+                self.animation_state = AnimationState::Idle;
+                self.set_term(term);
+                return;
+            }
+
+            // Animate!
+            // 1. Move Arg towards Abs (Consumption)
+            // 2. Move Arg towards Ports (Substitution) - if we could duplicate it visualy...
+            // For now, let's just move Arg towards Abs center.
+
+            // We can't easily move the whole subtree of Arg without updating all children.
+            // But `set_anchor` does that via delta.
+            // Let's calculate delta for arg_idx to move towards abs_idx.
+
+            let target_pos = self.nodes[*abs_idx].position;
+            let current_pos = self.nodes[*arg_idx].position;
+            let dir = target_pos - current_pos;
+            let step = dir * (*progress); // This is absolute lerp? No.
+
+            // We need frame delta.
+            // Actually, let's just modify the `target_position` of the arg root?
+            // The physics loop below will pull it.
+            // But physics is springy. We want deterministic animation.
+
+            // Let's force position.
+            let lerp_pos = current_pos + dir * (dt * 5.0); // Move fast
+
+            // Move subtree
+            let delta = lerp_pos - current_pos;
+
+            // BFS to move arg subtree
+            let mut stack = vec![*arg_idx];
+            let mut visited = std::collections::HashSet::new();
+            while let Some(idx) = stack.pop() {
+                if visited.contains(&idx) { continue; }
+                visited.insert(idx);
+
+                self.nodes[idx].position += delta;
+                self.nodes[idx].target_position += delta;
+
+                // 1. Shrink Effect: As progress -> 1.0, scale -> 0.1
+                // But only if we are being consumed.
+                // The argument is being consumed by the Abs bubble.
+                // Let's shrink it as it gets closer.
+                let shrink_factor = 1.0 - (*progress * 0.9);
+                if matches!(self.nodes[idx].node_type, NodeType::Abs(_)) {
+                     // Keep bubbles somewhat visible
+                     self.nodes[idx].scale = 3.0 * shrink_factor;
+                } else {
+                     self.nodes[idx].scale = shrink_factor;
+                }
+
+                // Find children
+                for &(p, c) in &self.edges {
+                    if p == idx {
+                        stack.push(c);
+                    }
+                }
+            }
+
+            // 2. Bubble Pulse: Pulse the Abs bubble
+            // Base scale 3.0. Pulse up to 3.5.
+            let pulse = (*progress * std::f32::consts::PI).sin(); // 0 -> 1 -> 0
+            self.nodes[*abs_idx].scale = 3.0 + (pulse * 0.5);
+
+            // 3. Color Shift: Shift Abs color to Reddish to show activity
+            // Base is [1.0, 1.0, 1.0, 0.3]
+            // Shift to [1.0, 0.5, 0.5, 0.5]
+            self.nodes[*abs_idx].color = [
+                1.0,
+                1.0 - (pulse * 0.5),
+                1.0 - (pulse * 0.5),
+                0.3 + (pulse * 0.2)
+            ];
+
+            // Glow effect on Ports?
+            // We can pulse their scale
+            for &port_idx in ports {
+                self.nodes[port_idx].scale = 0.2 + (pulse * 0.3);
+                 // Also highlight color
+                 self.nodes[port_idx].color = [
+                     0.2 + (pulse * 0.8),
+                     0.2,
+                     0.2,
+                     1.0
+                 ];
+            }
+        }
+
         let node_count = self.nodes.len();
         if node_count == 0 { return; }
 

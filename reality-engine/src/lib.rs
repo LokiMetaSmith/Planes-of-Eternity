@@ -747,7 +747,8 @@ impl State {
             &self.device,
             &self.queue,
             &self.engine.lambda_system.nodes,
-            &self.engine.lambda_system.edges
+            &self.engine.lambda_system.edges,
+            self.engine.lambda_system.hovered_node
         );
     }
 

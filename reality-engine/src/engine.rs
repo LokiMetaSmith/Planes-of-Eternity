@@ -204,6 +204,7 @@ impl Engine {
     pub fn process_mouse_move(&mut self, x: f32, y: f32) {
         let (ray_origin, ray_dir) = self.get_ray(x, y);
         self.lambda_system.update_drag(ray_origin, ray_dir);
+        self.lambda_system.update_hover(ray_origin, ray_dir);
     }
 
     pub fn process_mouse_look(&mut self, dx: f32, dy: f32) {

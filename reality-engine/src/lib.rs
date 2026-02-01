@@ -5,6 +5,7 @@ use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
 use cgmath::{InnerSpace, SquareMatrix};
+use serde::Serialize;
 
 pub mod camera;
 mod texture;
@@ -828,6 +829,12 @@ pub struct GameClient {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
+    pub fn get_node_labels(&self) -> String {
+        let state = self.state.borrow();
+        let labels = state.engine.get_node_labels();
+        serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string())
+    }
+
     pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {
         let mut state = self.state.borrow_mut();
         if let Some(ref mut anomaly) = state.engine.active_anomaly {

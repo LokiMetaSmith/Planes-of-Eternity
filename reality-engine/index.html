@@ -173,12 +173,38 @@
             color: #000;
             box-shadow: 0 0 10px #00f0ff;
         }
+
+        .node-label {
+            position: absolute;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 3px #000;
+            pointer-events: none;
+            transform: translate(-50%, -50%); /* Center on point */
+            white-space: nowrap;
+            z-index: 5;
+            user-select: none;
+        }
+
+        #labels-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 5;
+        }
     </style>
 </head>
 <body>
     <video id="ar-feed" autoplay playsinline></video>
     <div class="scanline"></div>
     <canvas id="reality-canvas"></canvas>
+    <div id="labels-layer"></div>
 
     <div id="ui-layer">
         <div class="cyber-card">
@@ -311,6 +337,50 @@
 
                 log("> CORE LINK ESTABLISHED");
                 log("> RENDER LOOP ACTIVE");
+
+                // Label Rendering Loop
+                const labelsLayer = document.getElementById('labels-layer');
+                const labelPool = []; // Pool of DOM elements
+
+                function updateLabels() {
+                    requestAnimationFrame(updateLabels);
+
+                    try {
+                        const json = gameClient.get_node_labels();
+                        const labels = JSON.parse(json);
+
+                        // Pool management: Ensure we have enough elements
+                        while (labelPool.length < labels.length) {
+                            const el = document.createElement('div');
+                            el.className = 'node-label';
+                            labelsLayer.appendChild(el);
+                            labelPool.push(el);
+                        }
+
+                        // Update active labels
+                        for (let i = 0; i < labels.length; i++) {
+                            const info = labels[i];
+                            const el = labelPool[i];
+
+                            el.style.display = 'block';
+                            el.innerText = info.text;
+                            el.style.color = info.color;
+
+                            // Convert 0..1 to percentages
+                            el.style.left = (info.x * 100) + '%';
+                            el.style.top = (info.y * 100) + '%';
+                        }
+
+                        // Hide unused
+                        for (let i = labels.length; i < labelPool.length; i++) {
+                            labelPool[i].style.display = 'none';
+                        }
+
+                    } catch (e) {
+                        // Suppress errors during frame loop
+                    }
+                }
+                requestAnimationFrame(updateLabels);
 
                 // UI Elements
                 const archetypeSelect = document.getElementById('param-archetype');

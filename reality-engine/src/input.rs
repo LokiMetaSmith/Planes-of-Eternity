@@ -7,6 +7,8 @@ pub enum Action {
     MoveBackward,
     MoveLeft,
     MoveRight,
+    Jump,
+    Descend,
     CastSpell,
     Inscribe,
     // Add more actions as needed
@@ -19,6 +21,8 @@ impl Action {
             "MoveBackward" => Some(Action::MoveBackward),
             "MoveLeft" => Some(Action::MoveLeft),
             "MoveRight" => Some(Action::MoveRight),
+            "Jump" => Some(Action::Jump),
+            "Descend" => Some(Action::Descend),
             "CastSpell" => Some(Action::CastSpell),
             "Inscribe" => Some(Action::Inscribe),
             _ => None,
@@ -31,6 +35,8 @@ impl Action {
             Action::MoveBackward => "MoveBackward".to_string(),
             Action::MoveLeft => "MoveLeft".to_string(),
             Action::MoveRight => "MoveRight".to_string(),
+            Action::Jump => "Jump".to_string(),
+            Action::Descend => "Descend".to_string(),
             Action::CastSpell => "CastSpell".to_string(),
             Action::Inscribe => "Inscribe".to_string(),
         }
@@ -50,6 +56,8 @@ impl Default for InputConfig {
         bindings.insert(Action::MoveBackward, "KeyS".to_string());
         bindings.insert(Action::MoveLeft, "KeyA".to_string());
         bindings.insert(Action::MoveRight, "KeyD".to_string());
+        bindings.insert(Action::Jump, "Space".to_string());
+        bindings.insert(Action::Descend, "ShiftLeft".to_string());
         bindings.insert(Action::CastSpell, "KeyF".to_string());
         bindings.insert(Action::Inscribe, "KeyI".to_string());
 

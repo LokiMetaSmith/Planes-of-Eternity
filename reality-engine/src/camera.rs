@@ -17,6 +17,8 @@ pub struct Camera {
     pub fovy: f32,
     pub znear: f32,
     pub zfar: f32,
+    pub yaw: f32,
+    pub pitch: f32,
 }
 
 impl Camera {
@@ -26,9 +28,25 @@ impl Camera {
         return OPENGL_TO_WGPU_MATRIX * proj * view;
     }
 
+    pub fn rotate(&mut self, dx: f32, dy: f32) {
+        self.yaw += dx;
+        self.pitch += dy;
+
+        // Clamp pitch to avoid flipping
+        self.pitch = self.pitch.clamp(-std::f32::consts::FRAC_PI_2 + 0.1, std::f32::consts::FRAC_PI_2 - 0.1);
+
+        self.update_target();
+    }
+
     pub fn set_rotation(&mut self, yaw: f32, pitch: f32) {
-        let (sin_y, cos_y) = yaw.sin_cos();
-        let (sin_p, cos_p) = pitch.sin_cos();
+        self.yaw = yaw;
+        self.pitch = pitch;
+        self.update_target();
+    }
+
+    fn update_target(&mut self) {
+        let (sin_y, cos_y) = self.yaw.sin_cos();
+        let (sin_p, cos_p) = self.pitch.sin_cos();
 
         // Direction vector from yaw/pitch
         // Y-up system
@@ -38,8 +56,10 @@ impl Camera {
             cos_p * cos_y
         ).normalize();
 
-        // Keep distance to target constant
-        let dist = (self.target - self.eye).magnitude();
+        // Keep distance to target constant (arbitrary, just needs to be non-zero for look_at)
+        // We use a fixed distance or keep previous magnitude?
+        // For FPS, target is just a point in front.
+        let dist = 10.0;
         self.target = self.eye + front * dist;
     }
 }
@@ -50,6 +70,8 @@ pub struct CameraController {
     is_backward_pressed: bool,
     is_left_pressed: bool,
     is_right_pressed: bool,
+    is_up_pressed: bool,
+    is_down_pressed: bool,
 }
 
 impl CameraController {
@@ -60,6 +82,8 @@ impl CameraController {
             is_backward_pressed: false,
             is_left_pressed: false,
             is_right_pressed: false,
+            is_up_pressed: false,
+            is_down_pressed: false,
         }
     }
 
@@ -69,6 +93,8 @@ impl CameraController {
             Action::MoveBackward => self.is_backward_pressed = pressed,
             Action::MoveLeft => self.is_left_pressed = pressed,
             Action::MoveRight => self.is_right_pressed = pressed,
+            Action::Jump => self.is_up_pressed = pressed,
+            Action::Descend => self.is_down_pressed = pressed,
             _ => (),
         }
     }
@@ -98,33 +124,38 @@ impl CameraController {
 
     pub fn update_camera(&self, camera: &mut Camera) {
         use cgmath::InnerSpace;
-        let forward = camera.target - camera.eye;
-        let forward_norm = forward.normalize();
-        let forward_mag = forward.magnitude();
 
-        // Prevents glitching when camera gets too close to the
-        // center of the scene.
-        if self.is_forward_pressed && forward_mag > self.speed {
-            camera.eye += forward_norm * self.speed;
+        // Calculate forward direction on XZ plane for movement
+        let (sin_y, cos_y) = camera.yaw.sin_cos();
+        let forward_xz = Vector3::new(sin_y, 0.0, cos_y).normalize();
+        let right_xz = forward_xz.cross(Vector3::unit_y()).normalize();
+
+        if self.is_forward_pressed {
+            camera.eye += forward_xz * self.speed;
         }
         if self.is_backward_pressed {
-            camera.eye -= forward_norm * self.speed;
+            camera.eye -= forward_xz * self.speed;
         }
-
-        let right = forward_norm.cross(camera.up);
-
-        // Redo radius calc in case the fowrard/backward is pressed.
-        let forward = camera.target - camera.eye;
-        let forward_mag = forward.magnitude();
-
         if self.is_right_pressed {
-            // Rescale the distance between the target and eye so
-            // that it doesn't change. The eye therefore still
-            // lies on the circle made by the target and eye.
-            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
+            camera.eye += right_xz * self.speed;
         }
         if self.is_left_pressed {
-            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
+            camera.eye -= right_xz * self.speed;
         }
+
+        if self.is_up_pressed {
+            camera.eye.y += self.speed;
+        }
+        if self.is_down_pressed {
+            camera.eye.y -= self.speed;
+        }
+
+        // Floor collision
+        if camera.eye.y < 1.0 {
+            camera.eye.y = 1.0;
+        }
+
+        // Update target based on new eye position
+        camera.update_target();
     }
 }

@@ -34,6 +34,8 @@ impl Engine {
             fovy: 45.0,
             znear: 0.1,
             zfar: 100.0,
+            yaw: std::f32::consts::PI,
+            pitch: -0.4636, // ~ -26.5 degrees
         };
 
         let camera_controller = CameraController::new(0.2);
@@ -158,7 +160,7 @@ impl Engine {
                          }
                      }
                  },
-                 Action::MoveForward | Action::MoveBackward | Action::MoveLeft | Action::MoveRight => {
+                 Action::MoveForward | Action::MoveBackward | Action::MoveLeft | Action::MoveRight | Action::Jump | Action::Descend => {
                      // Camera controller handles WASD implicitly, but we need to map our Config to it.
                      // The CameraController currently hardcodes KeyW, etc.
                      // We need to update CameraController to accept generic Actions or boolean flags.
@@ -202,6 +204,11 @@ impl Engine {
     pub fn process_mouse_move(&mut self, x: f32, y: f32) {
         let (ray_origin, ray_dir) = self.get_ray(x, y);
         self.lambda_system.update_drag(ray_origin, ray_dir);
+    }
+
+    pub fn process_mouse_look(&mut self, dx: f32, dy: f32) {
+        let sensitivity = 0.002;
+        self.camera.rotate(-dx * sensitivity, -dy * sensitivity);
     }
 
     pub fn process_mouse_up(&mut self) {

@@ -1061,13 +1061,23 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let canvas_down = canvas.clone();
     let mouse_state_down = mouse_state.clone();
     let mousedown_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-        let rect = canvas_down.get_bounding_client_rect();
-        let x = event.client_x() as f32 - rect.left() as f32;
-        let y = event.client_y() as f32 - rect.top() as f32;
-        let width = rect.width() as f32;
-        let height = rect.height() as f32;
-        let ndc_x = (x / width) * 2.0 - 1.0;
-        let ndc_y = -((y / height) * 2.0 - 1.0);
+        let document = web_sys::window().unwrap().document().unwrap();
+        let locked = document.pointer_lock_element().is_some();
+
+        if !locked {
+             canvas_down.request_pointer_lock();
+        }
+
+        let (ndc_x, ndc_y) = if locked {
+            (0.0, 0.0)
+        } else {
+            let rect = canvas_down.get_bounding_client_rect();
+            let x = event.client_x() as f32 - rect.left() as f32;
+            let y = event.client_y() as f32 - rect.top() as f32;
+            let width = rect.width() as f32;
+            let height = rect.height() as f32;
+            ((x / width) * 2.0 - 1.0, -((y / height) * 2.0 - 1.0))
+        };
 
         let button = event.button();
         state_down.borrow_mut().process_mouse_down(ndc_x, ndc_y, button);
@@ -1082,15 +1092,27 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_move = state.clone();
     let canvas_move = canvas.clone();
     let mousemove_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-        let rect = canvas_move.get_bounding_client_rect();
-        let x = event.client_x() as f32 - rect.left() as f32;
-        let y = event.client_y() as f32 - rect.top() as f32;
-        let width = rect.width() as f32;
-        let height = rect.height() as f32;
-        let ndc_x = (x / width) * 2.0 - 1.0;
-        let ndc_y = -((y / height) * 2.0 - 1.0);
+        let document = web_sys::window().unwrap().document().unwrap();
+        let locked = document.pointer_lock_element().is_some();
 
-        state_move.borrow_mut().process_mouse_move(ndc_x, ndc_y);
+        if locked {
+            state_move.borrow_mut().engine.process_mouse_look(
+                event.movement_x() as f32,
+                event.movement_y() as f32
+            );
+            // Also update drag with center ray to allow carrying items
+            state_move.borrow_mut().process_mouse_move(0.0, 0.0);
+        } else {
+            let rect = canvas_move.get_bounding_client_rect();
+            let x = event.client_x() as f32 - rect.left() as f32;
+            let y = event.client_y() as f32 - rect.top() as f32;
+            let width = rect.width() as f32;
+            let height = rect.height() as f32;
+            let ndc_x = (x / width) * 2.0 - 1.0;
+            let ndc_y = -((y / height) * 2.0 - 1.0);
+
+            state_move.borrow_mut().process_mouse_move(ndc_x, ndc_y);
+        }
     }) as Box<dyn FnMut(_)>);
 
     // Mousemove on window

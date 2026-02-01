@@ -1,4 +1,4 @@
-use cgmath::{Point3, Vector3, InnerSpace, MetricSpace};
+use cgmath::{Point3, Vector3, InnerSpace, MetricSpace, EuclideanSpace};
 use std::rc::Rc;
 use std::collections::HashMap;
 use crate::lambda::{Term, Primitive};
@@ -323,7 +323,10 @@ impl LambdaRenderer {
         }
 
         // Update Lines
-        let required_line_vertices = edges.len() * 2;
+        // We use curves now, so we need more vertices per edge (e.g. 10 segments = 20 vertices)
+        let segments_per_edge = 10;
+        let required_line_vertices = edges.len() * segments_per_edge * 2;
+
         if required_line_vertices > self.line_capacity {
             self.line_capacity = (required_line_vertices * 2).max(self.line_capacity * 2);
              let line_vertices = vec![LambdaLineVertex { position: [0.0; 3], color: [0.0; 4] }; self.line_capacity];
@@ -345,18 +348,81 @@ impl LambdaRenderer {
                     continue;
                 }
 
-                // Color depends on type. If connected to a "Bound Port", use that color.
-                // For now, white with alpha.
-                let color = [1.0, 1.0, 1.0, 0.5];
+                let p0 = start_node.position;
+                let p2 = end_node.position;
 
-                line_data.push(LambdaLineVertex {
-                    position: [start_node.position.x, start_node.position.y, start_node.position.z],
-                    color,
-                });
-                 line_data.push(LambdaLineVertex {
-                    position: [end_node.position.x, end_node.position.y, end_node.position.z],
-                    color,
-                });
+                // Color Logic
+                let mut color = [1.0, 1.0, 1.0, 0.5];
+
+                // Determine Control Point and Color based on type
+                // Is this a Structure Edge or a Wire?
+                // Wire connects Port -> Binder. Port is `start_node`.
+                // Actually edges are (start, end). In build_subtree:
+                // Structure: Abs -> Body (edges.push((node_index, child_idx)))
+                // Structure: App -> Child (edges.push((node_index, left_idx)))
+                // Wire: Port -> Binder (edges.push((node_index, binder_idx)))
+
+                let is_wire = matches!(start_node.node_type, NodeType::Port);
+
+                let p1 = if is_wire {
+                    // Wires should curve "out".
+                    // Since nodes are usually below binder, we curve sideways/up.
+                    // Simple heuristic: midpoint + outward offset
+                    // Let's use cross product with Up vector?
+                    // Or just add Y offset.
+                    color = [0.8, 0.8, 1.0, 0.8]; // Blueish wires
+
+                    let mid = p0 + (p2 - p0) * 0.5;
+                    // Curve away from center?
+                    // Let's just curve "up" relative to the straight line to loop back.
+                    // Port is usually below Binder.
+                    // So we want curve to go OUT then UP.
+
+                    // Simple hack: Curve perpendicular to the line in XZ plane
+                    let dir = p2 - p0;
+                    let right = Vector3::new(-dir.z, 0.0, dir.x).normalize();
+                    // If dir is vertical, this fails.
+
+                    if dir.x.abs() < 0.1 && dir.z.abs() < 0.1 {
+                         mid + Vector3::new(2.0, 0.0, 0.0) // Side loop
+                    } else {
+                         mid + right * 2.0 // Curve side
+                    }
+                } else {
+                    // Structure Edge
+                    // Gentle S-curve or just straight?
+                    // Let's keep it mostly straight but slightly curved for aesthetics
+                    let mid = p0 + (p2 - p0) * 0.5;
+                    mid
+                };
+
+                // Generate Curve Segments (Quadratic Bezier)
+                // B(t) = (1-t)^2 P0 + 2(1-t)t P1 + t^2 P2
+                let mut prev_pos = p0;
+
+                for i in 1..=segments_per_edge {
+                    let t = i as f32 / segments_per_edge as f32;
+                    let it = 1.0 - t;
+
+                    // Bezier using Vectors for math
+                    let v0 = p0.to_vec();
+                    let v1 = p1.to_vec();
+                    let v2 = p2.to_vec();
+
+                    let pos_vec = (v0 * (it * it)) + (v1 * (2.0 * it * t)) + (v2 * (t * t));
+                    let pos = Point3::from_vec(pos_vec);
+
+                    line_data.push(LambdaLineVertex {
+                        position: [prev_pos.x, prev_pos.y, prev_pos.z],
+                        color,
+                    });
+                    line_data.push(LambdaLineVertex {
+                        position: [pos.x, pos.y, pos.z],
+                        color,
+                    });
+
+                    prev_pos = pos;
+                }
             }
         }
 

@@ -129,3 +129,62 @@ fn test_input_rebinding() {
         .sum::<usize>();
     assert_eq!(count_g, 2, "Pressing KeyG should cast spell after rebinding");
 }
+
+#[test]
+fn test_merge_conflict_resolution() {
+    use reality_engine::projector::RealityProjector;
+    use reality_engine::reality_types::{RealitySignature, RealityArchetype};
+    use reality_engine::world::{Chunk, ChunkId};
+    use cgmath::Point3;
+
+    let mut chunk1 = Chunk::new(ChunkId { x: 0, z: 0 });
+    let mut chunk2 = Chunk::new(ChunkId { x: 0, z: 0 });
+
+    let sig = RealitySignature::default();
+
+    // Create base projector
+    let mut proj1 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
+    proj1.last_updated = 1000;
+
+    // Add to chunk1
+    chunk1.anomalies.push(proj1.clone());
+
+    // Create conflicting projector (same UUID, newer timestamp, different location)
+    let mut proj1_update = proj1.clone();
+    proj1_update.location = Point3::new(10.0, 10.0, 10.0);
+    proj1_update.last_updated = 2000;
+
+    // Add to chunk2
+    chunk2.anomalies.push(proj1_update.clone());
+
+    // Create non-conflicting projector (different UUID)
+    let proj2 = RealityProjector::new(Point3::new(5.0, 5.0, 5.0), sig.clone());
+    chunk2.anomalies.push(proj2.clone());
+
+    // Merge chunk2 into chunk1
+    let changed = chunk1.merge(&chunk2);
+
+    assert!(changed, "Merge should happen");
+    assert_eq!(chunk1.anomalies.len(), 2, "Should have 2 anomalies (1 updated, 1 new)");
+
+    // Verify update
+    let updated_proj = chunk1.anomalies.iter().find(|a| a.uuid == proj1.uuid).expect("Proj1 should exist");
+    assert_eq!(updated_proj.last_updated, 2000);
+    assert_eq!(updated_proj.location.x, 10.0);
+
+    // Verify new
+    let new_proj = chunk1.anomalies.iter().find(|a| a.uuid == proj2.uuid).expect("Proj2 should exist");
+    assert_eq!(new_proj.location.x, 5.0);
+
+    // Test reverse merge (older into newer)
+    let mut chunk3 = Chunk::new(ChunkId { x: 0, z: 0 });
+    let mut proj1_old = proj1.clone();
+    proj1_old.last_updated = 500;
+    chunk3.anomalies.push(proj1_old);
+
+    let changed_reverse = chunk1.merge(&chunk3);
+    assert!(!changed_reverse, "Merging older data should not change anything");
+
+    let current_proj = chunk1.anomalies.iter().find(|a| a.uuid == proj1.uuid).unwrap();
+    assert_eq!(current_proj.last_updated, 2000, "Should keep newer version");
+}

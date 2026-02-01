@@ -80,11 +80,18 @@ impl Chunk {
 
     pub fn merge(&mut self, other: &Chunk) -> bool {
         let mut changed = false;
-        // Simple merge: append anomalies that are not present.
-        // This is O(N^2) but N (anomalies per chunk) is expected to be small.
-        // Uses PartialEq instead of JSON serialization for performance.
+
         for other_anomaly in &other.anomalies {
-            if !self.anomalies.contains(other_anomaly) {
+            // Find if we have an anomaly with same UUID
+            if let Some(existing_idx) = self.anomalies.iter().position(|a| a.uuid == other_anomaly.uuid) {
+                 // Check timestamp
+                 let existing = &mut self.anomalies[existing_idx];
+                 if other_anomaly.last_updated > existing.last_updated {
+                     *existing = other_anomaly.clone();
+                     changed = true;
+                 }
+            } else {
+                // New anomaly
                 self.anomalies.push(other_anomaly.clone());
                 changed = true;
             }

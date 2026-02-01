@@ -6,6 +6,18 @@
 - [x] **Visual Collapse**: Implement proper visual feedback for `toggle_collapse` (e.g., scale subtree to 0).
 - [x] **Force-Directed Layout**: Improve physics in `LambdaSystem` to prevent node overlap and provide a clearer tree structure.
 
+## Visual Lambda V2 (Refactor & Polish)
+- [x] **Variables as Wires**: Visualized variables as "Ports" with physical "Wires" connecting back to their binding Abstractions, matching Interaction Net / Bubble Notation.
+- [x] **Bubble Visuals**: Rendered Abstractions as translucent, Fresnel-shaded spheres containing their body.
+- [x] **Curved Wires**: Implemented Quadratic Bézier curves for edges, with distinct visual styles for Structure (stiff) vs. Wires (loose, arcing).
+- [x] **Animations**: Implemented smooth animations for Beta Reduction (consumption/shrinking of arguments) and visual feedback (pulsing/color shifts).
+- [x] **Interaction**: Added hover highlighting for nodes and subtrees to visualize scope and connectivity.
+- [ ] **Text Labels**: Implement 3D text rendering to display variable names (`x`, `y`) and Primitives (`FIRE`) on the nodes. Currently, they are unlabeled colored spheres.
+- [ ] **Direct Manipulation**: Implement drag-and-drop mechanics to physically rewire connections or drag terms into applications (Visual Programming).
+- [ ] **Step-by-Step Control**: Add UI or Hotkeys to Pause/Play/Step through reduction animations for better debugging/understanding.
+- [ ] **Sound Effects**: Add audio feedback for interaction events like "Consumption", "Hover", and "Cast".
+- [ ] **Layout Persistence**: Save and load the physical graph positions in `GameState`, not just the parsed term string.
+
 ## Networking & State
 - [x] **Delta Sync**: Optimize `broadcast_world_state` to send only modified chunks or diffs, rather than the entire WorldState JSON.
 - [ ] **Conflict Resolution**: Implement timestamp-based or CRDT-like conflict resolution for Anomaly placement to handle race conditions better than the current append-only logic.

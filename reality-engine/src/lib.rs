@@ -22,6 +22,7 @@ pub mod engine;
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
+    camera_pos: [f32; 4], // xyz, w=padding
 }
 
 impl CameraUniform {
@@ -29,11 +30,13 @@ impl CameraUniform {
         use cgmath::SquareMatrix;
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
+            camera_pos: [0.0; 4],
         }
     }
 
     fn update_view_proj(&mut self, camera: &camera::Camera) {
         self.view_proj = camera.build_view_projection_matrix().into();
+        self.camera_pos = [camera.eye.x, camera.eye.y, camera.eye.z, 1.0];
     }
 }
 

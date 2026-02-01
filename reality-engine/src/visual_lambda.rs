@@ -1,5 +1,6 @@
 use cgmath::{Point3, Vector3, InnerSpace, MetricSpace};
 use std::rc::Rc;
+use std::collections::HashMap;
 use crate::lambda::{Term, Primitive};
 use wgpu::util::DeviceExt;
 
@@ -95,11 +96,13 @@ impl LambdaLineVertex {
 
 pub struct LambdaRenderer {
     pipeline: wgpu::RenderPipeline,
+    transparent_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     instance_buffer: wgpu::Buffer,
     capacity: usize,
+    opaque_count: u32,
 
     // Line Rendering
     line_pipeline: wgpu::RenderPipeline,
@@ -121,8 +124,50 @@ impl LambdaRenderer {
             push_constant_ranges: &[],
         });
 
+        let depth_stencil_state = Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        });
+
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Lambda Pipeline"),
+            label: Some("Lambda Opaque Pipeline"),
+            layout: Some(&pipeline_layout),
+            cache: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[LambdaVertex::desc(), LambdaInstance::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: depth_stencil_state.clone(),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
+        let transparent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Lambda Transparent Pipeline"),
             layout: Some(&pipeline_layout),
             cache: None,
             vertex: wgpu::VertexState {
@@ -150,7 +195,13 @@ impl LambdaRenderer {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None, // Ensure depth testing matches main pass if used
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
         });
@@ -225,11 +276,13 @@ impl LambdaRenderer {
 
         Self {
             pipeline,
+            transparent_pipeline,
             vertex_buffer,
             index_buffer,
             num_indices: indices.len() as u32,
             instance_buffer,
             capacity,
+            opaque_count: 0,
             line_pipeline,
             line_vertex_buffer,
             line_vertex_count: 0,
@@ -249,11 +302,32 @@ impl LambdaRenderer {
             });
         }
 
-        let instances: Vec<LambdaInstance> = nodes.iter().map(|n| LambdaInstance {
+        // Sort Nodes: Opaque first, then Transparent
+        // We can't sort the actual `nodes` slice (it's borrowed).
+        // We create the vector of instances and sort that.
+        // But wait, `edges` refer to indices in `nodes`!
+        // If we render with sorted instances, the visual positions will be correct,
+        // BUT `edges` are lines, rendered separately from `nodes`.
+        // The instances are just for the spheres.
+        // As long as we don't change `nodes` order, `edges` logic (which reads `nodes`) is fine.
+        // BUT the `draw_indexed` calls rely on the instance buffer order.
+        // We are submitting instances. The Vertex Shader uses `instance_index`.
+        // So yes, we just fill `instances` buffer in sorted order.
+
+        let mut instances: Vec<LambdaInstance> = nodes.iter().map(|n| LambdaInstance {
             position: [n.position.x, n.position.y, n.position.z],
             color: n.color,
             scale: n.scale,
         }).collect();
+
+        // Sort: Opaque (Alpha >= 0.95) first
+        instances.sort_by(|a, b| {
+            let a_opaque = a.color[3] >= 0.95;
+            let b_opaque = b.color[3] >= 0.95;
+            b_opaque.cmp(&a_opaque) // True > False, so Opaque first
+        });
+
+        self.opaque_count = instances.iter().take_while(|i| i.color[3] >= 0.95).count() as u32;
 
         if !instances.is_empty() {
              queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
@@ -282,7 +356,8 @@ impl LambdaRenderer {
                     continue;
                 }
 
-                // Let's use white for edges, 0.5 alpha
+                // Color depends on type. If connected to a "Bound Port", use that color.
+                // For now, white with alpha.
                 let color = [1.0, 1.0, 1.0, 0.5];
 
                 line_data.push(LambdaLineVertex {
@@ -313,6 +388,9 @@ impl LambdaRenderer {
         }
 
         // Draw Nodes
+        // We really should separate Opaque and Transparent rendering here.
+        // But for step 1 (Refactor Graph Construction), we keep rendering as is.
+        // Step 2 will split this.
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
@@ -392,6 +470,7 @@ pub enum NodeType {
     Abs(String),
     App,
     Prim(Primitive),
+    Port, // New: Represents a variable usage port (bound variable)
 }
 
 pub struct LambdaSystem {
@@ -437,13 +516,7 @@ impl LambdaSystem {
 
         for (i, node) in self.nodes.iter().enumerate() {
             // Ray-Sphere Intersection
-            // P = O + tD
-            // |P - C|^2 = R^2
-            // |O + tD - C|^2 = R^2
-            // Let L = C - O
-            // t^2 - 2t(L.D) + |L|^2 - R^2 = 0
-
-            let radius = 1.0; // Sphere radius (mesh is size 1.0)
+            let radius = node.scale; // Use node scale as radius!
             let l = node.position - ray_origin;
             let tca = l.dot(ray_dir);
             if tca < 0.0 { continue; }
@@ -497,24 +570,28 @@ impl LambdaSystem {
             let is_collapsed = self.nodes[idx].collapsed;
             self.set_subtree_visibility(idx, !is_collapsed);
             // Ensure the node itself remains visible
-            self.nodes[idx].scale = 1.0;
+            self.nodes[idx].scale = if matches!(self.nodes[idx].node_type, NodeType::Abs(_)) { 3.0 } else { 1.0 };
         }
     }
 
     fn set_subtree_visibility(&mut self, root_idx: usize, visible: bool) {
-        // BFS or DFS to set visibility
-        // We have edges: (parent, child). We need to find children of root_idx.
-        // This is slow if edges are just a list.
-        // But edges are built in order... no they aren't guaranteed.
-        // Let's scan edges.
-
+        // Simple visibility toggle
         let mut stack = vec![root_idx];
         while let Some(parent) = stack.pop() {
             for &(p, c) in &self.edges {
                 if p == parent {
-                    self.nodes[c].scale = if visible { 1.0 } else { 0.0 };
-                    // If we are making visible, and the child itself is collapsed, don't recurse?
-                    // Complexity... let's just show/hide all.
+                    // Set scale based on visibility and type
+                    if !visible {
+                        self.nodes[c].scale = 0.0;
+                    } else {
+                        // Restore default scale
+                         self.nodes[c].scale = match self.nodes[c].node_type {
+                            NodeType::Abs(_) => 3.0,
+                            NodeType::Port => 0.2,
+                            NodeType::App => 0.5,
+                            _ => 1.0,
+                         };
+                    }
                     stack.push(c);
                 }
             }
@@ -532,18 +609,6 @@ impl LambdaSystem {
         false
     }
 
-    pub fn get_archetype_from_term(&self) -> i32 {
-        // Simple heuristic to map term to archetype
-        // Count nodes?
-        let count = self.nodes.len();
-        match count {
-            0..=3 => 0, // Fantasy (Simple)
-            4..=7 => 1, // SciFi
-            8..=15 => 2, // Horror
-            _ => 3,     // Toon (Complex)
-        }
-    }
-
     pub fn update(&mut self, dt: f32) {
         let node_count = self.nodes.len();
         if node_count == 0 { return; }
@@ -552,9 +617,9 @@ impl LambdaSystem {
         let spring_strength = 2.0;
         let centering_strength = 0.5;
         let damping = 0.9;
-        let rest_length = 2.0;
+        let rest_length = 3.0; // Increased rest length for larger bubbles
 
-        // 1. Repulsion (N^2 but N is small for lambda terms usually)
+        // 1. Repulsion
         for i in 0..node_count {
             if self.nodes[i].scale < 0.001 { continue; } // Skip invisible
             for j in 0..node_count {
@@ -564,12 +629,23 @@ impl LambdaSystem {
                 let dir = self.nodes[i].position - self.nodes[j].position;
                 let dist_sq = dir.magnitude2();
                 if dist_sq < 0.0001 {
-                    // Too close, random kick
                      self.nodes[i].velocity += Vector3::new(0.1, 0.0, 0.0);
-                } else if dist_sq < 25.0 {
-                    let dist = dist_sq.sqrt();
-                    let force = dir.normalize() * (repulsion_strength / dist_sq);
-                    self.nodes[i].velocity += force * dt;
+                } else {
+                     // Check radii collision
+                     let r1 = self.nodes[i].scale;
+                     let r2 = self.nodes[j].scale;
+                     let min_dist = r1 + r2; // Simple collision check
+
+                     if dist_sq < (min_dist * min_dist) {
+                         // Hard push (collision)
+                         let dist = dist_sq.sqrt();
+                         let force = dir.normalize() * (repulsion_strength * 2.0);
+                         self.nodes[i].velocity += force * dt;
+                     } else if dist_sq < 100.0 {
+                         // Soft push (repulsion)
+                         let force = dir.normalize() * (repulsion_strength / dist_sq);
+                         self.nodes[i].velocity += force * dt;
+                     }
                 }
             }
         }
@@ -578,6 +654,11 @@ impl LambdaSystem {
         for &(start, end) in &self.edges {
              if start >= node_count || end >= node_count { continue; }
              if self.nodes[start].scale < 0.001 || self.nodes[end].scale < 0.001 { continue; }
+
+             // Special case: Wire connections (Port -> Abs)
+             // We want these to be relatively loose?
+             // Actually, the graph layout is just structural.
+             // Let's use standard springs.
 
              let dir = self.nodes[end].position - self.nodes[start].position;
              let dist = dir.magnitude();
@@ -597,7 +678,7 @@ impl LambdaSystem {
                 continue;
             }
 
-            // Pull towards "ideal" tree layout target
+            // Pull towards "ideal" tree layout target (weakly)
             let to_target = node.target_position - node.position;
             node.velocity += to_target * centering_strength * dt;
 
@@ -614,71 +695,149 @@ impl LambdaSystem {
         self.edges.clear();
         self.next_id = 0;
 
+        let scope = HashMap::new();
+
         if let Some(term) = &self.root_term {
             // Calculate layout positions
             // Start at anchor_pos relative to World Origin
-            self.build_subtree(term.clone(), self.anchor_pos, 0);
+            self.build_subtree(term.clone(), self.anchor_pos, 0, &scope);
         }
     }
 
-    // Returns the index of the root node of this subtree
-    fn build_subtree(&mut self, term: Rc<Term>, pos: Point3<f32>, depth: i32) -> usize {
+    // Returns the index of the node representing this term
+    fn build_subtree(&mut self, term: Rc<Term>, pos: Point3<f32>, depth: i32, scope: &HashMap<String, usize>) -> usize {
         let id = self.next_id;
         self.next_id += 1;
 
-        let (node_type, color) = match &*term {
-            Term::Var(name) => (NodeType::Var(name.clone()), self.hash_color(name)),
-            Term::Abs(param, _) => (NodeType::Abs(param.clone()), [1.0, 1.0, 1.0, 1.0]), // White for Lambda
-            Term::App(_, _) => (NodeType::App, [0.5, 0.5, 0.5, 1.0]), // Grey for App
-            Term::Prim(p) => (NodeType::Prim(*p), self.get_primitive_color(*p)),
-        };
-
-        let node_index = self.nodes.len();
-        self.nodes.push(VisualNode {
-            id,
-            term: term.clone(),
-            position: pos, // Spawn at target for now (snap)
-            target_position: pos,
-            velocity: Vector3::new(0.0, 0.0, 0.0),
-            color,
-            scale: 1.0,
-            node_type,
-            collapsed: false,
-        });
-
-        // Recursively build children
-        let vertical_spacing = 2.0;
-        let horizontal_spacing = 2.0 * (0.8f32).powi(depth); // Tighten spacing as we go down
-
-        // Note: We don't respect 'collapsed' here because rebuild_graph is called on Logic change.
-        // If we want to persist collapsed state, we need a map.
-        // For MVP, we'll implement collapse as just "hide children".
-        // But if we hide children, we shouldn't build them?
-        // Let's implement toggle logic later in 'toggle_collapse'.
-        // For now, just build everything.
-
         match &*term {
-            Term::Var(_) | Term::Prim(_) => {
-                // Leaf
-            }
-            Term::Abs(_, body) => {
-                let child_pos = pos + Vector3::new(0.0, -vertical_spacing, 0.0);
-                let child_idx = self.build_subtree(body.clone(), child_pos, depth + 1);
-                self.edges.push((node_index, child_idx));
-            }
-            Term::App(func, arg) => {
-                let left_pos = pos + Vector3::new(-horizontal_spacing, -vertical_spacing, 0.0);
-                let right_pos = pos + Vector3::new(horizontal_spacing, -vertical_spacing, 0.0);
+            Term::Abs(param, body) => {
+                // Create Bubble Node
+                let color = [1.0, 1.0, 1.0, 0.3]; // Translucent White
+                let scale = 3.0; // Large Bubble
+                let node_index = self.nodes.len();
 
-                let left_idx = self.build_subtree(func.clone(), left_pos, depth + 1);
-                let right_idx = self.build_subtree(arg.clone(), right_pos, depth + 1);
+                self.nodes.push(VisualNode {
+                    id,
+                    term: term.clone(),
+                    position: pos,
+                    target_position: pos,
+                    velocity: Vector3::new(0.0, 0.0, 0.0),
+                    color,
+                    scale,
+                    node_type: NodeType::Abs(param.clone()),
+                    collapsed: false,
+                });
+
+                // Update Scope
+                let mut new_scope = scope.clone();
+                new_scope.insert(param.clone(), node_index);
+
+                // Build Body
+                let child_pos = pos + Vector3::new(0.0, -2.0, 0.0);
+                let child_idx = self.build_subtree(body.clone(), child_pos, depth + 1, &new_scope);
+
+                // Edge from Abs to Body (Structure)
+                self.edges.push((node_index, child_idx));
+
+                node_index
+            },
+            Term::Var(name) => {
+                // Check if Bound
+                if let Some(&binder_idx) = scope.get(name) {
+                    // It is bound!
+                    // Create a "Port" node at the usage site
+                    let color = [0.2, 0.2, 0.2, 1.0]; // Dark Grey Port
+                    let scale = 0.2;
+                    let node_index = self.nodes.len();
+
+                    self.nodes.push(VisualNode {
+                        id,
+                        term: term.clone(),
+                        position: pos,
+                        target_position: pos,
+                        velocity: Vector3::new(0.0, 0.0, 0.0),
+                        color,
+                        scale,
+                        node_type: NodeType::Port,
+                        collapsed: false,
+                    });
+
+                    // Create WIRE Edge (Port -> Binder)
+                    self.edges.push((node_index, binder_idx));
+
+                    node_index
+                } else {
+                    // Free Variable
+                    let color = self.hash_color(name);
+                    let scale = 1.0;
+                    let node_index = self.nodes.len();
+
+                    self.nodes.push(VisualNode {
+                        id,
+                        term: term.clone(),
+                        position: pos,
+                        target_position: pos,
+                        velocity: Vector3::new(0.0, 0.0, 0.0),
+                        color,
+                        scale,
+                        node_type: NodeType::Var(name.clone()),
+                        collapsed: false,
+                    });
+
+                    node_index
+                }
+            },
+            Term::App(func, arg) => {
+                // Application Node
+                let color = [0.5, 0.5, 0.5, 0.8];
+                let scale = 0.5; // Connector
+                let node_index = self.nodes.len();
+
+                self.nodes.push(VisualNode {
+                    id,
+                    term: term.clone(),
+                    position: pos,
+                    target_position: pos,
+                    velocity: Vector3::new(0.0, 0.0, 0.0),
+                    color,
+                    scale,
+                    node_type: NodeType::App,
+                    collapsed: false,
+                });
+
+                // Build Children
+                let horizontal_spacing = 3.0 * (0.8f32).powi(depth);
+                let left_pos = pos + Vector3::new(-horizontal_spacing, -2.0, 0.0);
+                let right_pos = pos + Vector3::new(horizontal_spacing, -2.0, 0.0);
+
+                let left_idx = self.build_subtree(func.clone(), left_pos, depth + 1, scope);
+                let right_idx = self.build_subtree(arg.clone(), right_pos, depth + 1, scope);
 
                 self.edges.push((node_index, left_idx));
                 self.edges.push((node_index, right_idx));
+
+                node_index
+            },
+            Term::Prim(p) => {
+                 let color = self.get_primitive_color(*p);
+                 let scale = 1.0;
+                 let node_index = self.nodes.len();
+
+                 self.nodes.push(VisualNode {
+                    id,
+                    term: term.clone(),
+                    position: pos,
+                    target_position: pos,
+                    velocity: Vector3::new(0.0, 0.0, 0.0),
+                    color,
+                    scale,
+                    node_type: NodeType::Prim(*p),
+                    collapsed: false,
+                });
+
+                node_index
             }
         }
-
-        node_index
     }
 
     fn hash_color(&self, s: &str) -> [f32; 4] {

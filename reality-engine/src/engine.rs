@@ -1,13 +1,22 @@
 use std::rc::Rc;
-use cgmath::{EuclideanSpace, InnerSpace, Point3, Vector3};
+use cgmath::{EuclideanSpace, InnerSpace, Point3, Vector3, SquareMatrix};
+use serde::Serialize;
 use crate::camera::{Camera, CameraController};
 use crate::input::{InputConfig, Action};
 use crate::lambda::{self, Term, Primitive};
 use crate::persistence::GameState;
 use crate::projector::RealityProjector;
 use crate::reality_types::{RealityArchetype, RealitySignature};
-use crate::visual_lambda::LambdaSystem;
+use crate::visual_lambda::{self, LambdaSystem};
 use crate::world::WorldState;
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct LabelInfo {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: String,
+}
 
 pub struct Engine {
     pub world_state: WorldState,
@@ -255,8 +264,58 @@ impl Engine {
         false
     }
 
+    pub fn get_node_labels(&self) -> Vec<LabelInfo> {
+        let view_proj = self.camera.build_view_projection_matrix();
+        let mut labels = Vec::new();
+
+        for node in &self.lambda_system.nodes {
+            // Skip invisible nodes (scale near 0)
+            if node.scale < 0.01 { continue; }
+
+            // Project Position
+            // Point3 to homogeneous Vector4 (x, y, z, 1.0)
+            let p = Point3::new(node.position.x, node.position.y, node.position.z);
+            let clip = view_proj * p.to_homogeneous();
+
+            // Check if in front of camera (w > 0)
+            if clip.w > 0.0 {
+                let ndc_x = clip.x / clip.w;
+                let ndc_y = clip.y / clip.w;
+
+                // Check if within screen bounds (roughly -1 to 1, add some padding for partial visibility)
+                if ndc_x >= -1.2 && ndc_x <= 1.2 && ndc_y >= -1.2 && ndc_y <= 1.2 {
+                    // Convert to 0..1 for CSS (Top-Left origin)
+                    // CSS X: (ndc_x + 1) / 2
+                    // CSS Y: (1 - ndc_y) / 2  <-- Flip Y because CSS Y grows downwards
+                    let screen_x = (ndc_x + 1.0) * 0.5;
+                    let screen_y = (1.0 - ndc_y) * 0.5;
+
+                    let text = match &node.node_type {
+                        visual_lambda::NodeType::Var(s) => s.clone(),
+                        visual_lambda::NodeType::Abs(s) => format!("λ{}", s),
+                        visual_lambda::NodeType::Prim(p) => format!("{:?}", p).to_uppercase(),
+                        _ => continue, // Skip App, Port
+                    };
+
+                    // Hex color from node.color [r,g,b,a]
+                    let r = (node.color[0] * 255.0) as u8;
+                    let g = (node.color[1] * 255.0) as u8;
+                    let b = (node.color[2] * 255.0) as u8;
+                    let color = format!("#{:02x}{:02x}{:02x}", r, g, b);
+
+                    labels.push(LabelInfo {
+                        text,
+                        x: screen_x,
+                        y: screen_y,
+                        color,
+                    });
+                }
+            }
+        }
+        labels
+    }
+
     pub fn get_ray(&self, x: f32, y: f32) -> (Point3<f32>, Vector3<f32>) {
-        use cgmath::SquareMatrix;
         let view_proj = self.camera.build_view_projection_matrix();
         let inv_view_proj = view_proj.invert().unwrap_or(cgmath::Matrix4::identity());
         let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);

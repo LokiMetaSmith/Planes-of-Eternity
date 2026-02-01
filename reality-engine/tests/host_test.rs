@@ -188,3 +188,45 @@ fn test_merge_conflict_resolution() {
     let current_proj = chunk1.anomalies.iter().find(|a| a.uuid == proj1.uuid).unwrap();
     assert_eq!(current_proj.last_updated, 2000, "Should keep newer version");
 }
+
+#[test]
+fn test_get_node_labels() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // Setup Lambda system with a known term
+    // (\x.x) y
+    let term = reality_engine::lambda::parse("(\\x.x) y").unwrap();
+    engine.lambda_system.set_term(term);
+
+    // Set camera to look at the expected node position
+    // Engine update places nodes at camera.eye + forward * 8.0
+    engine.camera.eye = Point3::new(0.0, 5.0, 10.0);
+    engine.camera.target = Point3::new(0.0, 5.0, 0.0); // Forward is (0, 0, -1) roughly
+    engine.camera.up = Vector3::new(0.0, 1.0, 0.0);
+
+    // Update to calculate node positions
+    engine.update(0.1);
+
+    // Get labels
+    let labels = engine.get_node_labels();
+
+    println!("Labels found: {:?}", labels);
+
+    assert!(!labels.is_empty(), "Should have labels");
+
+    // Check for "λx"
+    assert!(labels.iter().any(|l| l.text == "λx"), "Should find Abs label");
+    // Check for "y"
+    assert!(labels.iter().any(|l| l.text == "y"), "Should find free var label");
+
+    // Check visibility logic (behind camera)
+    // Move camera so nodes are behind.
+    // Nodes are at ~ (0, 5, 2) (Eye=10, forward=-Z, 8 units => 2)
+    // Move eye to (0, 5, 20) looking at (0, 5, 30). Nodes at 2 are behind.
+    engine.camera.eye = Point3::new(0.0, 5.0, 20.0);
+    engine.camera.target = Point3::new(0.0, 5.0, 30.0);
+
+    // Do NOT call update(), so nodes stay at old position
+    let labels_hidden = engine.get_node_labels();
+    assert!(labels_hidden.is_empty(), "Labels should be culled if behind camera");
+}

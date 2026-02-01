@@ -290,7 +290,7 @@ impl LambdaRenderer {
         }
     }
 
-    pub fn update_buffers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, nodes: &[VisualNode], edges: &[(usize, usize)]) {
+    pub fn update_buffers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, nodes: &[VisualNode], edges: &[(usize, usize)], hovered_node: Option<usize>) {
         // Update Instances
         if nodes.len() > self.capacity {
             self.capacity = (nodes.len() * 2).max(self.capacity * 2);
@@ -302,11 +302,75 @@ impl LambdaRenderer {
             });
         }
 
+        // Helper: Collect subtree indices if hovered
+        let mut highlighted_nodes = std::collections::HashSet::new();
+        if let Some(hover_idx) = hovered_node {
+            highlighted_nodes.insert(hover_idx);
+
+            // BFS to highlight descendants
+            let mut stack = vec![hover_idx];
+            while let Some(parent) = stack.pop() {
+                for &(p, c) in edges {
+                    if p == parent {
+                        highlighted_nodes.insert(c);
+                        stack.push(c);
+                    }
+                }
+            }
+
+            // Also highlight ports pointing to this binder (if it's an Abs)
+            // (Edges for ports are (Port, Binder), but our BFS follows Structure edges (Parent, Child))
+            // Wait, edges are mixed.
+            // Structure: (Parent, Child)
+            // Wire: (Port, Binder)
+            // We need to differentiate to correctly highlight subtree vs usage.
+            // But `edges` is just a list of (usize, usize).
+            // `build_subtree` pushes (Port, Binder) for wires.
+            // If we traverse (Port, Binder), then if we hover Port, we highlight Binder?
+            // If we hover Binder, we don't necessarily highlight Ports (backward edge).
+            // But we want to see USAGE.
+
+            // Let's iterate all edges to find usage
+            if matches!(nodes[hover_idx].node_type, NodeType::Abs(_)) {
+                for &(src, dst) in edges {
+                    if dst == hover_idx && matches!(nodes[src].node_type, NodeType::Port) {
+                        highlighted_nodes.insert(src);
+                    }
+                }
+            }
+        }
+
         // Sort Nodes: Opaque first, then Transparent
-        let mut instances: Vec<LambdaInstance> = nodes.iter().map(|n| LambdaInstance {
-            position: [n.position.x, n.position.y, n.position.z],
-            color: n.color,
-            scale: n.scale,
+        let mut instances: Vec<LambdaInstance> = nodes.iter().enumerate().map(|(i, n)| {
+            let mut color = n.color;
+
+            // Apply Highlight
+            if let Some(hover_idx) = hovered_node {
+                if i == hover_idx {
+                    // Direct Hover: Brighten significantly
+                    color[0] = (color[0] + 0.5).min(1.0);
+                    color[1] = (color[1] + 0.5).min(1.0);
+                    color[2] = (color[2] + 0.5).min(1.0);
+                    color[3] = (color[3] + 0.2).min(1.0);
+                } else if highlighted_nodes.contains(&i) {
+                    // Subtree/Related: Slight brighten
+                    color[0] = (color[0] + 0.2).min(1.0);
+                    color[1] = (color[1] + 0.2).min(1.0);
+                    color[2] = (color[2] + 0.2).min(1.0);
+                } else {
+                    // Unrelated: Dim slightly
+                    color[0] *= 0.5;
+                    color[1] *= 0.5;
+                    color[2] *= 0.5;
+                    color[3] *= 0.8; // Make bubbles ghostlier
+                }
+            }
+
+            LambdaInstance {
+                position: [n.position.x, n.position.y, n.position.z],
+                color,
+                scale: n.scale,
+            }
         }).collect();
 
         // Sort: Opaque (Alpha >= 0.95) first
@@ -559,6 +623,7 @@ pub struct LambdaSystem {
     next_id: u64,
     pub dragged_node: Option<usize>,
     pub drag_distance: f32,
+    pub hovered_node: Option<usize>,
     pub anchor_pos: Point3<f32>,
     pub animation_state: AnimationState,
 }
@@ -572,6 +637,7 @@ impl LambdaSystem {
             next_id: 0,
             dragged_node: None,
             drag_distance: 0.0,
+            hovered_node: None,
             anchor_pos: Point3::new(0.0, 5.0, 0.0),
             animation_state: AnimationState::Idle,
         }
@@ -618,6 +684,10 @@ impl LambdaSystem {
         }
 
         closest_idx
+    }
+
+    pub fn update_hover(&mut self, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) {
+        self.hovered_node = self.intersect(ray_origin, ray_dir);
     }
 
     pub fn start_drag(&mut self, idx: usize, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) {
@@ -858,11 +928,10 @@ impl LambdaSystem {
         let node_count = self.nodes.len();
         if node_count == 0 { return; }
 
-        let repulsion_strength = 20.0;
-        let spring_strength = 2.0;
+        let repulsion_strength = 50.0; // Increased for bubbles
         let centering_strength = 0.5;
         let damping = 0.9;
-        let rest_length = 3.0; // Increased rest length for larger bubbles
+        let base_rest_length = 3.0;
 
         // 1. Repulsion
         for i in 0..node_count {
@@ -879,14 +948,13 @@ impl LambdaSystem {
                      // Check radii collision
                      let r1 = self.nodes[i].scale;
                      let r2 = self.nodes[j].scale;
-                     let min_dist = r1 + r2; // Simple collision check
+                     let min_dist = (r1 + r2) * 1.1; // Add padding
 
                      if dist_sq < (min_dist * min_dist) {
                          // Hard push (collision)
-                         let dist = dist_sq.sqrt();
-                         let force = dir.normalize() * (repulsion_strength * 2.0);
+                         let force = dir.normalize() * (repulsion_strength * 5.0);
                          self.nodes[i].velocity += force * dt;
-                     } else if dist_sq < 100.0 {
+                     } else if dist_sq < 150.0 {
                          // Soft push (repulsion)
                          let force = dir.normalize() * (repulsion_strength / dist_sq);
                          self.nodes[i].velocity += force * dt;
@@ -900,15 +968,20 @@ impl LambdaSystem {
              if start >= node_count || end >= node_count { continue; }
              if self.nodes[start].scale < 0.001 || self.nodes[end].scale < 0.001 { continue; }
 
-             // Special case: Wire connections (Port -> Abs)
-             // We want these to be relatively loose?
-             // Actually, the graph layout is just structural.
-             // Let's use standard springs.
-
              let dir = self.nodes[end].position - self.nodes[start].position;
              let dist = dir.magnitude();
+
+             // Dynamic Spring Params based on Edge Type
+             let is_wire = matches!(self.nodes[start].node_type, NodeType::Port);
+
+             let (stiffness, rest_len) = if is_wire {
+                 (0.5, base_rest_length * 2.0) // Loose, long wires
+             } else {
+                 (5.0, base_rest_length) // Stiff structure
+             };
+
              if dist > 0.0001 {
-                 let force = (dist - rest_length) * spring_strength;
+                 let force = (dist - rest_len) * stiffness;
                  let force_vec = dir.normalize() * force;
                  self.nodes[start].velocity += force_vec * dt;
                  self.nodes[end].velocity -= force_vec * dt;

@@ -11,6 +11,9 @@ pub enum Action {
     Descend,
     CastSpell,
     Inscribe,
+    ToggleAutoReduce,
+    Step,
+    TogglePause,
     // Add more actions as needed
 }
 
@@ -25,6 +28,9 @@ impl Action {
             "Descend" => Some(Action::Descend),
             "CastSpell" => Some(Action::CastSpell),
             "Inscribe" => Some(Action::Inscribe),
+            "ToggleAutoReduce" => Some(Action::ToggleAutoReduce),
+            "Step" => Some(Action::Step),
+            "TogglePause" => Some(Action::TogglePause),
             _ => None,
         }
     }
@@ -39,6 +45,9 @@ impl Action {
             Action::Descend => "Descend".to_string(),
             Action::CastSpell => "CastSpell".to_string(),
             Action::Inscribe => "Inscribe".to_string(),
+            Action::ToggleAutoReduce => "ToggleAutoReduce".to_string(),
+            Action::Step => "Step".to_string(),
+            Action::TogglePause => "TogglePause".to_string(),
         }
     }
 }
@@ -60,6 +69,9 @@ impl Default for InputConfig {
         bindings.insert(Action::Descend, "ShiftLeft".to_string());
         bindings.insert(Action::CastSpell, "KeyF".to_string());
         bindings.insert(Action::Inscribe, "KeyI".to_string());
+        bindings.insert(Action::ToggleAutoReduce, "KeyR".to_string());
+        bindings.insert(Action::Step, "KeyE".to_string());
+        bindings.insert(Action::TogglePause, "KeyP".to_string());
 
         let mut config = Self {
             bindings,

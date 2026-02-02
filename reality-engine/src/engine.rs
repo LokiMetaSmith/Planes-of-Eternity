@@ -49,7 +49,7 @@ impl Engine {
 
         let camera_controller = CameraController::new(0.2);
 
-        let (player_projector, world_state, active_anomaly, mut lambda_system) = if let Some(state) = initial_state {
+        let (player_projector, world_state, active_anomaly, lambda_system) = if let Some(state) = initial_state {
             log::info!("Restoring game state...");
             // Restore camera position
             camera.eye = state.player.projector.location;
@@ -180,6 +180,21 @@ impl Engine {
                  },
                  Action::Inscribe => {
                      // Handled by GameClient (lib.rs) triggering window.prompt
+                 },
+                 Action::ToggleAutoReduce => {
+                     if pressed {
+                         self.lambda_system.auto_reduce = !self.lambda_system.auto_reduce;
+                     }
+                 },
+                 Action::Step => {
+                     if pressed {
+                         self.lambda_system.reduce_root();
+                     }
+                 },
+                 Action::TogglePause => {
+                     if pressed {
+                         self.lambda_system.paused = !self.lambda_system.paused;
+                     }
                  }
              }
         }
@@ -267,6 +282,30 @@ impl Engine {
     pub fn get_node_labels(&self) -> Vec<LabelInfo> {
         let view_proj = self.camera.build_view_projection_matrix();
         let mut labels = Vec::new();
+
+        // Status Label
+        let status_text = if self.lambda_system.paused {
+            "PAUSED".to_string()
+        } else if self.lambda_system.auto_reduce {
+            "AUTO-RUN".to_string()
+        } else {
+            "STEP MODE".to_string()
+        };
+
+        let status_color = if self.lambda_system.paused {
+            "#FFFF00".to_string() // Yellow
+        } else if self.lambda_system.auto_reduce {
+            "#00FF00".to_string() // Green
+        } else {
+            "#00F0FF".to_string() // Cyan
+        };
+
+        labels.push(LabelInfo {
+            text: status_text,
+            x: 0.05,
+            y: 0.05,
+            color: status_color,
+        });
 
         for node in &self.lambda_system.nodes {
             // Skip invisible nodes (scale near 0)

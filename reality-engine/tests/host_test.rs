@@ -228,5 +228,9 @@ fn test_get_node_labels() {
 
     // Do NOT call update(), so nodes stay at old position
     let labels_hidden = engine.get_node_labels();
-    assert!(labels_hidden.is_empty(), "Labels should be culled if behind camera");
+    // Filter out UI status labels
+    let lambda_labels: Vec<_> = labels_hidden.iter()
+        .filter(|l| l.text != "STEP MODE" && l.text != "AUTO-RUN" && l.text != "PAUSED")
+        .collect();
+    assert!(lambda_labels.is_empty(), "Labels should be culled if behind camera");
 }

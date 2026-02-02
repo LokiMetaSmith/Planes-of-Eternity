@@ -626,6 +626,9 @@ pub struct LambdaSystem {
     pub hovered_node: Option<usize>,
     pub anchor_pos: Point3<f32>,
     pub animation_state: AnimationState,
+    pub paused: bool,
+    pub auto_reduce: bool,
+    pub auto_reduce_timer: f32,
 }
 
 impl LambdaSystem {
@@ -640,6 +643,9 @@ impl LambdaSystem {
             hovered_node: None,
             anchor_pos: Point3::new(0.0, 5.0, 0.0),
             animation_state: AnimationState::Idle,
+            paused: false,
+            auto_reduce: false,
+            auto_reduce_timer: 0.0,
         }
     }
 
@@ -761,8 +767,8 @@ impl LambdaSystem {
                  // Detect Reduction Type for Animation
                  // We want to animate Beta Reduction: (\x.M) N
                  // Check if root is App(Abs(x, M), N)
-                 if let Term::App(func, arg) = &**root {
-                     if let Term::Abs(param, _body) = &**func {
+                 if let Term::App(func, _arg) = &**root {
+                     if let Term::Abs(_param, _body) = &**func {
                          // Found a Beta Reduction!
                          // Need to find visual nodes corresponding to Abs and Arg
                          // This is tricky because `nodes` is flat.
@@ -781,7 +787,14 @@ impl LambdaSystem {
                                  // So left_child < right_child usually?
                                  // Or check node type/term?
                                  // We know Func is Abs.
-                                 if matches!(self.nodes[c].node_type, NodeType::Abs(_)) {
+                                 // Edges were pushed in order: Left then Right in build_subtree.
+                                 // But we can't rely on edge order in self.edges (it's a vec but iterate might be unstable if we used map? No, it's vec).
+                                 // But build_subtree pushes (node_index, left_idx) then (node_index, right_idx).
+                                 // So left child has smaller index usually? No, recursive.
+                                 // Left child is built first. So left_idx < right_idx (usually).
+
+                                 // Better heuristic: Check if we already found left_child.
+                                 if matches!(self.nodes[c].node_type, NodeType::Abs(_)) && left_child.is_none() {
                                      left_child = Some(c);
                                  } else {
                                      right_child = Some(c);
@@ -829,9 +842,20 @@ impl LambdaSystem {
     }
 
     pub fn update(&mut self, dt: f32) {
+        // Auto-Reduce Logic
+        if self.auto_reduce && !self.paused && matches!(self.animation_state, AnimationState::Idle) {
+            self.auto_reduce_timer += dt;
+            if self.auto_reduce_timer > 0.5 {
+                self.auto_reduce_timer = 0.0;
+                self.reduce_root();
+            }
+        }
+
         // Animation Logic
         if let AnimationState::Reducing { ref abs_idx, ref arg_idx, ref ports, ref mut progress, ref new_term } = self.animation_state {
-            *progress += dt * 2.0; // 0.5s duration
+            if !self.paused {
+                *progress += dt * 2.0; // 0.5s duration
+            }
 
             if *progress >= 1.0 {
                 // Animation Complete
@@ -853,7 +877,6 @@ impl LambdaSystem {
             let target_pos = self.nodes[*abs_idx].position;
             let current_pos = self.nodes[*arg_idx].position;
             let dir = target_pos - current_pos;
-            let step = dir * (*progress); // This is absolute lerp? No.
 
             // We need frame delta.
             // Actually, let's just modify the `target_position` of the arg root?
@@ -1183,6 +1206,58 @@ impl LambdaSystem {
             Primitive::Energy => [1.0, 1.0, 0.0, 1.0],
             Primitive::Stable => [1.0, 1.0, 1.0, 1.0],
             Primitive::Void => [0.1, 0.1, 0.1, 1.0],
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lambda;
+
+    #[test]
+    fn test_auto_reduce() {
+        let mut sys = LambdaSystem::new();
+        // (\x.x) y -> y
+        let term = lambda::parse("(\\x.x) y").unwrap();
+        sys.set_term(term);
+
+        sys.auto_reduce = true;
+        sys.paused = false;
+
+        // Update 1: Accumulate some time
+        sys.update(0.4);
+        assert!(matches!(sys.animation_state, AnimationState::Idle));
+
+        // Update 2: Cross the 0.5s threshold
+        // Timer was 0.4. Add 0.2 -> 0.6 (>0.5). Triggers Reduce.
+        // Animation Logic runs with dt=0.2. Progress += 0.4. Total Progress 0.4.
+        // Should remain in Reducing state.
+        sys.update(0.2);
+
+        // Should have triggered reduction.
+        // In (\x.x) y, it IS a beta reduction, so it should enter AnimationState::Reducing.
+        match sys.animation_state {
+            AnimationState::Reducing { .. } => assert!(true),
+            _ => assert!(false, "Should be reducing"),
+        }
+    }
+
+    #[test]
+    fn test_paused_no_reduce() {
+        let mut sys = LambdaSystem::new();
+        let term = lambda::parse("(\\x.x) y").unwrap();
+        sys.set_term(term);
+
+        sys.auto_reduce = true;
+        sys.paused = true;
+
+        sys.update(0.6);
+
+        // Should NOT be reducing
+        match sys.animation_state {
+            AnimationState::Idle => assert!(true),
+            _ => assert!(false, "Should stay idle when paused"),
         }
     }
 }

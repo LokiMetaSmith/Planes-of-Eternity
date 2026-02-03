@@ -18,6 +18,7 @@ pub mod lambda;
 pub mod visual_lambda;
 pub mod input;
 pub mod engine;
+pub mod audio;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

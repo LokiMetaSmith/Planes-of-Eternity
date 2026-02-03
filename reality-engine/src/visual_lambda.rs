@@ -4,6 +4,11 @@ use std::collections::HashMap;
 use crate::lambda::{Term, Primitive};
 use wgpu::util::DeviceExt;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LambdaEvent {
+    ReductionStarted,
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LambdaVertex {
@@ -841,13 +846,17 @@ impl LambdaSystem {
         false
     }
 
-    pub fn update(&mut self, dt: f32) {
+    pub fn update(&mut self, dt: f32) -> Vec<LambdaEvent> {
+        let mut events = Vec::new();
+
         // Auto-Reduce Logic
         if self.auto_reduce && !self.paused && matches!(self.animation_state, AnimationState::Idle) {
             self.auto_reduce_timer += dt;
             if self.auto_reduce_timer > 0.5 {
                 self.auto_reduce_timer = 0.0;
-                self.reduce_root();
+                if self.reduce_root() {
+                    events.push(LambdaEvent::ReductionStarted);
+                }
             }
         }
 
@@ -862,7 +871,7 @@ impl LambdaSystem {
                 let term = new_term.clone();
                 self.animation_state = AnimationState::Idle;
                 self.set_term(term);
-                return;
+                return events;
             }
 
             // Animate!
@@ -949,7 +958,7 @@ impl LambdaSystem {
         }
 
         let node_count = self.nodes.len();
-        if node_count == 0 { return; }
+        if node_count == 0 { return events; }
 
         let repulsion_strength = 50.0; // Increased for bubbles
         let centering_strength = 0.5;
@@ -1029,6 +1038,8 @@ impl LambdaSystem {
             // Damping
             node.velocity *= damping;
         }
+
+        events
     }
 
     fn rebuild_graph(&mut self) {

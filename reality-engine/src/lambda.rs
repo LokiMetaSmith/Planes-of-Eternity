@@ -141,6 +141,35 @@ impl Term {
         }
     }
 
+    // Deep Replace: Replaces the exact instance (ptr_eq) of `target` with `replacement` in `root`.
+    pub fn replace(root: &Rc<Term>, target: &Rc<Term>, replacement: Rc<Term>) -> Rc<Term> {
+        if Rc::ptr_eq(root, target) {
+            return replacement;
+        }
+
+        match &**root {
+            Term::App(func, arg) => {
+                let new_func = Term::replace(func, target, replacement.clone());
+                let new_arg = Term::replace(arg, target, replacement);
+
+                if Rc::ptr_eq(&new_func, func) && Rc::ptr_eq(&new_arg, arg) {
+                    root.clone()
+                } else {
+                    Term::app(new_func, new_arg)
+                }
+            },
+            Term::Abs(param, body) => {
+                let new_body = Term::replace(body, target, replacement);
+                if Rc::ptr_eq(&new_body, body) {
+                    root.clone()
+                } else {
+                    Term::abs(param, new_body)
+                }
+            },
+            _ => root.clone()
+        }
+    }
+
     // Normal Order Reduction (reduce leftmost outermost redex)
     // Returns (NewTerm, DidReduce)
     pub fn reduce(&self) -> (Rc<Term>, bool) {

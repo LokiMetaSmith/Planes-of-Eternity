@@ -728,11 +728,19 @@ impl State {
     pub fn process_click(&mut self, x: f32, y: f32) {
         if self.engine.process_click(x, y) {
              // State changed, save
+             let lambda_source = if let Some(term) = &self.engine.lambda_system.root_term {
+                 term.to_string()
+             } else {
+                 "".to_string()
+             };
+
              let game_state = persistence::GameState {
                 player: persistence::PlayerState {
                     projector: self.engine.player_projector.clone(),
                 },
                 world: self.engine.world_state.clone(),
+                lambda_source,
+                lambda_layout: self.engine.lambda_system.get_layout(),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
             };
@@ -1060,8 +1068,19 @@ impl GameClient {
             ));
 
             state.engine.lambda_system = visual_lambda::LambdaSystem::new();
-            let term = lambda::parse("FIRE").unwrap();
-            state.engine.lambda_system.set_term(term);
+
+            // Restore Lambda State
+            let source = if loaded_state.lambda_source.is_empty() { "FIRE".to_string() } else { loaded_state.lambda_source };
+            if let Some(term) = lambda::parse(&source) {
+                state.engine.lambda_system.set_term(term);
+                if !loaded_state.lambda_layout.is_empty() {
+                    state.engine.lambda_system.apply_layout(loaded_state.lambda_layout);
+                }
+            } else {
+                 // Fallback
+                 let term = lambda::parse("FIRE").unwrap();
+                 state.engine.lambda_system.set_term(term);
+            }
 
             log::info!("Game Loaded from slot: {}", slot_name);
         } else {
@@ -1085,11 +1104,19 @@ impl GameClient {
     }
 
     fn save_state(&self, state: &State) {
+        let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
+            term.to_string()
+        } else {
+            "".to_string()
+        };
+
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
                 projector: state.engine.player_projector.clone(),
             },
             world: state.engine.world_state.clone(),
+            lambda_source,
+            lambda_layout: state.engine.lambda_system.get_layout(),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
@@ -1391,11 +1418,19 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     let autosave_closure = Closure::wrap(Box::new(move || {
         let mut state = state_autosave.borrow_mut();
+        let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
+             term.to_string()
+        } else {
+             "".to_string()
+        };
+
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
                 projector: state.engine.player_projector.clone(),
             },
             world: state.engine.world_state.clone(),
+            lambda_source,
+            lambda_layout: state.engine.lambda_system.get_layout(),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };

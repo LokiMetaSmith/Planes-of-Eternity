@@ -47,5 +47,13 @@ features = [
   "PositionError",
   "WebSocket",
   "MessageEvent",
-  "console"
+  "console",
+  "AudioContext",
+  "AudioDestinationNode",
+  "AudioNode",
+  "AudioParam",
+  "GainNode",
+  "OscillatorNode",
+  "OscillatorType",
+  "AudioContextState"
 ]

@@ -9,6 +9,7 @@ use crate::projector::RealityProjector;
 use crate::reality_types::{RealityArchetype, RealitySignature};
 use crate::visual_lambda::{self, LambdaSystem};
 use crate::world::WorldState;
+use crate::audio::AudioManager;
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct LabelInfo {
@@ -26,6 +27,7 @@ pub struct Engine {
     pub camera: Camera,
     pub camera_controller: CameraController,
     pub input_config: InputConfig,
+    pub audio: AudioManager,
     pub global_offset: [f32; 4],
     pub time: f32,
     pub pending_full_sync: bool,
@@ -107,6 +109,8 @@ impl Engine {
         // Check if lambda system needs init from state? For now, always reset as it's not persisted.
         // It was initialized above.
 
+        let audio = AudioManager::new();
+
         Self {
             world_state,
             player_projector,
@@ -115,6 +119,7 @@ impl Engine {
             camera,
             camera_controller,
             input_config: InputConfig::default(),
+            audio,
             global_offset: [0.0; 4],
             time: 0.0,
             pending_full_sync: false,
@@ -148,7 +153,12 @@ impl Engine {
         self.lambda_system.set_anchor(anchor);
 
         // Fixed timestep for lambda physics for now, could use dt
-        self.lambda_system.update(0.016);
+        let events = self.lambda_system.update(0.016);
+        for event in events {
+             match event {
+                 visual_lambda::LambdaEvent::ReductionStarted => self.audio.play_reduce(),
+             }
+        }
     }
 
     pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) {
@@ -159,6 +169,7 @@ impl Engine {
                      if pressed {
                          // Cast Spell
                          log::info!("Casting Lambda Spell!");
+                         self.audio.play_cast();
                          if let Some(term) = &self.lambda_system.root_term {
                              if let Some(anomaly) = self.compile_spell(term.clone()) {
                                  self.world_state.add_anomaly(anomaly.clone());
@@ -212,6 +223,7 @@ impl Engine {
     }
 
     pub fn process_mouse_down(&mut self, x: f32, y: f32, button: i16) {
+        self.audio.resume_context();
         let (ray_origin, ray_dir) = self.get_ray(x, y);
 
         if button == 0 { // Left
@@ -226,9 +238,14 @@ impl Engine {
     }
 
     pub fn process_mouse_move(&mut self, x: f32, y: f32) {
+        let last_hover = self.lambda_system.hovered_node;
         let (ray_origin, ray_dir) = self.get_ray(x, y);
         self.lambda_system.update_drag(ray_origin, ray_dir);
         self.lambda_system.update_hover(ray_origin, ray_dir);
+
+        if self.lambda_system.hovered_node.is_some() && self.lambda_system.hovered_node != last_hover {
+            self.audio.play_hover();
+        }
     }
 
     pub fn process_mouse_look(&mut self, dx: f32, dy: f32) {

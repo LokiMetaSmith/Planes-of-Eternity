@@ -71,6 +71,7 @@ pub struct Chunk {
     pub key: ChunkKey,
     // Flattened array: x + y*SIZE + z*SIZE*SIZE
     pub data: Vec<Voxel>,
+    pub size: usize, // Dynamic size for LOD
     #[serde(skip)]
     pub history: VecDeque<Vec<Voxel>>,
 }
@@ -83,40 +84,44 @@ fn hash(x: i32, y: i32, z: i32) -> f32 {
 
 impl Chunk {
     pub fn new(key: ChunkKey) -> Self {
-        let size = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+        let size = CHUNK_SIZE; // Default full res
+        let vol = size * size * size;
         Self {
             key,
-            data: vec![Voxel::default(); size],
+            data: vec![Voxel::default(); vol],
+            size,
             history: VecDeque::with_capacity(HISTORY_DEPTH),
         }
     }
 
-    pub fn index(x: usize, y: usize, z: usize) -> usize {
-        x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE
+    pub fn index(&self, x: usize, y: usize, z: usize) -> usize {
+        x + y * self.size + z * self.size * self.size
     }
 
     pub fn get(&self, x: usize, y: usize, z: usize) -> Voxel {
-        if x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE {
+        if x >= self.size || y >= self.size || z >= self.size {
             return Voxel::default();
         }
-        self.data[Self::index(x, y, z)]
+        self.data[self.index(x, y, z)]
     }
 
-    pub fn index_opt(x: i32, y: i32, z: i32) -> Option<usize> {
-        if x < 0 || x >= CHUNK_SIZE as i32 ||
-           y < 0 || y >= CHUNK_SIZE as i32 ||
-           z < 0 || z >= CHUNK_SIZE as i32 {
+    pub fn index_opt(&self, x: i32, y: i32, z: i32) -> Option<usize> {
+        let s = self.size as i32;
+        if x < 0 || x >= s ||
+           y < 0 || y >= s ||
+           z < 0 || z >= s {
             None
         } else {
-            Some((x as usize) + (y as usize) * CHUNK_SIZE + (z as usize) * CHUNK_SIZE * CHUNK_SIZE)
+            Some((x as usize) + (y as usize) * self.size + (z as usize) * self.size * self.size)
         }
     }
 
     pub fn set(&mut self, x: usize, y: usize, z: usize, voxel: Voxel) {
-        if x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE {
+        if x >= self.size || y >= self.size || z >= self.size {
             return;
         }
-        self.data[Self::index(x, y, z)] = voxel;
+        let idx = self.index(x, y, z);
+        self.data[idx] = voxel;
     }
 
     pub fn save_state(&mut self) {
@@ -134,7 +139,66 @@ impl Chunk {
         false
     }
 
+    // Create a lower-resolution version of this chunk (LOD)
+    pub fn create_lod(&self, factor: usize) -> Chunk {
+        let new_size = self.size / factor;
+        if new_size == 0 { return self.clone(); }
+
+        let mut new_data = vec![Voxel::default(); new_size * new_size * new_size];
+
+        for z in 0..new_size {
+            for y in 0..new_size {
+                for x in 0..new_size {
+                    // Downsampling Logic: Voting / Majority Rule
+                    // Scan the block of 'factor^3' voxels in the original data
+                    let mut counts = HashMap::new();
+
+                    for dz in 0..factor {
+                        for dy in 0..factor {
+                            for dx in 0..factor {
+                                let ox = x * factor + dx;
+                                let oy = y * factor + dy;
+                                let oz = z * factor + dz;
+
+                                let voxel = self.get(ox, oy, oz);
+                                if voxel.id != 0 {
+                                    *counts.entry(voxel.id).or_insert(0) += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    // Pick most common non-air voxel
+                    let mut best_id = 0;
+                    let mut max_count = 0;
+                    for (id, count) in counts {
+                        if count > max_count {
+                            max_count = count;
+                            best_id = id;
+                        }
+                    }
+
+                    // Threshold: only if enough matter exists? Or just take majority?
+                    // Taking majority preserves volume better.
+
+                    let idx = x + y * new_size + z * new_size * new_size;
+                    new_data[idx] = Voxel { id: best_id };
+                }
+            }
+        }
+
+        Chunk {
+            key: self.key,
+            data: new_data,
+            size: new_size,
+            history: VecDeque::new(), // LODs don't need history
+        }
+    }
+
     pub fn generate(&mut self) {
+        // Only valid for full size chunks
+        if self.size != CHUNK_SIZE { return; }
+
         let wx_base = self.key.x * CHUNK_SIZE as i32;
         let wy_base = self.key.y * CHUNK_SIZE as i32;
         let wz_base = self.key.z * CHUNK_SIZE as i32;
@@ -177,26 +241,29 @@ impl Chunk {
                         if n > 0.995 { voxel.id = 3; }
                     }
 
-                    self.data[Self::index(x, y, z)] = voxel;
+                    let idx = self.index(x, y, z);
+                    self.data[idx] = voxel;
                 }
             }
         }
     }
 
     pub fn diffuse(&mut self) {
+        if self.size != CHUNK_SIZE { return; } // Only simulate on full res
+
         let mut next_data = self.data.clone();
-        let size = CHUNK_SIZE as i32;
+        let size = self.size as i32;
 
         for z in 0..size {
             for y in 0..size {
                 for x in 0..size {
-                    let idx = Self::index(x as usize, y as usize, z as usize);
+                    let idx = self.index(x as usize, y as usize, z as usize);
                     let current_id = self.data[idx].id;
 
                     if current_id == 2 { // Lava spreads fire
                          let neighbors = [(x+1,y,z),(x-1,y,z),(x,y+1,z),(x,y-1,z),(x,y,z+1),(x,y,z-1)];
                         for (nx, ny, nz) in neighbors {
-                            if let Some(nidx) = Self::index_opt(nx, ny, nz) {
+                            if let Some(nidx) = self.index_opt(nx, ny, nz) {
                                 if self.data[nidx].id == 0 && hash(nx+self.key.x, ny, nz).abs() % 1.0 > 0.9 {
                                      next_data[nidx].id = 3;
                                 }
@@ -204,7 +271,7 @@ impl Chunk {
                         }
                     } else if current_id == 3 { // Fire burns out/rises
                         if hash(x+self.key.x, y, z).abs() % 1.0 > 0.8 { next_data[idx].id = 0; }
-                        if let Some(up_idx) = Self::index_opt(x, y+1, z) {
+                        if let Some(up_idx) = self.index_opt(x, y+1, z) {
                              if self.data[up_idx].id == 0 && hash(x,y,z).abs() % 1.0 > 0.7 { next_data[up_idx].id = 3; }
                         }
                     }
@@ -220,10 +287,12 @@ impl Chunk {
         let mut indices = Vec::new();
         let mut index_counter = 0;
 
-        let size = CHUNK_SIZE;
-        let offset_x = self.key.x as f32 * size as f32;
-        let offset_y = self.key.y as f32 * size as f32;
-        let offset_z = self.key.z as f32 * size as f32;
+        let size = self.size;
+        let scale_factor = CHUNK_SIZE as f32 / size as f32; // Scale vertices up if LOD is lower resolution
+
+        let offset_x = self.key.x as f32 * CHUNK_SIZE as f32;
+        let offset_y = self.key.y as f32 * CHUNK_SIZE as f32;
+        let offset_z = self.key.z as f32 * CHUNK_SIZE as f32;
 
         fn get_color(id: VoxelId) -> [f32; 3] {
             match id {
@@ -328,11 +397,22 @@ impl Chunk {
                             let w_vec = [dv_vec[0] * width as f32, dv_vec[1] * width as f32, dv_vec[2] * width as f32];
                             let h_vec = [du_vec[0] * height as f32, du_vec[1] * height as f32, du_vec[2] * height as f32];
 
-                            // Coordinates
-                            let p0 = [p[0] + offset_x, p[1] + offset_y, p[2] + offset_z];
-                            let p1 = [p[0] + w_vec[0] + offset_x, p[1] + w_vec[1] + offset_y, p[2] + w_vec[2] + offset_z];
-                            let p2 = [p[0] + w_vec[0] + h_vec[0] + offset_x, p[1] + w_vec[1] + h_vec[1] + offset_y, p[2] + w_vec[2] + h_vec[2] + offset_z];
-                            let p3 = [p[0] + h_vec[0] + offset_x, p[1] + h_vec[1] + offset_y, p[2] + h_vec[2] + offset_z];
+                            // Coordinates (Scaled by LOD factor)
+                            // Note: offset_x/y/z are world coordinates of chunk corner.
+                            // p coordinates are local 0..size. Need to multiply by scale_factor.
+
+                            let apply_scale = |v: [f32; 3]| -> [f32; 3] {
+                                [
+                                    v[0] * scale_factor + offset_x,
+                                    v[1] * scale_factor + offset_y,
+                                    v[2] * scale_factor + offset_z
+                                ]
+                            };
+
+                            let p0 = apply_scale([p[0], p[1], p[2]]);
+                            let p1 = apply_scale([p[0] + w_vec[0], p[1] + w_vec[1], p[2] + w_vec[2]]);
+                            let p2 = apply_scale([p[0] + w_vec[0] + h_vec[0], p[1] + w_vec[1] + h_vec[1], p[2] + w_vec[2] + h_vec[2]]);
+                            let p3 = apply_scale([p[0] + h_vec[0], p[1] + h_vec[1], p[2] + h_vec[2]]);
 
                             let normal = if is_current_face {
                                 let mut n = [0.0; 3]; n[d] = 1.0; n
@@ -345,7 +425,9 @@ impl Chunk {
                             // Calculate AO
                             // Placeholder heuristic: just darken lower parts slightly to simulate depth/ground shading
                             let calc_ao = |_px: f32, py: f32, _pz: f32, _norm: [f32; 3]| -> f32 {
-                                (py / (size as f32 * 2.0)).clamp(0.5, 1.0)
+                                // use local Y for gradient
+                                let local_y = (py - offset_y) / (CHUNK_SIZE as f32);
+                                (local_y * 0.5 + 0.5).clamp(0.5, 1.0)
                             };
 
                             let ao0 = calc_ao(p0[0], p0[1], p0[2], normal);

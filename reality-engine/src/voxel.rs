@@ -8,21 +8,13 @@ pub const HISTORY_DEPTH: usize = 16; // Store last 16 states (ticks)
 
 pub type VoxelId = u8;
 
-// Material IDs:
-// 0 = Air
-// 1 = Stone (Castle)
-// 2 = Lava (Volcano core)
-// 3 = Fire (Diffusion result)
-// 4 = Water (Fluid)
-// 5 = Grass (Ground)
-// 6 = Wood (Bridges)
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VoxelVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub color: [f32; 3],
+    pub ao: f32, // New: Ambient Occlusion (0.0 to 1.0)
 }
 
 impl VoxelVertex {
@@ -45,6 +37,11 @@ impl VoxelVertex {
                     offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3, // Color
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32, // AO
                 },
             ],
         }
@@ -74,13 +71,10 @@ pub struct Chunk {
     pub key: ChunkKey,
     // Flattened array: x + y*SIZE + z*SIZE*SIZE
     pub data: Vec<Voxel>,
-
-    // 4D History: Stores snapshots of 'data'
-    #[serde(skip)] // Don't serialize history to save space/time for now
+    #[serde(skip)]
     pub history: VecDeque<Vec<Voxel>>,
 }
 
-// Pseudo-random number generator
 fn hash(x: i32, y: i32, z: i32) -> f32 {
     let mut n = x.wrapping_mul(374761393) ^ y.wrapping_mul(668265263) ^ z.wrapping_mul(393555907);
     n = (n ^ (n >> 13)).wrapping_mul(1274126177);
@@ -101,6 +95,13 @@ impl Chunk {
         x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE
     }
 
+    pub fn get(&self, x: usize, y: usize, z: usize) -> Voxel {
+        if x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE {
+            return Voxel::default();
+        }
+        self.data[Self::index(x, y, z)]
+    }
+
     pub fn index_opt(x: i32, y: i32, z: i32) -> Option<usize> {
         if x < 0 || x >= CHUNK_SIZE as i32 ||
            y < 0 || y >= CHUNK_SIZE as i32 ||
@@ -109,13 +110,6 @@ impl Chunk {
         } else {
             Some((x as usize) + (y as usize) * CHUNK_SIZE + (z as usize) * CHUNK_SIZE * CHUNK_SIZE)
         }
-    }
-
-    pub fn get(&self, x: usize, y: usize, z: usize) -> Voxel {
-        if x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE {
-            return Voxel::default();
-        }
-        self.data[Self::index(x, y, z)]
     }
 
     pub fn set(&mut self, x: usize, y: usize, z: usize, voxel: Voxel) {
@@ -145,10 +139,6 @@ impl Chunk {
         let wy_base = self.key.y * CHUNK_SIZE as i32;
         let wz_base = self.key.z * CHUNK_SIZE as i32;
 
-        let offset_x = self.key.x as f32 * CHUNK_SIZE as f32;
-        let offset_y = self.key.y as f32 * CHUNK_SIZE as f32;
-        let offset_z = self.key.z as f32 * CHUNK_SIZE as f32;
-
         for z in 0..CHUNK_SIZE {
             for y in 0..CHUNK_SIZE {
                 for x in 0..CHUNK_SIZE {
@@ -158,48 +148,33 @@ impl Chunk {
 
                     let mut voxel = Voxel::default();
 
-                    // Ground Plane
-                    if wy == -1 {
-                        voxel.id = 5; // Grass
-                    }
+                    // Ground
+                    if wy == -1 { voxel.id = 5; }
 
-                    // Castle at 0,0,0 (approx)
+                    // Castle (Procedural)
                     if wx.abs() < 10 && wz.abs() < 10 {
                         if wy >= 0 && wy < 10 {
-                            // Walls
-                            if wx.abs() > 8 || wz.abs() > 8 {
-                                voxel.id = 1; // Stone
-                            } else if wy == 0 {
-                                voxel.id = 1; // Floor
-                            }
+                            if wx.abs() > 8 || wz.abs() > 8 { voxel.id = 1; }
+                            else if wy == 0 { voxel.id = 1; }
                         }
                     }
 
                     // Bridge
-                    if wz == 0 && wx > 10 && wx < 30 && wy == 5 {
-                        voxel.id = 6; // Wood
-                    }
+                    if wz == 0 && wx > 10 && wx < 30 && wy == 5 { voxel.id = 6; }
 
-                    // Volcano at 40,0,0
+                    // Volcano
                     let vx = wx - 40;
                     let vz = wz;
                     let dist = ((vx*vx + vz*vz) as f32).sqrt();
                     let height = 20.0 - dist;
-
                     if wy as f32 <= height && wy >= 0 {
-                        if dist < 2.0 {
-                             voxel.id = 2; // Lava Core
-                        } else {
-                             voxel.id = 1; // Stone
-                        }
+                        if dist < 2.0 { voxel.id = 2; } else { voxel.id = 1; }
                     }
 
-                    // Noise for random scattering
+                    // Fire Noise
                     if voxel.id == 0 && wy > 0 {
                         let n = hash(wx, wy, wz);
-                        if n > 0.995 {
-                            voxel.id = 3; // Random Fire
-                        }
+                        if n > 0.995 { voxel.id = 3; }
                     }
 
                     self.data[Self::index(x, y, z)] = voxel;
@@ -218,32 +193,19 @@ impl Chunk {
                     let idx = Self::index(x as usize, y as usize, z as usize);
                     let current_id = self.data[idx].id;
 
-                    // Logic
-                    if current_id == 2 { // Lava
-                         let neighbors = [
-                            (x+1, y, z), (x-1, y, z),
-                            (x, y+1, z), (x, y-1, z),
-                            (x, y, z+1), (x, y, z-1)
-                        ];
+                    if current_id == 2 { // Lava spreads fire
+                         let neighbors = [(x+1,y,z),(x-1,y,z),(x,y+1,z),(x,y-1,z),(x,y,z+1),(x,y,z-1)];
                         for (nx, ny, nz) in neighbors {
                             if let Some(nidx) = Self::index_opt(nx, ny, nz) {
-                                if self.data[nidx].id == 0 {
-                                    if hash(nx + self.key.x, ny, nz).abs() % 1.0 > 0.9 {
-                                         next_data[nidx].id = 3; // Fire
-                                    }
+                                if self.data[nidx].id == 0 && hash(nx+self.key.x, ny, nz).abs() % 1.0 > 0.9 {
+                                     next_data[nidx].id = 3;
                                 }
                             }
                         }
-                    } else if current_id == 3 { // Fire
-                        if hash(x + self.key.x, y, z).abs() % 1.0 > 0.8 {
-                            next_data[idx].id = 0;
-                        }
-                        if y < size - 1 {
-                             if let Some(up_idx) = Self::index_opt(x, y+1, z) {
-                                 if self.data[up_idx].id == 0 && hash(x,y,z).abs() % 1.0 > 0.7 {
-                                     next_data[up_idx].id = 3;
-                                 }
-                             }
+                    } else if current_id == 3 { // Fire burns out/rises
+                        if hash(x+self.key.x, y, z).abs() % 1.0 > 0.8 { next_data[idx].id = 0; }
+                        if let Some(up_idx) = Self::index_opt(x, y+1, z) {
+                             if self.data[up_idx].id == 0 && hash(x,y,z).abs() % 1.0 > 0.7 { next_data[up_idx].id = 3; }
                         }
                     }
                 }
@@ -252,10 +214,16 @@ impl Chunk {
         self.data = next_data;
     }
 
+    // --- Greedy Meshing Implementation ---
     pub fn generate_mesh(&self) -> (Vec<VoxelVertex>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut index_counter = 0;
+
+        let size = CHUNK_SIZE;
+        let offset_x = self.key.x as f32 * size as f32;
+        let offset_y = self.key.y as f32 * size as f32;
+        let offset_z = self.key.z as f32 * size as f32;
 
         fn get_color(id: VoxelId) -> [f32; 3] {
             match id {
@@ -265,80 +233,154 @@ impl Chunk {
                 4 => [0.0, 0.0, 1.0], // Water
                 5 => [0.0, 0.8, 0.0], // Grass
                 6 => [0.6, 0.4, 0.2], // Wood
-                _ => [1.0, 0.0, 1.0], // Error
+                _ => [1.0, 0.0, 1.0],
             }
         }
 
-        // Helper to add face
-        let mut add_face = |pos: [f32; 3], corners: [[f32; 3]; 4], normal: [f32; 3], color: [f32; 3]| {
-             for corner in corners {
-                 vertices.push(VoxelVertex {
-                     position: [pos[0] + corner[0], pos[1] + corner[1], pos[2] + corner[2]],
-                     normal,
-                     color,
-                 });
-             }
-             indices.push(index_counter);
-             indices.push(index_counter + 1);
-             indices.push(index_counter + 2);
-             indices.push(index_counter + 2);
-             indices.push(index_counter + 3);
-             indices.push(index_counter);
-             index_counter += 4;
-        };
+        // Iterate over 3 axes (0=X, 1=Y, 2=Z)
+        for d in 0..3 {
+            let u = (d + 1) % 3;
+            let v = (d + 2) % 3;
 
-        let offset_x = self.key.x as f32 * CHUNK_SIZE as f32;
-        let offset_y = self.key.y as f32 * CHUNK_SIZE as f32;
-        let offset_z = self.key.z as f32 * CHUNK_SIZE as f32;
+            let mut x = [0; 3];
+            let mut q = [0; 3];
+            let mut mask = vec![0i16; size * size]; // Mask of voxel IDs (signed for orientation)
 
-        for z in 0..CHUNK_SIZE {
-            for y in 0..CHUNK_SIZE {
-                for x in 0..CHUNK_SIZE {
-                    let id = self.get(x, y, z).id;
-                    if id == 0 { continue; }
+            q[d] = 1;
 
-                    let color = get_color(id);
-                    let fx = x as f32 + offset_x;
-                    let fy = y as f32 + offset_y;
-                    let fz = z as f32 + offset_z;
-                    let base_pos = [fx, fy, fz];
+            // Iterate through slices
+            for i in -1..(size as i32) {
+                x[d] = i;
 
-                    // Check neighbors
-                    // +X
-                    if x == CHUNK_SIZE - 1 || self.get(x+1, y, z).id == 0 {
-                        add_face(base_pos,
-                            [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0, 1.0, 1.0], [1.0, 0.0, 1.0]],
-                            [1.0, 0.0, 0.0], color);
+                // Compute Mask
+                let mut n = 0;
+                for j in 0..size {
+                    for k in 0..size {
+                        x[u] = j as i32;
+                        x[v] = k as i32;
+
+                        let current = if i >= 0 && i < size as i32 {
+                            self.get(x[0] as usize, x[1] as usize, x[2] as usize).id
+                        } else { 0 };
+
+                        let neighbor = if i + 1 >= 0 && i + 1 < size as i32 {
+                            self.get((x[0] + q[0]) as usize, (x[1] + q[1]) as usize, (x[2] + q[2]) as usize).id
+                        } else { 0 };
+
+                        let mask_val = if current != 0 && neighbor == 0 {
+                            current as i16 // Front face
+                        } else if current == 0 && neighbor != 0 {
+                            -(neighbor as i16) // Back face
+                        } else {
+                            0
+                        };
+                        mask[n] = mask_val;
+                        n += 1;
                     }
-                    // -X
-                    if x == 0 || self.get(x-1, y, z).id == 0 {
-                        add_face(base_pos,
-                            [[0.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]],
-                            [-1.0, 0.0, 0.0], color);
-                    }
-                    // +Y
-                    if y == CHUNK_SIZE - 1 || self.get(x, y+1, z).id == 0 {
-                        add_face(base_pos,
-                            [[0.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
-                            [0.0, 1.0, 0.0], color);
-                    }
-                    // -Y
-                    if y == 0 || self.get(x, y-1, z).id == 0 {
-                        add_face(base_pos,
-                            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
-                            [0.0, -1.0, 0.0], color);
-                    }
-                    // +Z
-                    if z == CHUNK_SIZE - 1 || self.get(x, y, z+1).id == 0 {
-                        add_face(base_pos,
-                            [[1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]],
-                            [0.0, 0.0, 1.0], color);
-                    }
-                    // -Z
-                    if z == 0 || self.get(x, y, z-1).id == 0 {
-                        add_face(base_pos,
-                            [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [1.0, 0.0, 0.0]],
-                            [0.0, 0.0, -1.0], color);
+                }
+
+                // Generate Mesh from Mask
+                n = 0;
+                for j in 0..size {
+                    for k in 0..size {
+                        if mask[n] != 0 {
+                            let type_id = mask[n];
+                            let mut width = 1;
+                            let mut height = 1;
+
+                            // Greedy expansion width
+                            while k + width < size && mask[n + width] == type_id {
+                                width += 1;
+                            }
+
+                            // Greedy expansion height
+                            let mut done = false;
+                            while j + height < size {
+                                for w in 0..width {
+                                    if mask[n + w + height * size] != type_id {
+                                        done = true;
+                                        break;
+                                    }
+                                }
+                                if done { break; }
+                                height += 1;
+                            }
+
+                            // Add Quad
+                            x[u] = j as i32;
+                            x[v] = k as i32;
+
+                            // Vertices
+                            let x1 = x[0] as f32;
+                            let y1 = x[1] as f32;
+                            let z1 = x[2] as f32;
+
+                            let is_current_face = type_id > 0;
+
+                            let pos_offset = if is_current_face { 1.0 } else { 1.0 };
+
+                            let mut p = [x1, y1, z1];
+                            p[d] += pos_offset;
+
+                            let mut du_vec = [0.0; 3]; du_vec[u] = 1.0;
+                            let mut dv_vec = [0.0; 3]; dv_vec[v] = 1.0;
+
+                            let w_vec = [dv_vec[0] * width as f32, dv_vec[1] * width as f32, dv_vec[2] * width as f32];
+                            let h_vec = [du_vec[0] * height as f32, du_vec[1] * height as f32, du_vec[2] * height as f32];
+
+                            // Coordinates
+                            let p0 = [p[0] + offset_x, p[1] + offset_y, p[2] + offset_z];
+                            let p1 = [p[0] + w_vec[0] + offset_x, p[1] + w_vec[1] + offset_y, p[2] + w_vec[2] + offset_z];
+                            let p2 = [p[0] + w_vec[0] + h_vec[0] + offset_x, p[1] + w_vec[1] + h_vec[1] + offset_y, p[2] + w_vec[2] + h_vec[2] + offset_z];
+                            let p3 = [p[0] + h_vec[0] + offset_x, p[1] + h_vec[1] + offset_y, p[2] + h_vec[2] + offset_z];
+
+                            let normal = if is_current_face {
+                                let mut n = [0.0; 3]; n[d] = 1.0; n
+                            } else {
+                                let mut n = [0.0; 3]; n[d] = -1.0; n
+                            };
+
+                            let color = get_color(type_id.abs() as u8);
+
+                            // Calculate AO
+                            // Placeholder heuristic: just darken lower parts slightly to simulate depth/ground shading
+                            let calc_ao = |_px: f32, py: f32, _pz: f32, _norm: [f32; 3]| -> f32 {
+                                (py / (size as f32 * 2.0)).clamp(0.5, 1.0)
+                            };
+
+                            let ao0 = calc_ao(p0[0], p0[1], p0[2], normal);
+                            let ao1 = calc_ao(p1[0], p1[1], p1[2], normal);
+                            let ao2 = calc_ao(p2[0], p2[1], p2[2], normal);
+                            let ao3 = calc_ao(p3[0], p3[1], p3[2], normal);
+
+                            if is_current_face {
+                                vertices.push(VoxelVertex { position: p0, normal, color, ao: ao0 });
+                                vertices.push(VoxelVertex { position: p1, normal, color, ao: ao1 });
+                                vertices.push(VoxelVertex { position: p2, normal, color, ao: ao2 });
+                                vertices.push(VoxelVertex { position: p3, normal, color, ao: ao3 });
+                            } else {
+                                vertices.push(VoxelVertex { position: p0, normal, color, ao: ao0 });
+                                vertices.push(VoxelVertex { position: p3, normal, color, ao: ao3 });
+                                vertices.push(VoxelVertex { position: p2, normal, color, ao: ao2 });
+                                vertices.push(VoxelVertex { position: p1, normal, color, ao: ao1 });
+                            }
+
+                            indices.push(index_counter);
+                            indices.push(index_counter + 1);
+                            indices.push(index_counter + 2);
+                            indices.push(index_counter + 2);
+                            indices.push(index_counter + 3);
+                            indices.push(index_counter);
+                            index_counter += 4;
+
+                            // Clear Mask
+                            for w in 0..width {
+                                for h in 0..height {
+                                    mask[n + w + h * size] = 0;
+                                }
+                            }
+                        }
+                        n += 1; // Increment mask index
                     }
                 }
             }
@@ -394,7 +436,6 @@ impl VoxelWorld {
     }
 
     pub fn dream(&mut self) {
-        // Apply Genie logic to all chunks
         for chunk in self.chunks.values_mut() {
             self.genie.dream_chunk(chunk);
         }

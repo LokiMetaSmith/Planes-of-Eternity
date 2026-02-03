@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use serde::{Serialize, Deserialize};
 use wgpu;
+use crate::genie_bridge::GenieBridge;
 
 pub const CHUNK_SIZE: usize = 32;
 pub const HISTORY_DEPTH: usize = 16; // Store last 16 states (ticks)
@@ -350,12 +351,15 @@ impl Chunk {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct VoxelWorld {
     pub chunks: HashMap<ChunkKey, Chunk>,
+    #[serde(skip)]
+    pub genie: GenieBridge,
 }
 
 impl VoxelWorld {
     pub fn new() -> Self {
         Self {
             chunks: HashMap::new(),
+            genie: GenieBridge::new(),
         }
     }
 
@@ -386,6 +390,13 @@ impl VoxelWorld {
     pub fn update_dynamics(&mut self) {
         for chunk in self.chunks.values_mut() {
             chunk.diffuse();
+        }
+    }
+
+    pub fn dream(&mut self) {
+        // Apply Genie logic to all chunks
+        for chunk in self.chunks.values_mut() {
+            self.genie.dream_chunk(chunk);
         }
     }
 

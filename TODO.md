@@ -1,5 +1,11 @@
 # Reality Engine Tasks
 
+## 4D Voxel Engine
+- [ ] **Optimize Rendering**: Implement Greedy Meshing to reduce triangle count.
+- [ ] **LOD System**: Implement Level of Detail for distant chunks (Octree or simplified mesh).
+- [ ] **Enhance Visuals**: Add Shadows, Textures, and more complex shading (AO, reflections).
+- [ ] **Depth Buffer**: Fix current simple depth buffering to ensure proper z-sorting/culling of voxel layers.
+
 ## Visual Lambda System
 - [x] **Render Graph Edges**: Implement a Line Pipeline in `LambdaRenderer` to visualize connections (edges) between lambda nodes. Currently, only nodes are rendered as spheres.
 - [x] **Dynamic Positioning**: Anchor the Lambda Graph to the Player/Camera position (or a specific "Casting" anchor) instead of the fixed `(0, 5, 0)` world coordinate.

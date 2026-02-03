@@ -14,6 +14,7 @@ pub mod projector;
 pub mod persistence;
 pub mod world;
 pub mod voxel;
+pub mod genie_bridge;
 pub mod network;
 pub mod lambda;
 pub mod visual_lambda;
@@ -695,6 +696,11 @@ impl State {
         }
         if key_code == "KeyT" {
              self.voxel_world.revert_all_states();
+             self.voxel_dirty = true;
+        }
+        if key_code == "KeyG" {
+             self.voxel_world.dream();
+             self.voxel_world.save_all_states();
              self.voxel_dirty = true;
         }
 

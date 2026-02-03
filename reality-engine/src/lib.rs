@@ -13,6 +13,7 @@ pub mod reality_types;
 pub mod projector;
 pub mod persistence;
 pub mod world;
+pub mod voxel;
 pub mod network;
 pub mod lambda;
 pub mod visual_lambda;
@@ -255,6 +256,12 @@ pub struct State {
     // time moved to engine
 
     pub engine: engine::Engine,
+
+    pub depth_texture: texture::Texture,
+    pub voxel_world: voxel::VoxelWorld,
+    pub voxel_pipeline: wgpu::RenderPipeline,
+    pub voxel_meshes: Vec<(wgpu::Buffer, wgpu::Buffer, u32)>, // Vertex, Index, Count
+    pub voxel_dirty: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -366,6 +373,8 @@ impl State {
             ],
             label: Some("diffuse_bind_group"),
         });
+
+        let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -537,7 +546,13 @@ impl State {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -551,6 +566,81 @@ impl State {
             config.format,
             &camera_bind_group_layout,
         );
+
+        // --- Voxel Initialization ---
+        let mut voxel_world = voxel::VoxelWorld::new();
+        voxel_world.generate_default_world();
+
+        let voxel_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Voxel Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader_voxel.wgsl"))),
+        });
+
+        let voxel_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Voxel Pipeline Layout"),
+            bind_group_layouts: &[
+                &camera_bind_group_layout, // Group 0
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Voxel Render Pipeline"),
+            layout: Some(&voxel_pipeline_layout),
+            cache: None,
+            vertex: wgpu::VertexState {
+                module: &voxel_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[voxel::VoxelVertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &voxel_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
+        let mut voxel_meshes = Vec::new();
+        for chunk in voxel_world.chunks.values() {
+            let (v, i) = chunk.generate_mesh();
+            if !i.is_empty() {
+                let v_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Voxel Chunk Vertex"),
+                    contents: bytemuck::cast_slice(&v),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let i_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Voxel Chunk Index"),
+                    contents: bytemuck::cast_slice(&i),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+                voxel_meshes.push((v_buf, i_buf, i.len() as u32));
+            }
+        }
 
         Self {
             surface,
@@ -576,6 +666,11 @@ impl State {
             height,
             lambda_renderer,
             engine,
+            depth_texture,
+            voxel_world,
+            voxel_pipeline,
+            voxel_meshes,
+            voxel_dirty: false,
         }
     }
 
@@ -586,34 +681,22 @@ impl State {
             self.config.width = new_width;
             self.config.height = new_height;
             self.surface.configure(&self.device, &self.config);
+            self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
             self.engine.resize(new_width, new_height);
         }
     }
 
     pub fn process_keyboard(&mut self, key_code: &str) {
-        // Logic moved to engine
-        // But we need to know if we need to track pressed state for engine.
-        // Engine's process_keyboard takes (key_code, pressed).
-        // The original State::process_keyboard only took key_code (implied press).
-        // Wait, original State::process_keyboard was called by keydown_closure, so it was "pressed".
-        // But camera controller needed both press and release.
-        // Original: process_keyboard(code) -> logic for casting spell (on press)
-        // AND camera_controller.process_events(code, true) (on press)
-
-        // I will update State::process_keyboard to match what's needed or update the closure.
-        // The closure calls:
-        // state.process_keyboard(&code);
-        // state.camera_controller.process_events(&code, true);
-
-        // I'll make State::process_keyboard take `pressed`?
-        // Or keep it as "on press" trigger.
-        // Engine::process_keyboard handles both logic (spell) and camera.
-
-        // Let's update `process_keyboard` to just call `engine.process_keyboard(code, true)`.
-        // And update `process_keyup` equivalent?
-        // Original `process_keyboard` was only called on keydown.
-        // I'll change the signature in `lib.rs` closures later? No, I am rewriting `lib.rs` now.
-        // I can change `process_keyboard` signature to take `pressed`.
+        // Voxel Inputs
+        if key_code == "KeyY" {
+             self.voxel_world.update_dynamics();
+             self.voxel_world.save_all_states();
+             self.voxel_dirty = true;
+        }
+        if key_code == "KeyT" {
+             self.voxel_world.revert_all_states();
+             self.voxel_dirty = true;
+        }
 
         self.engine.process_keyboard(key_code, true);
     }
@@ -650,8 +733,33 @@ impl State {
         }
     }
 
+    pub fn rebuild_voxel_meshes(&mut self) {
+        self.voxel_meshes.clear();
+        for chunk in self.voxel_world.chunks.values() {
+            let (v, i) = chunk.generate_mesh();
+            if !i.is_empty() {
+                let v_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Voxel Chunk Vertex"),
+                    contents: bytemuck::cast_slice(&v),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let i_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Voxel Chunk Index"),
+                    contents: bytemuck::cast_slice(&i),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+                self.voxel_meshes.push((v_buf, i_buf, i.len() as u32));
+            }
+        }
+        self.voxel_dirty = false;
+    }
+
     pub fn update(&mut self) {
         self.engine.update(0.016); // Assuming ~60fps fixed step in update
+
+        if self.voxel_dirty {
+            self.rebuild_voxel_meshes();
+        }
 
         // Sync WGPU buffers with Engine State
         self.camera_uniform.update_view_proj(&self.engine.camera);
@@ -773,19 +881,27 @@ impl State {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 0.0,
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.2,
+                            a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
 
+            // Draw Terrain
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
@@ -796,6 +912,16 @@ impl State {
                 render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
+            }
+
+            // Draw Voxels
+            render_pass.set_pipeline(&self.voxel_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+
+            for (v_buf, i_buf, count) in &self.voxel_meshes {
+                render_pass.set_vertex_buffer(0, v_buf.slice(..));
+                render_pass.set_index_buffer(i_buf.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..*count, 0, 0..1);
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {

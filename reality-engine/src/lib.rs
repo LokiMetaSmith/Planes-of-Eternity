@@ -263,6 +263,8 @@ pub struct State {
     pub voxel_pipeline: wgpu::RenderPipeline,
     pub voxel_meshes: Vec<(wgpu::Buffer, wgpu::Buffer, u32)>, // Vertex, Index, Count
     pub voxel_dirty: bool,
+    pub voxel_atlas: texture::Texture,
+    pub voxel_bind_group: wgpu::BindGroup,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -572,6 +574,46 @@ impl State {
         let mut voxel_world = voxel::VoxelWorld::new();
         voxel_world.generate_default_world();
 
+        // Voxel Texture Atlas
+        let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
+
+        let voxel_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("voxel_bind_group_layout"),
+        });
+
+        let voxel_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &voxel_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&voxel_atlas.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&voxel_atlas.sampler),
+                },
+            ],
+            label: Some("voxel_bind_group"),
+        });
+
         let voxel_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Voxel Shader"),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader_voxel.wgsl"))),
@@ -581,6 +623,7 @@ impl State {
             label: Some("Voxel Pipeline Layout"),
             bind_group_layouts: &[
                 &camera_bind_group_layout, // Group 0
+                &voxel_bind_group_layout,  // Group 1
             ],
             push_constant_ranges: &[],
         });
@@ -672,6 +715,8 @@ impl State {
             voxel_pipeline,
             voxel_meshes,
             voxel_dirty: false,
+            voxel_atlas,
+            voxel_bind_group,
         }
     }
 
@@ -923,6 +968,7 @@ impl State {
             // Draw Voxels
             render_pass.set_pipeline(&self.voxel_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
 
             for (v_buf, i_buf, count) in &self.voxel_meshes {
                 render_pass.set_vertex_buffer(0, v_buf.slice(..));

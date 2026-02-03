@@ -9,6 +9,7 @@ struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec3<f32>,
+    @location(3) ao: f32,
 };
 
 struct VertexOutput {
@@ -16,6 +17,7 @@ struct VertexOutput {
     @location(0) color: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) world_pos: vec3<f32>,
+    @location(3) ao: f32,
 };
 
 @vertex
@@ -24,6 +26,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     out.world_pos = model.position;
     out.color = model.color;
     out.normal = model.normal;
+    out.ao = model.ao;
     out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
     return out;
 }
@@ -34,12 +37,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.5));
     let diffuse = max(dot(in.normal, light_dir), 0.2); // Ambient 0.2
 
-    // Specular?
-    // let view_dir = normalize(camera.camera_pos.xyz - in.world_pos);
-    // let reflect_dir = reflect(-light_dir, in.normal);
-    // let spec = pow(max(dot(view_dir, reflect_dir), 0.0), 32.0);
+    // Apply AO (Ambient Occlusion)
+    // ao is 0.0 to 1.0. 1.0 means fully exposed, 0.0 means fully occluded (corner).
+    // Usually we map 0->dark, 1->bright.
+    // Let's amplify the effect.
+    let ao_factor = in.ao * 0.8 + 0.2;
 
-    let final_color = in.color * diffuse;
+    let final_color = in.color * diffuse * ao_factor;
 
     return vec4<f32>(final_color, 1.0);
 }

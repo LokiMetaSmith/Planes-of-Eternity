@@ -654,6 +654,19 @@ impl LambdaSystem {
         }
     }
 
+    pub fn get_layout(&self) -> Vec<[f32; 3]> {
+        self.nodes.iter().map(|n| [n.position.x, n.position.y, n.position.z]).collect()
+    }
+
+    pub fn apply_layout(&mut self, layout: Vec<[f32; 3]>) {
+        for (i, pos) in layout.iter().enumerate() {
+            if i < self.nodes.len() {
+                self.nodes[i].position = Point3::new(pos[0], pos[1], pos[2]);
+                self.nodes[i].target_position = Point3::new(pos[0], pos[1], pos[2]);
+            }
+        }
+    }
+
     pub fn set_anchor(&mut self, new_anchor: Point3<f32>) {
         let delta = new_anchor - self.anchor_pos;
         self.anchor_pos = new_anchor;
@@ -722,7 +735,41 @@ impl LambdaSystem {
         }
     }
 
+    pub fn handle_drop(&mut self, dragged_idx: usize, dropped_on_idx: usize) {
+        if dragged_idx == dropped_on_idx { return; }
+        if dragged_idx >= self.nodes.len() || dropped_on_idx >= self.nodes.len() { return; }
+
+        let dragged_term = self.nodes[dragged_idx].term.clone();
+        let dropped_on_term = self.nodes[dropped_on_idx].term.clone();
+
+        // Logic: Dragged node becomes argument to Dropped node
+        // New Term: App(Dropped, Dragged)
+        let new_sub_term = Term::app(dropped_on_term.clone(), dragged_term);
+
+        if let Some(root) = &self.root_term {
+             let new_root = Term::replace(root, &dropped_on_term, new_sub_term);
+             self.set_term(new_root);
+        }
+    }
+
     pub fn end_drag(&mut self) {
+        if let Some(dragged_idx) = self.dragged_node {
+            // Check for overlap with other nodes
+            for i in 0..self.nodes.len() {
+                if i == dragged_idx { continue; }
+                // Skip invisible nodes
+                if self.nodes[i].scale < 0.001 { continue; }
+
+                let dist = (self.nodes[i].position - self.nodes[dragged_idx].position).magnitude();
+                let combined_radius = self.nodes[i].scale + self.nodes[dragged_idx].scale;
+
+                // If overlapping significantly
+                if dist < combined_radius * 0.8 {
+                    self.handle_drop(dragged_idx, i);
+                    break;
+                }
+            }
+        }
         self.dragged_node = None;
     }
 

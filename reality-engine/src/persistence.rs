@@ -16,6 +16,10 @@ pub struct PlayerState {
 pub struct GameState {
     pub player: PlayerState,
     pub world: WorldState,
+    #[serde(default)]
+    pub lambda_source: String,
+    #[serde(default)]
+    pub lambda_layout: Vec<[f32; 3]>,
     pub timestamp: u64,
     #[serde(default)]
     pub version: u32,

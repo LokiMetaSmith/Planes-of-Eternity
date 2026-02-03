@@ -30,7 +30,7 @@ impl GenieBridge {
         for z in 1..size-1 {
             for y in 1..size-1 {
                 for x in 1..size-1 {
-                    let idx = Chunk::index(x, y, z);
+                    let idx = chunk.index(x, y, z);
                     let id = chunk.data[idx].id;
 
                     // Genie Logic:
@@ -45,7 +45,7 @@ impl GenieBridge {
                     }
                     else if id == 0 { // Air
                         // "Dream" logic: If neighbors are Stone, maybe extend a bridge?
-                        let below = chunk.data[Chunk::index(x, y-1, z)].id;
+                        let below = chunk.data[chunk.index(x, y-1, z)].id;
                         if below == 1 && (x+z)%5 == 0 {
                              changes.push((idx, 1)); // Build up
                         }

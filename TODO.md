@@ -22,7 +22,7 @@
 - [ ] **Direct Manipulation**: Implement drag-and-drop mechanics to physically rewire connections or drag terms into applications (Visual Programming).
 - [x] **Step-by-Step Control**: Add UI or Hotkeys to Pause/Play/Step through reduction animations for better debugging/understanding.
 - [x] **Sound Effects**: Add audio feedback for interaction events like "Consumption", "Hover", and "Cast".
-- [ ] **Layout Persistence**: Save and load the physical graph positions in `GameState`, not just the parsed term string.
+- [x] **Layout Persistence**: Save and load the physical graph positions in `GameState`, not just the parsed term string.
 
 ## Networking & State
 - [x] **Delta Sync**: Optimize `broadcast_world_state` to send only modified chunks or diffs, rather than the entire WorldState JSON.

@@ -234,3 +234,46 @@ fn test_get_node_labels() {
         .collect();
     assert!(lambda_labels.is_empty(), "Labels should be culled if behind camera");
 }
+
+#[test]
+fn test_lambda_layout_persistence() {
+    use reality_engine::persistence::{GameState, PlayerState};
+    use reality_engine::world::WorldState;
+    use reality_engine::projector::RealityProjector;
+    use reality_engine::reality_types::{RealitySignature, RealityArchetype};
+    use cgmath::Point3;
+
+    // 1. Create a mock GameState with custom Lambda data
+    let mut custom_layout = Vec::new();
+    custom_layout.push([10.0, 20.0, 30.0]); // Specific position for root
+
+    let game_state = GameState {
+        player: PlayerState {
+            projector: RealityProjector::new(Point3::new(0.0, 0.0, 0.0), RealitySignature::default()),
+        },
+        world: WorldState::default(),
+        lambda_source: "WATER".to_string(), // Different from default "FIRE"
+        lambda_layout: custom_layout,
+        timestamp: 0,
+        version: 1,
+    };
+
+    // 2. Initialize Engine
+    let engine = Engine::new(800, 600, Some(game_state));
+
+    // 3. Verify Term
+    // Should be WATER (Primitive::Water)
+    if let Some(root) = &engine.lambda_system.root_term {
+        // format! of term
+        assert_eq!(format!("{:?}", root), "Prim(Water)", "Should have loaded WATER term");
+    } else {
+        panic!("Root term should not be None");
+    }
+
+    // 4. Verify Layout
+    assert!(!engine.lambda_system.nodes.is_empty(), "Nodes should not be empty");
+    let root_pos = engine.lambda_system.nodes[0].position;
+    assert_eq!(root_pos.x, 10.0, "X Position mismatch");
+    assert_eq!(root_pos.y, 20.0, "Y Position mismatch");
+    assert_eq!(root_pos.z, 30.0, "Z Position mismatch");
+}

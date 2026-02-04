@@ -69,8 +69,19 @@ impl Engine {
             );
 
             let mut ls = LambdaSystem::new();
-            let term = lambda::parse("FIRE").unwrap();
-            ls.set_term(term);
+
+            // Restore Lambda State
+            let source = if state.lambda_source.is_empty() { "FIRE".to_string() } else { state.lambda_source };
+            if let Some(term) = lambda::parse(&source) {
+                ls.set_term(term);
+                if !state.lambda_layout.is_empty() {
+                    ls.apply_layout(state.lambda_layout);
+                }
+            } else {
+                 // Fallback
+                 let term = lambda::parse("FIRE").unwrap();
+                 ls.set_term(term);
+            }
 
             (state.player.projector, state.world, Some(active_anomaly), ls)
         } else {

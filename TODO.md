@@ -38,4 +38,4 @@
 
 ## Polishing
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
-- [ ] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.
+- [x] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.

@@ -739,8 +739,22 @@ impl LambdaSystem {
         if dragged_idx == dropped_on_idx { return; }
         if dragged_idx >= self.nodes.len() || dropped_on_idx >= self.nodes.len() { return; }
 
-        let dragged_term = self.nodes[dragged_idx].term.clone();
-        let dropped_on_term = self.nodes[dropped_on_idx].term.clone();
+        let dragged_node = &self.nodes[dragged_idx];
+        let dropped_node = &self.nodes[dropped_on_idx];
+
+        // Check for Rewiring: Port -> Abs
+        if let (NodeType::Port, NodeType::Abs(param_name)) = (&dragged_node.node_type, &dropped_node.node_type) {
+             let new_var = Term::var(param_name);
+             if let Some(root) = &self.root_term {
+                 // Replace the specific Port instance with a new Var referencing the Abs binder
+                 let new_root = Term::replace(root, &dragged_node.term, new_var);
+                 self.set_term(new_root);
+             }
+             return;
+        }
+
+        let dragged_term = dragged_node.term.clone();
+        let dropped_on_term = dropped_node.term.clone();
 
         // Logic: Dragged node becomes argument to Dropped node
         // New Term: App(Dropped, Dragged)
@@ -1316,6 +1330,98 @@ mod tests {
         match sys.animation_state {
             AnimationState::Idle => assert!(true),
             _ => assert!(false, "Should stay idle when paused"),
+        }
+    }
+
+    #[test]
+    fn test_rewire_variable() {
+        let mut sys = LambdaSystem::new();
+        // \x. (\y. x) -> outer x is dragged to inner y binder -> \x. (\y. y)
+        let term = lambda::parse("(\\x.\\y.x)").unwrap();
+        sys.set_term(term);
+
+        // Find nodes
+        let mut x_port_idx = None;
+        let mut y_abs_idx = None;
+
+        for (i, node) in sys.nodes.iter().enumerate() {
+            match &node.node_type {
+                NodeType::Port => {
+                    // There is only one port: 'x' bound to outer 'x'
+                    x_port_idx = Some(i);
+                }
+                NodeType::Abs(name) => {
+                    if name == "y" {
+                        y_abs_idx = Some(i);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assert!(x_port_idx.is_some());
+        assert!(y_abs_idx.is_some());
+
+        // Drag x port to y abs
+        sys.handle_drop(x_port_idx.unwrap(), y_abs_idx.unwrap());
+
+        // Result should be (\x.\y.y)
+        if let Some(root) = &sys.root_term {
+             // Remove spaces for comparison
+             let s = root.to_string().replace(" ", "");
+             assert_eq!(s, "(λx.(λy.y))");
+        } else {
+             assert!(false, "Root term is None");
+        }
+    }
+
+    #[test]
+    fn test_rewire_specific_instance() {
+        let mut sys = LambdaSystem::new();
+        // \x. (\y. x x)
+        // Two x's. Both bound to outer x.
+        // We drag the FIRST one to y.
+        // Result should be \x. (\y. y x)
+        let term = lambda::parse("(\\x.\\y.x x)").unwrap();
+        sys.set_term(term);
+
+        // Find nodes
+        let mut first_x_idx = None;
+        let mut y_abs_idx = None;
+        let mut x_count = 0;
+
+        for (i, node) in sys.nodes.iter().enumerate() {
+            match &node.node_type {
+                NodeType::Port => {
+                    // Check if it's 'x' (via term string since Port doesn't have name field)
+                    if node.term.to_string() == "x" {
+                         if x_count == 0 {
+                             first_x_idx = Some(i);
+                         }
+                         x_count += 1;
+                    }
+                }
+                NodeType::Abs(name) => {
+                    if name == "y" {
+                        y_abs_idx = Some(i);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assert!(first_x_idx.is_some());
+        assert!(y_abs_idx.is_some());
+        assert_eq!(x_count, 2);
+
+        sys.handle_drop(first_x_idx.unwrap(), y_abs_idx.unwrap());
+
+        if let Some(root) = &sys.root_term {
+             let s = root.to_string().replace(" ", "");
+             // (x x) -> (y x)
+             assert_eq!(s, "(λx.(λy.(yx)))");
+        } else {
+             assert!(false, "Root term is None");
         }
     }
 }

@@ -19,7 +19,7 @@
 - [x] **Animations**: Implemented smooth animations for Beta Reduction (consumption/shrinking of arguments) and visual feedback (pulsing/color shifts).
 - [x] **Interaction**: Added hover highlighting for nodes and subtrees to visualize scope and connectivity.
 - [x] **Text Labels**: Implement text rendering (via HTML Overlays) to display variable names (`x`, `y`) and Primitives (`FIRE`) on the nodes.
-- [ ] **Direct Manipulation**: Implement drag-and-drop mechanics to physically rewire connections or drag terms into applications (Visual Programming).
+- [x] **Direct Manipulation**: Implement drag-and-drop mechanics to physically rewire connections or drag terms into applications (Visual Programming).
 - [x] **Step-by-Step Control**: Add UI or Hotkeys to Pause/Play/Step through reduction animations for better debugging/understanding.
 - [x] **Sound Effects**: Add audio feedback for interaction events like "Consumption", "Hover", and "Cast".
 - [x] **Layout Persistence**: Save and load the physical graph positions in `GameState`, not just the parsed term string.

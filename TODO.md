@@ -2,7 +2,7 @@
 
 ## 4D Voxel Engine
 - [x] **Optimize Rendering**: Implement Greedy Meshing to reduce triangle count.
-- [ ] **LOD System**: Implement Level of Detail for distant chunks (Octree or simplified mesh).
+- [x] **LOD System**: Implement Level of Detail for distant chunks (Octree or simplified mesh).
 - [ ] **Enhance Visuals**: Add Shadows, Textures, and more complex shading (AO, reflections). (AO Implemented)
 - [x] **Depth Buffer**: Fix current simple depth buffering to ensure proper z-sorting/culling of voxel layers.
 

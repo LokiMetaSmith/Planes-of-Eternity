@@ -6,6 +6,7 @@ use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
 use cgmath::{InnerSpace, SquareMatrix};
 use serde::Serialize;
+use std::collections::HashMap;
 
 pub mod camera;
 mod texture;
@@ -214,6 +215,13 @@ impl Instance {
     }
 }
 
+pub struct ChunkMesh {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub index_count: u32,
+    pub lod_level: usize,
+}
+
 struct ChunkData {
     position: cgmath::Vector3<f32>,
     aabb_min: cgmath::Point3<f32>,
@@ -262,8 +270,9 @@ pub struct State {
     pub depth_texture: texture::Texture,
     pub voxel_world: voxel::VoxelWorld,
     pub voxel_pipeline: wgpu::RenderPipeline,
-    pub voxel_meshes: Vec<(wgpu::Buffer, wgpu::Buffer, u32)>, // Vertex, Index, Count
+    pub voxel_meshes: HashMap<voxel::ChunkKey, ChunkMesh>,
     pub voxel_dirty: bool,
+    pub last_lod_update_pos: cgmath::Point3<f32>,
     pub voxel_atlas: texture::Texture,
     pub voxel_bind_group: wgpu::BindGroup,
 }
@@ -669,25 +678,7 @@ impl State {
             multiview: None,
         });
 
-        let mut voxel_meshes = Vec::new();
-        for chunk in voxel_world.chunks.values() {
-            let (v, i) = chunk.generate_mesh();
-            if !i.is_empty() {
-                let v_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Voxel Chunk Vertex"),
-                    contents: bytemuck::cast_slice(&v),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                let i_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Voxel Chunk Index"),
-                    contents: bytemuck::cast_slice(&i),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
-                voxel_meshes.push((v_buf, i_buf, i.len() as u32));
-            }
-        }
-
-        Self {
+        let mut state = Self {
             surface,
             device,
             queue,
@@ -714,11 +705,17 @@ impl State {
             depth_texture,
             voxel_world,
             voxel_pipeline,
-            voxel_meshes,
+            voxel_meshes: HashMap::new(),
             voxel_dirty: false,
+            last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
             voxel_atlas,
             voxel_bind_group,
-        }
+        };
+
+        state.last_lod_update_pos = state.engine.camera.eye;
+        state.update_lods(true);
+
+        state
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
@@ -793,13 +790,15 @@ impl State {
         }
     }
 
-    pub fn rebuild_voxel_meshes(&mut self) {
-        self.voxel_meshes.clear();
-
+    pub fn update_lods(&mut self, force: bool) {
         let cam_pos = self.engine.camera.eye;
 
-        for chunk in self.voxel_world.chunks.values() {
-            // LOD Selection
+        let mut to_update = Vec::new();
+        let mut valid_keys = Vec::new();
+
+        for (key, chunk) in &self.voxel_world.chunks {
+            valid_keys.push(*key);
+
             let chunk_world_x = chunk.key.x as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
             let chunk_world_y = chunk.key.y as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
             let chunk_world_z = chunk.key.z as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
@@ -807,46 +806,73 @@ impl State {
             let dist_sq = (cam_pos.x - chunk_world_x).powi(2) +
                           (cam_pos.y - chunk_world_y).powi(2) +
                           (cam_pos.z - chunk_world_z).powi(2);
-
             let dist = dist_sq.sqrt();
 
-            let mesh_chunk = if dist > 128.0 {
-                chunk.create_lod(4) // LOD 2: 1/4 res (8^3)
+            let desired_lod = if dist > 128.0 {
+                4
             } else if dist > 64.0 {
-                chunk.create_lod(2) // LOD 1: 1/2 res (16^3)
+                2
             } else {
-                chunk.clone()       // LOD 0: Full res (32^3)
+                1
             };
 
-            let (v, i) = mesh_chunk.generate_mesh();
+            let needs_update = force || match self.voxel_meshes.get(key) {
+                Some(mesh) => mesh.lod_level != desired_lod,
+                None => true,
+            };
 
-            if !i.is_empty() {
-                let v_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Voxel Chunk Vertex"),
-                    contents: bytemuck::cast_slice(&v),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                let i_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Voxel Chunk Index"),
-                    contents: bytemuck::cast_slice(&i),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
-                self.voxel_meshes.push((v_buf, i_buf, i.len() as u32));
+            if needs_update {
+                to_update.push((*key, desired_lod));
             }
         }
+
+        // Remove meshes for chunks that no longer exist
+        self.voxel_meshes.retain(|k, _| valid_keys.contains(k));
+
+        for (key, lod) in to_update {
+            if let Some(chunk) = self.voxel_world.chunks.get(&key) {
+                let mesh_chunk = chunk.create_lod(lod);
+                let (v, i) = mesh_chunk.generate_mesh();
+
+                if !i.is_empty() {
+                    let v_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Voxel Chunk Vertex"),
+                        contents: bytemuck::cast_slice(&v),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                    let i_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Voxel Chunk Index"),
+                        contents: bytemuck::cast_slice(&i),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+
+                    self.voxel_meshes.insert(key, ChunkMesh {
+                        vertex_buffer: v_buf,
+                        index_buffer: i_buf,
+                        index_count: i.len() as u32,
+                        lod_level: lod,
+                    });
+                } else {
+                    self.voxel_meshes.remove(&key);
+                }
+            }
+        }
+
         self.voxel_dirty = false;
+        self.last_lod_update_pos = cam_pos;
     }
 
     pub fn update(&mut self) {
         self.engine.update(0.016); // Assuming ~60fps fixed step in update
 
-        // Rebuild meshes if dirty or if camera moved significantly (simple LOD update trigger)
-        // For now, only on dirty or every N frames to avoid stutter.
-        // Let's stick to manual dirty for stability, but we can auto-dirty if we want dynamic LOD.
-        // self.voxel_dirty = true; // Uncomment for continuous LOD updates (heavy!)
+        // Rebuild meshes if dirty or if camera moved significantly (LOD update trigger)
+        let cam_pos = self.engine.camera.eye;
+        let dist_sq = (cam_pos.x - self.last_lod_update_pos.x).powi(2) +
+                      (cam_pos.y - self.last_lod_update_pos.y).powi(2) +
+                      (cam_pos.z - self.last_lod_update_pos.z).powi(2);
 
-        if self.voxel_dirty {
-            self.rebuild_voxel_meshes();
+        if self.voxel_dirty || dist_sq > 256.0 {
+            self.update_lods(self.voxel_dirty);
         }
 
         // Sync WGPU buffers with Engine State
@@ -1007,10 +1033,10 @@ impl State {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
 
-            for (v_buf, i_buf, count) in &self.voxel_meshes {
-                render_pass.set_vertex_buffer(0, v_buf.slice(..));
-                render_pass.set_index_buffer(i_buf.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..*count, 0, 0..1);
+            for mesh in self.voxel_meshes.values() {
+                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {

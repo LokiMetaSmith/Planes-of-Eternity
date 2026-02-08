@@ -275,6 +275,8 @@ pub struct State {
     pub last_lod_update_pos: cgmath::Point3<f32>,
     pub voxel_atlas: texture::Texture,
     pub voxel_bind_group: wgpu::BindGroup,
+    pub voxel_density_texture: wgpu::Texture,
+    pub voxel_density_view: wgpu::TextureView,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -587,6 +589,24 @@ impl State {
         // Voxel Texture Atlas
         let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
 
+        // Voxel Density Texture (3D)
+        let density_size = wgpu::Extent3d {
+            width: 128,
+            height: 128,
+            depth_or_array_layers: 128,
+        };
+        let voxel_density_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Voxel Density Texture"),
+            size: density_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::R8Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let voxel_density_view = voxel_density_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         let voxel_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -605,6 +625,16 @@ impl State {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        sample_type: wgpu::TextureSampleType::Uint,
+                    },
+                    count: None,
+                },
             ],
             label: Some("voxel_bind_group_layout"),
         });
@@ -619,6 +649,10 @@ impl State {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&voxel_atlas.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&voxel_density_view),
                 },
             ],
             label: Some("voxel_bind_group"),
@@ -710,12 +744,79 @@ impl State {
             last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
             voxel_atlas,
             voxel_bind_group,
+            voxel_density_texture,
+            voxel_density_view,
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
         state.update_lods(true);
+        state.update_voxel_texture(); // Initial upload
 
         state
+    }
+
+    pub fn update_voxel_texture(&self) {
+        let size = 128;
+        let mut data = vec![0u8; size * size * size];
+
+        // World Bounds: X: -64..64, Y: -32..96, Z: -64..64
+        // Texture: 0..128
+        // Mapping: tx = wx + 64, ty = wy + 32, tz = wz + 64
+
+        // Iterate over active chunks and stamp them into the buffer
+        for chunk in self.voxel_world.chunks.values() {
+             let cx = chunk.key.x; // e.g. -2, -1, 0, 1
+             let cy = chunk.key.y; // e.g. -1, 0, 1
+             let cz = chunk.key.z; // e.g. -2, -1, 0, 1
+
+             let base_x = cx * 32 + 64;
+             let base_y = cy * 32 + 32;
+             let base_z = cz * 32 + 64;
+
+             if base_x < 0 || base_x >= 128 || base_y < 0 || base_y >= 128 || base_z < 0 || base_z >= 128 {
+                 continue; // Out of texture bounds
+             }
+
+             for z in 0..32 {
+                 for y in 0..32 {
+                     for x in 0..32 {
+                         let v = chunk.get(x, y, z);
+                         if v.id != 0 {
+                             let tx = base_x + x as i32;
+                             let ty = base_y + y as i32;
+                             let tz = base_z + z as i32;
+
+                             if tx >= 0 && tx < 128 && ty >= 0 && ty < 128 && tz >= 0 && tz < 128 {
+                                 let idx = tx as usize + (ty as usize) * 128 + (tz as usize) * 128 * 128;
+                                 data[idx] = 1; // Solid
+                             }
+                         }
+                     }
+                 }
+             }
+        }
+
+        let density_size = wgpu::Extent3d {
+            width: 128,
+            height: 128,
+            depth_or_array_layers: 128,
+        };
+
+        self.queue.write_texture(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &self.voxel_density_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            &data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(128),
+                rows_per_image: Some(128),
+            },
+            density_size,
+        );
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
@@ -873,6 +974,9 @@ impl State {
 
         if self.voxel_dirty || dist_sq > 256.0 {
             self.update_lods(self.voxel_dirty);
+            if self.voxel_dirty {
+                self.update_voxel_texture();
+            }
         }
 
         // Sync WGPU buffers with Engine State

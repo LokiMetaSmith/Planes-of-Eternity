@@ -9,6 +9,37 @@ var<uniform> camera: CameraUniform;
 var t_atlas: texture_2d<f32>;
 @group(1) @binding(1)
 var s_atlas: sampler;
+@group(1) @binding(2)
+var t_density: texture_3d<u32>;
+
+fn ray_march_shadow(origin: vec3<f32>, direction: vec3<f32>) -> f32 {
+    let max_dist = 60.0;
+    let step_size = 0.5;
+    var current_pos = origin + direction * 1.5; // Start bias
+    var dist = 0.0;
+
+    loop {
+        if (dist > max_dist) { break; }
+
+        // Map to Texture Space (World -64..64 -> 0..128)
+        // Offset: X+64, Y+32, Z+64
+        let tx = i32(floor(current_pos.x + 64.0));
+        let ty = i32(floor(current_pos.y + 32.0));
+        let tz = i32(floor(current_pos.z + 64.0));
+
+        // Bounds Check
+        if (tx >= 0 && tx < 128 && ty >= 0 && ty < 128 && tz >= 0 && tz < 128) {
+            let val = textureLoad(t_density, vec3<i32>(tx, ty, tz), 0).r;
+            if (val > 0u) {
+                return 0.0; // Shadow
+            }
+        }
+
+        current_pos += direction * step_size;
+        dist += step_size;
+    }
+    return 1.0; // Lit
+}
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -90,7 +121,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let view_dir = normalize(camera.camera_pos.xyz - in.world_pos);
 
     let ambient = 0.3;
-    let diff = max(dot(in.normal, light_dir), 0.0);
+
+    // Raytraced Shadow
+    let shadow = ray_march_shadow(in.world_pos, light_dir);
+
+    let diff = max(dot(in.normal, light_dir), 0.0) * shadow;
 
     // AO Factor
     let ao_factor = in.ao * 0.8 + 0.2;
@@ -98,7 +133,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Specular
     let half_dir = normalize(light_dir + view_dir);
     let spec_angle = max(dot(in.normal, half_dir), 0.0);
-    let specular = pow(spec_angle, 32.0) * specular_strength;
+    let specular = pow(spec_angle, 32.0) * specular_strength * shadow;
 
     // Combine
     let albedo = tex_color.rgb * in.color;

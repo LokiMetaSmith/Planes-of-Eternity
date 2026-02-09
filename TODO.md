@@ -32,6 +32,7 @@
 ## Persistence
 - [x] **Save Versioning**: Add a `version` field to `GameState` struct in `persistence.rs` to handle future schema migrations gracefully.
 - [x] **Save Management**: Allow multiple save slots or "World Resets" via UI.
+- [x] **Input Config**: Persist user key bindings in `GameState` so they survive page reloads.
 
 ## AR / WebXR
 - [ ] **WebXR Support**: Investigate `navigator.xr` integration for true `immersive-ar` sessions (placing content in real-world coordinates), replacing the current "Magic Window" video background approach.

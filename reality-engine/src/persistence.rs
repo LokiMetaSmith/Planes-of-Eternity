@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use crate::input::InputConfig;
 use crate::projector::RealityProjector;
 use crate::world::WorldState;
 #[cfg(target_arch = "wasm32")]
@@ -20,6 +21,8 @@ pub struct GameState {
     pub lambda_source: String,
     #[serde(default)]
     pub lambda_layout: Vec<[f32; 3]>,
+    #[serde(default)]
+    pub input_config: InputConfig,
     pub timestamp: u64,
     #[serde(default)]
     pub version: u32,

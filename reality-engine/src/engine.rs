@@ -51,7 +51,7 @@ impl Engine {
 
         let camera_controller = CameraController::new(0.2);
 
-        let (player_projector, world_state, active_anomaly, lambda_system) = if let Some(state) = initial_state {
+        let (player_projector, world_state, active_anomaly, lambda_system, input_config) = if let Some(state) = initial_state {
             log::info!("Restoring game state...");
             // Restore camera position
             camera.eye = state.player.projector.location;
@@ -83,7 +83,7 @@ impl Engine {
                  ls.set_term(term);
             }
 
-            (state.player.projector, state.world, Some(active_anomaly), ls)
+            (state.player.projector, state.world, Some(active_anomaly), ls, state.input_config)
         } else {
             let mut player_sig = RealitySignature::default();
             player_sig.active_style.archetype = RealityArchetype::Fantasy;
@@ -113,7 +113,7 @@ impl Engine {
             let term = lambda::parse("FIRE").unwrap();
             ls.set_term(term);
 
-            (player_projector, world_state, Some(active_anomaly), ls)
+            (player_projector, world_state, Some(active_anomaly), ls, InputConfig::default())
         };
 
         // Initial Lambda Setup
@@ -129,7 +129,7 @@ impl Engine {
             lambda_system,
             camera,
             camera_controller,
-            input_config: InputConfig::default(),
+            input_config,
             audio,
             global_offset: [0.0; 4],
             time: 0.0,

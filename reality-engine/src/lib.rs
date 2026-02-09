@@ -1230,7 +1230,7 @@ impl GameClient {
         let mut state = self.state.borrow_mut();
         if let Some(action) = input::Action::from_string(&action_name) {
              state.engine.input_config.set_binding(action, key_code);
-             // TODO: Persist input config
+             self.save_state(&state);
         }
     }
 
@@ -1272,6 +1272,7 @@ impl GameClient {
             ));
 
             state.engine.lambda_system = visual_lambda::LambdaSystem::new();
+            state.engine.input_config = loaded_state.input_config;
 
             // Restore Lambda State
             let source = if loaded_state.lambda_source.is_empty() { "FIRE".to_string() } else { loaded_state.lambda_source };
@@ -1321,6 +1322,7 @@ impl GameClient {
             world: state.engine.world_state.clone(),
             lambda_source,
             lambda_layout: state.engine.lambda_system.get_layout(),
+            input_config: state.engine.input_config.clone(),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
@@ -1635,6 +1637,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             world: state.engine.world_state.clone(),
             lambda_source,
             lambda_layout: state.engine.lambda_system.get_layout(),
+            input_config: state.engine.input_config.clone(),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };

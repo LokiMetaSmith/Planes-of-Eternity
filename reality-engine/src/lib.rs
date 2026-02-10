@@ -22,6 +22,7 @@ pub mod visual_lambda;
 pub mod input;
 pub mod engine;
 pub mod audio;
+pub mod xr;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -884,6 +885,7 @@ impl State {
                 world: self.engine.world_state.clone(),
                 lambda_source,
                 lambda_layout: self.engine.lambda_system.get_layout(),
+                input_config: self.engine.input_config.clone(),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
             };

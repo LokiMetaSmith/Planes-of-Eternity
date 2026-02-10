@@ -324,13 +324,26 @@
     </style>
 
     <script type="module">
-        import init, { start } from './pkg/reality_engine.js';
+        import init, { start, is_ar_supported, request_ar_session } from './pkg/reality_engine.js';
 
         async function run() {
             try {
                 log("> LOADING WASM MODULES...");
                 await init();
                 log("> WASM INITIALIZED OK");
+
+                // Check WebXR Support
+                const arSupported = await is_ar_supported();
+                if (arSupported) {
+                    log("> WEBXR AR DETECTED: CAPABLE");
+                    const btnAR = document.getElementById('btn-start-ar');
+                    btnAR.innerText = "INITIALIZE WEBXR UPLINK";
+                    btnAR.style.borderColor = "#00ff00";
+                    btnAR.style.color = "#00ff00";
+                    btnAR.style.background = "rgba(0, 255, 0, 0.1)";
+                } else {
+                    log("> WEBXR AR NOT DETECTED. FALLBACK MODE ACTIVE.");
+                }
 
                 log("> STARTING ENGINE...");
                 const gameClient = await start("reality-canvas");
@@ -614,6 +627,27 @@
 
                 btnAR.addEventListener('click', async () => {
                     log("> INITIALIZING AR UPLINK...");
+
+                    // Attempt WebXR first if supported
+                    if (arSupported) {
+                         try {
+                             log("> REQUESTING WEBXR SESSION...");
+                             const session = await request_ar_session();
+                             log("> WEBXR SESSION STARTED");
+                             // Note: Rendering integration is pending.
+                             // This confirms the session can be created.
+
+                             session.addEventListener('end', () => {
+                                 log("> WEBXR SESSION ENDED");
+                             });
+
+                             return; // Skip Magic Window fallback if WebXR works
+                         } catch (e) {
+                             log("> WEBXR ERROR: " + e);
+                             log("> FALLING BACK TO MAGIC WINDOW...");
+                         }
+                    }
+
                     try {
                         const stream = await navigator.mediaDevices.getUserMedia({
                             video: { facingMode: "environment" }

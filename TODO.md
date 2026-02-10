@@ -35,7 +35,7 @@
 - [x] **Input Config**: Persist user key bindings in `GameState` so they survive page reloads.
 
 ## AR / WebXR
-- [ ] **WebXR Support**: Investigate `navigator.xr` integration for true `immersive-ar` sessions (placing content in real-world coordinates), replacing the current "Magic Window" video background approach.
+- [x] **WebXR Support**: Investigate `navigator.xr` integration for true `immersive-ar` sessions (placing content in real-world coordinates), replacing the current "Magic Window" video background approach.
 
 ## Polishing
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.

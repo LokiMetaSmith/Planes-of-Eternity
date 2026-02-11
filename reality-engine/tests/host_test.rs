@@ -131,6 +131,34 @@ fn test_input_rebinding() {
 }
 
 #[test]
+fn test_voxel_input_configuration() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // Verify default bindings
+    assert_eq!(engine.input_config.get_binding(Action::VoxelDiffusion).unwrap(), "KeyY");
+    assert_eq!(engine.input_config.get_binding(Action::VoxelTimeReverse).unwrap(), "KeyT");
+    assert_eq!(engine.input_config.get_binding(Action::VoxelDream).unwrap(), "KeyG");
+
+    // Verify reverse mapping
+    assert_eq!(engine.input_config.map_key("KeyY"), Some(Action::VoxelDiffusion));
+
+    // Rebind Diffusion to KeyH
+    engine.input_config.set_binding(Action::VoxelDiffusion, "KeyH".to_string());
+
+    // Verify new binding
+    assert_eq!(engine.input_config.get_binding(Action::VoxelDiffusion).unwrap(), "KeyH");
+    assert_eq!(engine.input_config.map_key("KeyH"), Some(Action::VoxelDiffusion));
+
+    // Verify old key is unmapped (or at least not mapped to Diffusion)
+    // Note: implementation of set_binding might not remove the old key from reverse_bindings if we don't clear it explicitly,
+    // but update_reverse_bindings clears everything and rebuilds.
+    // However, if multiple keys mapped to same action? No, HashMap<Action, String>. One key per action.
+    // What if multiple Actions mapped to same key? HashMap<String, Action> implies one Action per key.
+    // So "KeyY" should now be unmapped or map to nothing.
+    assert_eq!(engine.input_config.map_key("KeyY"), None);
+}
+
+#[test]
 fn test_merge_conflict_resolution() {
     use reality_engine::projector::RealityProjector;
     use reality_engine::reality_types::{RealitySignature, RealityArchetype};
@@ -254,6 +282,7 @@ fn test_lambda_layout_persistence() {
         world: WorldState::default(),
         lambda_source: "WATER".to_string(), // Different from default "FIRE"
         lambda_layout: custom_layout,
+        input_config: InputConfig::default(), // Default input config
         timestamp: 0,
         version: 1,
     };

@@ -833,20 +833,25 @@ impl State {
     }
 
     pub fn process_keyboard(&mut self, key_code: &str) {
-        // Voxel Inputs
-        if key_code == "KeyY" {
-             self.voxel_world.update_dynamics();
-             self.voxel_world.save_all_states();
-             self.voxel_dirty = true;
-        }
-        if key_code == "KeyT" {
-             self.voxel_world.revert_all_states();
-             self.voxel_dirty = true;
-        }
-        if key_code == "KeyG" {
-             self.voxel_world.dream();
-             self.voxel_world.save_all_states();
-             self.voxel_dirty = true;
+        // Voxel Inputs via Config
+        if let Some(action) = self.engine.input_config.map_key(key_code) {
+             match action {
+                 input::Action::VoxelDiffusion => {
+                     self.voxel_world.update_dynamics();
+                     self.voxel_world.save_all_states();
+                     self.voxel_dirty = true;
+                 },
+                 input::Action::VoxelTimeReverse => {
+                     self.voxel_world.revert_all_states();
+                     self.voxel_dirty = true;
+                 },
+                 input::Action::VoxelDream => {
+                     self.voxel_world.dream();
+                     self.voxel_world.save_all_states();
+                     self.voxel_dirty = true;
+                 },
+                 _ => {}
+             }
         }
 
         self.engine.process_keyboard(key_code, true);

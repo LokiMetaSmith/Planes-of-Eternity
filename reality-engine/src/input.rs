@@ -14,6 +14,9 @@ pub enum Action {
     ToggleAutoReduce,
     Step,
     TogglePause,
+    VoxelDiffusion,
+    VoxelTimeReverse,
+    VoxelDream,
     // Add more actions as needed
 }
 
@@ -31,6 +34,9 @@ impl Action {
             "ToggleAutoReduce" => Some(Action::ToggleAutoReduce),
             "Step" => Some(Action::Step),
             "TogglePause" => Some(Action::TogglePause),
+            "VoxelDiffusion" => Some(Action::VoxelDiffusion),
+            "VoxelTimeReverse" => Some(Action::VoxelTimeReverse),
+            "VoxelDream" => Some(Action::VoxelDream),
             _ => None,
         }
     }
@@ -48,6 +54,9 @@ impl Action {
             Action::ToggleAutoReduce => "ToggleAutoReduce".to_string(),
             Action::Step => "Step".to_string(),
             Action::TogglePause => "TogglePause".to_string(),
+            Action::VoxelDiffusion => "VoxelDiffusion".to_string(),
+            Action::VoxelTimeReverse => "VoxelTimeReverse".to_string(),
+            Action::VoxelDream => "VoxelDream".to_string(),
         }
     }
 }
@@ -72,6 +81,9 @@ impl Default for InputConfig {
         bindings.insert(Action::ToggleAutoReduce, "KeyR".to_string());
         bindings.insert(Action::Step, "KeyE".to_string());
         bindings.insert(Action::TogglePause, "KeyP".to_string());
+        bindings.insert(Action::VoxelDiffusion, "KeyY".to_string());
+        bindings.insert(Action::VoxelTimeReverse, "KeyT".to_string());
+        bindings.insert(Action::VoxelDream, "KeyG".to_string());
 
         let mut config = Self {
             bindings,

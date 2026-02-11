@@ -217,7 +217,9 @@ impl Engine {
                      if pressed {
                          self.lambda_system.paused = !self.lambda_system.paused;
                      }
-                 }
+                 },
+                 // Ignore Voxel Actions (Handled by lib.rs / wrapper)
+                 _ => {}
              }
         }
 

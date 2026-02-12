@@ -142,7 +142,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let emission = albedo * emissive_strength;
 
-    let final_rgb = albedo * lighting + vec3<f32>(specular) + emission;
+    var final_rgb = albedo * lighting + vec3<f32>(specular) + emission;
+
+    // Reflections (Procedural Sky)
+    if (specular_strength > 0.0) {
+        let r = reflect(-view_dir, in.normal);
+        // Simple Sky Gradient based on Y
+        let t = 0.5 * (r.y + 1.0);
+        let sky_color = mix(vec3<f32>(0.1, 0.1, 0.2), vec3<f32>(0.5, 0.7, 1.0), t);
+
+        // Fresnel Effect
+        let f0 = 0.04;
+        let fresnel = f0 + (1.0 - f0) * pow(1.0 - max(dot(view_dir, in.normal), 0.0), 5.0);
+
+        final_rgb = mix(final_rgb, sky_color, fresnel * specular_strength * 0.8);
+    }
 
     return vec4<f32>(final_rgb, 1.0);
 }

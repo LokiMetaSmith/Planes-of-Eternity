@@ -6,7 +6,7 @@ use crate::world::WorldState;
 use web_sys::Storage;
 use log::{info, error};
 
-pub const SAVE_VERSION: u32 = 1;
+pub const SAVE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PlayerState {
@@ -23,6 +23,8 @@ pub struct GameState {
     pub lambda_layout: Vec<[f32; 3]>,
     #[serde(default)]
     pub input_config: InputConfig,
+    #[serde(default)]
+    pub voxel_world: Option<crate::voxel::VoxelWorld>,
     pub timestamp: u64,
     #[serde(default)]
     pub version: u32,

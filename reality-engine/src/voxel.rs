@@ -48,6 +48,128 @@ impl VoxelVertex {
     }
 }
 
+pub mod voxel_data_serde {
+    use super::Voxel;
+    use serde::{Deserializer, Serializer, Deserialize};
+
+    pub fn serialize<S>(data: &Vec<Voxel>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut bytes = Vec::new();
+        if data.is_empty() {
+             let s = hex::encode(bytes);
+             return serializer.serialize_str(&s);
+        }
+
+        let mut current_id = data[0].id;
+        let mut count: u16 = 0;
+
+        for voxel in data {
+            if voxel.id == current_id && count < u16::MAX {
+                count += 1;
+            } else {
+                // Flush
+                bytes.push((count >> 8) as u8);
+                bytes.push((count & 0xFF) as u8);
+                bytes.push(current_id);
+
+                current_id = voxel.id;
+                count = 1;
+            }
+        }
+        // Flush last
+        bytes.push((count >> 8) as u8);
+        bytes.push((count & 0xFF) as u8);
+        bytes.push(current_id);
+
+        let s = hex::encode(bytes);
+        serializer.serialize_str(&s)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<Voxel>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let bytes = hex::decode(s).map_err(serde::de::Error::custom)?;
+
+        let mut data = Vec::new();
+
+        let mut i = 0;
+        while i + 2 < bytes.len() {
+            let count = ((bytes[i] as u16) << 8) | (bytes[i+1] as u16);
+            let id = bytes[i+2];
+            i += 3;
+
+            for _ in 0..count {
+                data.push(Voxel { id });
+            }
+        }
+
+        Ok(data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_chunk_key_serialization() {
+        let key = ChunkKey { x: 1, y: -2, z: 3 };
+        let serialized = serde_json::to_string(&key).unwrap();
+        assert_eq!(serialized, "\"1:-2:3\"");
+
+        let deserialized: ChunkKey = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(key, deserialized);
+    }
+
+    #[test]
+    fn test_chunk_key_map_serialization() {
+        let mut map = HashMap::new();
+        let key = ChunkKey { x: 10, y: 20, z: 30 };
+        let chunk = Chunk::new(key);
+        map.insert(key, chunk);
+
+        // Serialize map - should work because ChunkKey serializes to string
+        let serialized = serde_json::to_string(&map).unwrap();
+        assert!(serialized.contains("\"10:20:30\":"));
+    }
+
+    #[test]
+    fn test_rle_compression() {
+        let mut data = Vec::new();
+        // 5 voxels of id 1
+        for _ in 0..5 { data.push(Voxel { id: 1 }); }
+        // 3 voxels of id 2
+        for _ in 0..3 { data.push(Voxel { id: 2 }); }
+        // 1 voxel of id 1
+        data.push(Voxel { id: 1 });
+
+        // Expected RLE: (5, 1), (3, 2), (1, 1)
+        // Hex:
+        // 5 -> 00 05. ID 1 -> 01. -> 000501
+        // 3 -> 00 03. ID 2 -> 02. -> 000302
+        // 1 -> 00 01. ID 1 -> 01. -> 000101
+        // Total: "000501000302000101"
+
+        let mut buf = Vec::new();
+        let mut serializer = serde_json::Serializer::new(&mut buf);
+        voxel_data_serde::serialize(&data, &mut serializer).unwrap();
+
+        let s = String::from_utf8(buf).unwrap();
+        assert_eq!(s, "\"000501000302000101\"");
+
+        // Deserialize
+        let mut deserializer = serde_json::Deserializer::from_str(&s);
+        let decoded = voxel_data_serde::deserialize(&mut deserializer).unwrap();
+
+        assert_eq!(data, decoded);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Voxel {
     pub id: VoxelId,
@@ -59,17 +181,45 @@ impl Default for Voxel {
     }
 }
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Copy)]
 pub struct ChunkKey {
     pub x: i32,
     pub y: i32,
     pub z: i32,
 }
 
+impl Serialize for ChunkKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let s = format!("{}:{}:{}", self.x, self.y, self.z);
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for ChunkKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let parts: Vec<&str> = s.split(':').collect();
+        if parts.len() != 3 {
+            return Err(serde::de::Error::custom("Invalid ChunkKey format, expected x:y:z"));
+        }
+        let x = parts[0].parse().map_err(serde::de::Error::custom)?;
+        let y = parts[1].parse().map_err(serde::de::Error::custom)?;
+        let z = parts[2].parse().map_err(serde::de::Error::custom)?;
+        Ok(ChunkKey { x, y, z })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Chunk {
     pub key: ChunkKey,
     // Flattened array: x + y*SIZE + z*SIZE*SIZE
+    #[serde(with = "voxel_data_serde")]
     pub data: Vec<Voxel>,
     pub size: usize, // Dynamic size for LOD
     #[serde(skip)]

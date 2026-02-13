@@ -1281,6 +1281,14 @@ impl GameClient {
             state.engine.lambda_system = visual_lambda::LambdaSystem::new();
             state.engine.input_config = loaded_state.input_config;
 
+            // Restore Voxel World
+            if let Some(voxel_world) = loaded_state.voxel_world {
+                state.voxel_world = voxel_world;
+                state.voxel_dirty = true;
+                state.update_voxel_texture();
+                state.update_lods(true);
+            }
+
             // Restore Lambda State
             let source = if loaded_state.lambda_source.is_empty() { "FIRE".to_string() } else { loaded_state.lambda_source };
             if let Some(term) = lambda::parse(&source) {
@@ -1330,6 +1338,7 @@ impl GameClient {
             lambda_source,
             lambda_layout: state.engine.lambda_system.get_layout(),
             input_config: state.engine.input_config.clone(),
+            voxel_world: Some(state.voxel_world.clone()),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
@@ -1645,6 +1654,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             lambda_source,
             lambda_layout: state.engine.lambda_system.get_layout(),
             input_config: state.engine.input_config.clone(),
+            voxel_world: Some(state.voxel_world.clone()),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };

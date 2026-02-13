@@ -283,6 +283,7 @@ fn test_lambda_layout_persistence() {
         lambda_source: "WATER".to_string(), // Different from default "FIRE"
         lambda_layout: custom_layout,
         input_config: InputConfig::default(), // Default input config
+        voxel_world: None,
         timestamp: 0,
         version: 1,
     };

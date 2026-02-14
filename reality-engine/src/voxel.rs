@@ -622,7 +622,7 @@ impl Chunk {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct VoxelWorld {
     pub chunks: HashMap<ChunkKey, Chunk>,
     #[serde(skip)]

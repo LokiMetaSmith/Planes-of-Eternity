@@ -7,7 +7,7 @@ use reality_genie::vqvae::VqVae;
 // For now, we simulate the "Dream" by applying a procedural effect that mimics
 // what a VQ-VAE might decode after latent manipulation (e.g., smoothing or structural change).
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct GenieBridge {
     // model: Option<VqVae>,
 }

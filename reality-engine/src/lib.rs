@@ -398,7 +398,15 @@ impl State {
         });
 
         // Init Engine Logic
-        let loaded_state = persistence::load_from_local_storage("reality_engine_save");
+        let mut loaded_state = persistence::load_from_local_storage("reality_engine_save");
+
+        // Extract voxel_world if present
+        let loaded_voxel_world = if let Some(ref mut state) = loaded_state {
+             state.voxel_world.take()
+        } else {
+             None
+        };
+
         let engine = engine::Engine::new(width, height, loaded_state);
 
         let mut camera_uniform = CameraUniform::new();
@@ -584,8 +592,14 @@ impl State {
         );
 
         // --- Voxel Initialization ---
-        let mut voxel_world = voxel::VoxelWorld::new();
-        voxel_world.generate_default_world();
+        let voxel_world = if let Some(vw) = loaded_voxel_world {
+            log::info!("Restored Voxel World from save.");
+            vw
+        } else {
+            let mut vw = voxel::VoxelWorld::new();
+            vw.generate_default_world();
+            vw
+        };
 
         // Voxel Texture Atlas
         let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
@@ -891,6 +905,7 @@ impl State {
                 lambda_source,
                 lambda_layout: self.engine.lambda_system.get_layout(),
                 input_config: self.engine.input_config.clone(),
+                voxel_world: Some(self.voxel_world.clone()),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
             };

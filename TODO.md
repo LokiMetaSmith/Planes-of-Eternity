@@ -34,7 +34,7 @@
 - [x] **Save Management**: Allow multiple save slots or "World Resets" via UI.
 - [x] **Input Config**: Persist user key bindings in `GameState` so they survive page reloads.
     - [x] **Voxel Inputs**: Integrated Voxel controls (Diffusion, Time Reverse, Dream) into configurable InputConfig.
-- [ ] **Voxel World Persistence**: Save and load voxel data (with RLE compression) to preserve world changes.
+- [x] **Voxel World Persistence**: Save and load voxel data (with RLE compression) to preserve world changes.
 
 ## AR / WebXR
 - [x] **WebXR Support**: Investigate `navigator.xr` integration for true `immersive-ar` sessions (placing content in real-world coordinates), replacing the current "Magic Window" video background approach.

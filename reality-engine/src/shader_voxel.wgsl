@@ -12,6 +12,17 @@ var s_atlas: sampler;
 @group(1) @binding(2)
 var t_density: texture_3d<u32>;
 
+struct RealityUniform {
+    proj1_pos_fid: vec4<f32>,
+    proj1_params: vec4<f32>,
+    proj1_color: vec4<f32>,
+    proj2_pos_fid: vec4<f32>,
+    proj2_params: vec4<f32>,
+    proj2_color: vec4<f32>,
+    global_offset: vec4<f32>, // z is time
+};
+@group(2) @binding(0) var<uniform> reality: RealityUniform;
+
 fn ray_march_shadow(origin: vec3<f32>, direction: vec3<f32>) -> f32 {
     let max_dist = 60.0;
     let step_size = 0.5;
@@ -117,13 +128,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_color = textureSample(t_atlas, s_atlas, final_uv);
 
     // 3. Lighting
-    let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.5));
+    let time = reality.global_offset.z;
+    let cycle = time * 0.1;
+    let light_x = sin(cycle);
+    let light_y = cos(cycle);
+    let light_dir = normalize(vec3<f32>(light_x, light_y, 0.5));
+
     let view_dir = normalize(camera.camera_pos.xyz - in.world_pos);
 
-    let ambient = 0.3;
+    // Ambient varies with Day/Night
+    var ambient = 0.3;
+    if (light_y < 0.0) { ambient = 0.05; } // Darker at night
 
-    // Raytraced Shadow
-    let shadow = ray_march_shadow(in.world_pos, light_dir);
+    // Raytraced Shadow (only if sun is up)
+    var shadow = 1.0;
+    if (light_y > 0.0) {
+        shadow = ray_march_shadow(in.world_pos, light_dir);
+    } else {
+        shadow = 0.0; // No direct sun at night
+    }
 
     let diff = max(dot(in.normal, light_dir), 0.0) * shadow;
 
@@ -140,7 +163,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let lighting = (ambient + diff) * ao_factor;
 
-    let emission = albedo * emissive_strength;
+    let emission = albedo * emissive_strength; // Glowing things glow at night too
 
     var final_rgb = albedo * lighting + vec3<f32>(specular) + emission;
 
@@ -149,7 +172,27 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let r = reflect(-view_dir, in.normal);
         // Simple Sky Gradient based on Y
         let t = 0.5 * (r.y + 1.0);
-        let sky_color = mix(vec3<f32>(0.1, 0.1, 0.2), vec3<f32>(0.5, 0.7, 1.0), t);
+
+        // Day: Blue Sky
+        let day_top = vec3<f32>(0.2, 0.6, 1.0);
+        let day_bot = vec3<f32>(0.7, 0.8, 1.0);
+
+        // Sunset: Orange/Purple
+        let set_top = vec3<f32>(0.8, 0.3, 0.1);
+        let set_bot = vec3<f32>(0.9, 0.6, 0.3);
+
+        // Night: Black/Stars
+        let night_top = vec3<f32>(0.0, 0.0, 0.1);
+        let night_bot = vec3<f32>(0.0, 0.0, 0.05);
+
+        var sky_color = vec3<f32>(0.0);
+        if (light_y > 0.2) {
+            sky_color = mix(day_bot, day_top, t);
+        } else if (light_y > -0.2) {
+            sky_color = mix(set_bot, set_top, t);
+        } else {
+            sky_color = mix(night_bot, night_top, t);
+        }
 
         // Fresnel Effect
         let f0 = 0.04;

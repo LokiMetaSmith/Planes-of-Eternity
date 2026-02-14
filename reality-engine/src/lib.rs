@@ -683,6 +683,7 @@ impl State {
             bind_group_layouts: &[
                 &camera_bind_group_layout, // Group 0
                 &voxel_bind_group_layout,  // Group 1
+                &reality_bind_group_layout, // Group 2
             ],
             push_constant_ranges: &[],
         });
@@ -1158,6 +1159,7 @@ impl State {
             render_pass.set_pipeline(&self.voxel_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
 
             for mesh in self.voxel_meshes.values() {
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));

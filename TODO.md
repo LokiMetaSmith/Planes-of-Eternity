@@ -4,7 +4,9 @@
 - [x] **Optimize Rendering**: Implement Greedy Meshing to reduce triangle count.
 - [x] **LOD System**: Implement Level of Detail for distant chunks (Octree or simplified mesh).
 - [x] **Enhance Visuals**: Add Shadows, Textures, and more complex shading (AO, reflections). (AO, Reflections Implemented)
+    - [x] **Day/Night Cycle**: Implement dynamic lighting and skybox based on time.
 - [x] **Depth Buffer**: Fix current simple depth buffering to ensure proper z-sorting/culling of voxel layers.
+- [x] **Fix Voxel Rendering**: Fix winding order bug causing invisible voxels.
 
 ## Visual Lambda System
 - [x] **Render Graph Edges**: Implement a Line Pipeline in `LambdaRenderer` to visualize connections (edges) between lambda nodes. Currently, only nodes are rendered as spheres.

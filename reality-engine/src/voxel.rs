@@ -587,14 +587,14 @@ impl Chunk {
 
                             if is_current_face {
                                 vertices.push(VoxelVertex { position: p0, normal, color, ao: ao0 });
-                                vertices.push(VoxelVertex { position: p1, normal, color, ao: ao1 });
-                                vertices.push(VoxelVertex { position: p2, normal, color, ao: ao2 });
                                 vertices.push(VoxelVertex { position: p3, normal, color, ao: ao3 });
+                                vertices.push(VoxelVertex { position: p2, normal, color, ao: ao2 });
+                                vertices.push(VoxelVertex { position: p1, normal, color, ao: ao1 });
                             } else {
                                 vertices.push(VoxelVertex { position: p0, normal, color, ao: ao0 });
-                                vertices.push(VoxelVertex { position: p3, normal, color, ao: ao3 });
-                                vertices.push(VoxelVertex { position: p2, normal, color, ao: ao2 });
                                 vertices.push(VoxelVertex { position: p1, normal, color, ao: ao1 });
+                                vertices.push(VoxelVertex { position: p2, normal, color, ao: ao2 });
+                                vertices.push(VoxelVertex { position: p3, normal, color, ao: ao3 });
                             }
 
                             indices.push(index_counter);

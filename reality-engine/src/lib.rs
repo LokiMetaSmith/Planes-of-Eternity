@@ -2,9 +2,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::HtmlCanvasElement;
+use web_sys::{HtmlCanvasElement, XrSession, XrWebGlLayer, XrRenderStateInit, XrReferenceSpace, XrReferenceSpaceType, XrFrame, XrViewerPose, XrView, XrEye};
 use wgpu::util::DeviceExt;
-use cgmath::{InnerSpace, SquareMatrix};
+use cgmath::{InnerSpace, SquareMatrix, Rotation};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -278,6 +278,8 @@ pub struct State {
     pub voxel_bind_group: wgpu::BindGroup,
     pub voxel_density_texture: wgpu::Texture,
     pub voxel_density_view: wgpu::TextureView,
+    pub in_xr: bool,
+    pub canvas: HtmlCanvasElement,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -289,7 +291,7 @@ impl State {
         let instance = wgpu::Instance::default();
 
         // Create surface from canvas
-        let surface_target = wgpu::SurfaceTarget::Canvas(canvas);
+        let surface_target = wgpu::SurfaceTarget::Canvas(canvas.clone());
         let surface = instance.create_surface(surface_target).unwrap();
 
         let adapter = instance
@@ -762,6 +764,8 @@ impl State {
             voxel_bind_group,
             voxel_density_texture,
             voxel_density_view,
+            in_xr: false,
+            canvas: canvas.clone(),
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
@@ -1363,6 +1367,105 @@ impl GameClient {
         let key = persistence::get_save_key(&slot);
         persistence::save_to_local_storage(&key, &game_state);
     }
+
+    pub async fn enter_ar_session(&self) -> Result<(), JsValue> {
+        if !xr::is_ar_supported().await? {
+             return Err(JsValue::from_str("AR not supported"));
+        }
+
+        let session = xr::request_ar_session().await?;
+
+        // 1. Get State & Canvas (Brief Borrow)
+        let canvas = {
+            let mut state = self.state.borrow_mut();
+            state.in_xr = true;
+            state.canvas.clone()
+        };
+
+        // 2. Get Context (No Borrow)
+        let gl_context = canvas.get_context("webgl2")?
+            .ok_or_else(|| JsValue::from_str("No WebGL2 context found"))?
+            .dyn_into::<web_sys::WebGl2RenderingContext>()?;
+
+        // 3. Create Layer (No Borrow)
+        let layer = XrWebGlLayer::new_with_web_gl2_rendering_context(&session, &gl_context)?;
+
+        let mut render_state_init = XrRenderStateInit::new();
+        render_state_init.set_base_layer(Some(&layer));
+        session.update_render_state_with_state(&render_state_init);
+
+        // 4. Request Reference Space (Async - Must not hold borrow)
+        let reference_space = wasm_bindgen_futures::JsFuture::from(
+            session.request_reference_space(XrReferenceSpaceType::Local)
+        ).await?.unchecked_into::<XrReferenceSpace>();
+
+        let state_xr = self.state.clone();
+        let session_clone = session.clone();
+        let reference_space_clone = reference_space.clone();
+
+        let f_xr: Rc<RefCell<Option<Closure<dyn FnMut(f64, XrFrame)>>>> = Rc::new(RefCell::new(None));
+        let g_xr = f_xr.clone();
+
+        *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
+            let mut state = state_xr.borrow_mut();
+
+            let pose = frame.get_viewer_pose(&reference_space_clone);
+            if let Some(pose) = pose {
+                 let views = pose.views();
+                 if views.length() > 0 {
+                      let view = views.get(0).unchecked_into::<XrView>();
+
+                      // Tracking
+                      let transform = view.transform();
+                      let pos = transform.position();
+                      let orient = transform.orientation();
+
+                      let q = cgmath::Quaternion::new(orient.w() as f32, orient.x() as f32, orient.y() as f32, orient.z() as f32);
+                      let forward = q.rotate_vector(cgmath::Vector3::new(0.0, 0.0, -1.0));
+                      let up = q.rotate_vector(cgmath::Vector3::new(0.0, 1.0, 0.0));
+
+                      state.engine.camera.eye = cgmath::Point3::new(pos.x() as f32, pos.y() as f32, pos.z() as f32);
+                      state.engine.camera.target = state.engine.camera.eye + forward;
+                      state.engine.camera.up = up;
+
+                      // Projection
+                      let proj_data = view.projection_matrix();
+
+                      if proj_data.len() >= 16 {
+                          state.engine.camera.projection_override = Some(cgmath::Matrix4::from_cols(
+                              cgmath::Vector4::new(proj_data[0], proj_data[1], proj_data[2], proj_data[3]),
+                              cgmath::Vector4::new(proj_data[4], proj_data[5], proj_data[6], proj_data[7]),
+                              cgmath::Vector4::new(proj_data[8], proj_data[9], proj_data[10], proj_data[11]),
+                              cgmath::Vector4::new(proj_data[12], proj_data[13], proj_data[14], proj_data[15]),
+                          ));
+                      }
+                 }
+            }
+
+            state.update();
+
+            // Bind XR framebuffer
+            let framebuffer = layer.framebuffer();
+            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::FRAMEBUFFER, framebuffer.as_ref());
+
+            let _ = state.render();
+
+            session_clone.request_animation_frame(f_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+        }));
+
+        session.request_animation_frame(g_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+
+        let state_end = self.state.clone();
+        let onend_closure = Closure::wrap(Box::new(move |_| {
+            let mut state = state_end.borrow_mut();
+            state.in_xr = false;
+            log::info!("XR Session Ended");
+        }) as Box<dyn FnMut(JsValue)>);
+        session.set_onend(Some(onend_closure.as_ref().unchecked_ref()));
+        onend_closure.forget();
+
+        Ok(())
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1608,9 +1711,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_copy = state.clone();
     *g.borrow_mut() = Some(Closure::new(move || {
         let mut state = state_copy.borrow_mut();
-        state.update();
-        state.render().expect("Render failed");
-
+        if !state.in_xr {
+            state.update();
+            state.render().expect("Render failed");
+        }
         request_animation_frame(f.borrow().as_ref().unwrap());
     }));
 

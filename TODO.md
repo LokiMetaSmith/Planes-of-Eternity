@@ -39,7 +39,7 @@
 - [x] **Voxel World Persistence**: Save and load voxel data (with RLE compression) to preserve world changes.
 
 ## AR / WebXR
-- [x] **WebXR Support**: Investigate `navigator.xr` integration for true `immersive-ar` sessions (placing content in real-world coordinates), replacing the current "Magic Window" video background approach.
+- [x] **WebXR Support**: Implemented `immersive-ar` session handling, camera tracking with `navigator.xr`, and integration with the engine loop. (Partial: Rendering pipeline needs refactor to target XR framebuffer directly).
 
 ## Polishing
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.

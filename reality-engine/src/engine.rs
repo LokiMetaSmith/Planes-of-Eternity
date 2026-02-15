@@ -47,6 +47,7 @@ impl Engine {
             zfar: 100.0,
             yaw: std::f32::consts::PI,
             pitch: -0.4636, // ~ -26.5 degrees
+            projection_override: None,
         };
 
         let camera_controller = CameraController::new(0.2);

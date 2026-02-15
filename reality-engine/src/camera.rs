@@ -19,12 +19,17 @@ pub struct Camera {
     pub zfar: f32,
     pub yaw: f32,
     pub pitch: f32,
+    pub projection_override: Option<Matrix4<f32>>,
 }
 
 impl Camera {
     pub fn build_view_projection_matrix(&self) -> Matrix4<f32> {
         let view = Matrix4::look_at_rh(self.eye, self.target, self.up);
-        let proj = cgmath::perspective(Deg(self.fovy), self.aspect, self.znear, self.zfar);
+        let proj = if let Some(p) = self.projection_override {
+            p
+        } else {
+            cgmath::perspective(Deg(self.fovy), self.aspect, self.znear, self.zfar)
+        };
         return OPENGL_TO_WGPU_MATRIX * proj * view;
     }
 

@@ -75,5 +75,6 @@ features = [
   "GainNode",
   "OscillatorNode",
   "OscillatorType",
-  "AudioContextState"
+  "AudioContextState",
+  "WebGl2RenderingContext"
 ]

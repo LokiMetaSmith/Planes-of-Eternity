@@ -1119,18 +1119,19 @@ impl State {
             });
 
         {
+            let clear_color = if self.in_xr {
+                wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
+            } else {
+                wgpu::Color { r: 0.1, g: 0.1, b: 0.2, a: 1.0 }
+            };
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.1,
-                            b: 0.2,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1439,16 +1440,38 @@ impl GameClient {
                               cgmath::Vector4::new(proj_data[12], proj_data[13], proj_data[14], proj_data[15]),
                           ));
                       }
+
+                      if let Some(viewport) = layer.get_viewport(&view) {
+                           let vp_width = viewport.width() as u32;
+                           let vp_height = viewport.height() as u32;
+                           if vp_width != state.width || vp_height != state.height {
+                                state.resize(vp_width, vp_height);
+                                state.canvas.set_width(vp_width);
+                                state.canvas.set_height(vp_height);
+                           }
+                      }
                  }
             }
 
             state.update();
 
-            // Bind XR framebuffer
-            let framebuffer = layer.framebuffer();
-            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::FRAMEBUFFER, framebuffer.as_ref());
-
+            // Render to Canvas (wgpu Surface)
             let _ = state.render();
+
+            // Blit Canvas to XR Framebuffer
+            let width = state.width as i32;
+            let height = state.height as i32;
+            let framebuffer = layer.framebuffer();
+
+            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::READ_FRAMEBUFFER, None);
+            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::DRAW_FRAMEBUFFER, framebuffer.as_ref());
+
+            gl_context.blit_framebuffer(
+                0, 0, width, height,
+                0, 0, width, height,
+                web_sys::WebGl2RenderingContext::COLOR_BUFFER_BIT,
+                web_sys::WebGl2RenderingContext::NEAREST
+            );
 
             session_clone.request_animation_frame(f_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
         }));

@@ -1,7 +1,12 @@
+#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
+#[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
+#[cfg(target_arch = "wasm32")]
 use web_sys::{HtmlCanvasElement, XrSession, XrWebGlLayer, XrRenderStateInit, XrReferenceSpace, XrReferenceSpaceType, XrFrame, XrViewerPose, XrView, XrEye};
 use wgpu::util::DeviceExt;
 use cgmath::{InnerSpace, SquareMatrix, Rotation};
@@ -22,6 +27,7 @@ pub mod visual_lambda;
 pub mod input;
 pub mod engine;
 pub mod audio;
+#[cfg(target_arch = "wasm32")]
 pub mod xr;
 
 #[repr(C)]
@@ -229,6 +235,7 @@ struct ChunkData {
     aabb_max: cgmath::Point3<f32>,
 }
 
+#[cfg(target_arch = "wasm32")]
 pub struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,

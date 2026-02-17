@@ -43,4 +43,5 @@
 
 ## Polishing
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
+- [x] **Fix Cargo Test**: Gate WASM-specific code (State, xr) to allow `cargo test` to run on host successfully.
 - [x] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.

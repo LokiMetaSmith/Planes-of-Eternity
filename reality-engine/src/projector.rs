@@ -11,6 +11,8 @@ pub struct RealityProjector {
     pub uuid: String,
     #[serde(default = "default_timestamp")]
     pub last_updated: u64,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 fn default_uuid() -> String {
@@ -40,6 +42,7 @@ impl RealityProjector {
             reality_signature: signature,
             uuid: Uuid::new_v4().to_string(),
             last_updated: get_current_timestamp(),
+            deleted: false,
         }
     }
 

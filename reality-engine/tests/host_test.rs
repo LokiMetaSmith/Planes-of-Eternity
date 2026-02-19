@@ -307,3 +307,41 @@ fn test_lambda_layout_persistence() {
     assert_eq!(root_pos.y, 20.0, "Y Position mismatch");
     assert_eq!(root_pos.z, 30.0, "Z Position mismatch");
 }
+
+#[test]
+fn test_bound_variable_labels() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // (\x.x) y
+    // The inner 'x' is a Port.
+    let term = reality_engine::lambda::parse("(\\x.x) y").unwrap();
+    engine.lambda_system.set_term(term);
+
+    // Update layout
+    engine.update(0.1);
+
+    // Position camera to see everything
+    engine.camera.eye = Point3::new(0.0, 5.0, 20.0);
+    engine.camera.target = Point3::new(0.0, 5.0, 0.0);
+    engine.camera.up = Vector3::new(0.0, 1.0, 0.0);
+
+    let labels = engine.get_node_labels();
+    println!("Labels: {:?}", labels);
+
+    // We expect:
+    // 1. "λx" (Abs)
+    // 2. "y" (Free Var)
+    // 3. "x" (Bound Var / Port) <-- This is what we are testing for
+
+    let has_abs_x = labels.iter().any(|l| l.text == "λx");
+    let has_free_y = labels.iter().any(|l| l.text == "y");
+
+    // Count how many "x" labels we have.
+    // One from Abs "λx" (text is "λx")
+    // One from Port "x" (text should be "x")
+    let has_port_x = labels.iter().any(|l| l.text == "x");
+
+    assert!(has_abs_x, "Missing Abs label");
+    assert!(has_free_y, "Missing Free Var label");
+    assert!(has_port_x, "Missing Bound Var (Port) label");
+}

@@ -364,7 +364,14 @@ impl Engine {
                         visual_lambda::NodeType::Var(s) => s.clone(),
                         visual_lambda::NodeType::Abs(s) => format!("λ{}", s),
                         visual_lambda::NodeType::Prim(p) => format!("{:?}", p).to_uppercase(),
-                        _ => continue, // Skip App, Port
+                        visual_lambda::NodeType::Port => {
+                            if let crate::lambda::Term::Var(name) = &*node.term {
+                                name.clone()
+                            } else {
+                                continue;
+                            }
+                        }
+                        _ => continue, // Skip App
                     };
 
                     // Hex color from node.color [r,g,b,a]

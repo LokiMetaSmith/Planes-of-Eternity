@@ -26,6 +26,7 @@
 - [x] **Step-by-Step Control**: Add UI or Hotkeys to Pause/Play/Step through reduction animations for better debugging/understanding.
 - [x] **Sound Effects**: Add audio feedback for interaction events like "Consumption", "Hover", and "Cast".
 - [x] **Layout Persistence**: Save and load the physical graph positions in `GameState`, not just the parsed term string.
+- [x] **Wire Hover**: Implement hover highlighting for curved wires to visualize connections more clearly.
 
 ## Networking & State
 - [x] **Delta Sync**: Optimize `broadcast_world_state` to send only modified chunks or diffs, rather than the entire WorldState JSON.

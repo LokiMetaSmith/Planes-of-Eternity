@@ -295,7 +295,7 @@ impl LambdaRenderer {
         }
     }
 
-    pub fn update_buffers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, nodes: &[VisualNode], edges: &[(usize, usize)], hovered_node: Option<usize>) {
+    pub fn update_buffers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, nodes: &[VisualNode], edges: &[(usize, usize)], hovered_node: Option<usize>, hovered_edge: Option<usize>) {
         // Update Instances
         if nodes.len() > self.capacity {
             self.capacity = (nodes.len() * 2).max(self.capacity * 2);
@@ -407,7 +407,7 @@ impl LambdaRenderer {
         }
 
         let mut line_data = Vec::with_capacity(required_line_vertices);
-        for &(start_idx, end_idx) in edges {
+        for (edge_idx, &(start_idx, end_idx)) in edges.iter().enumerate() {
             if start_idx < nodes.len() && end_idx < nodes.len() {
                 let start_node = &nodes[start_idx];
                 let end_node = &nodes[end_idx];
@@ -423,63 +423,22 @@ impl LambdaRenderer {
                 // Color Logic
                 let mut color = [1.0, 1.0, 1.0, 0.5];
 
-                // Determine Control Point and Color based on type
-                // Is this a Structure Edge or a Wire?
-                // Wire connects Port -> Binder. Port is `start_node`.
-                // Actually edges are (start, end). In build_subtree:
-                // Structure: Abs -> Body (edges.push((node_index, child_idx)))
-                // Structure: App -> Child (edges.push((node_index, left_idx)))
-                // Wire: Port -> Binder (edges.push((node_index, binder_idx)))
-
                 let is_wire = matches!(start_node.node_type, NodeType::Port);
 
-                let p1 = if is_wire {
-                    // Wires should curve "out".
-                    // Since nodes are usually below binder, we curve sideways/up.
-                    // Simple heuristic: midpoint + outward offset
-                    // Let's use cross product with Up vector?
-                    // Or just add Y offset.
+                if Some(edge_idx) == hovered_edge {
+                    color = [1.0, 1.0, 0.0, 1.0]; // Yellow highlight
+                } else if is_wire {
                     color = [0.8, 0.8, 1.0, 0.8]; // Blueish wires
+                }
 
-                    let mid = p0 + (p2 - p0) * 0.5;
-                    // Curve away from center?
-                    // Let's just curve "up" relative to the straight line to loop back.
-                    // Port is usually below Binder.
-                    // So we want curve to go OUT then UP.
-
-                    // Simple hack: Curve perpendicular to the line in XZ plane
-                    let dir = p2 - p0;
-                    let right = Vector3::new(-dir.z, 0.0, dir.x).normalize();
-                    // If dir is vertical, this fails.
-
-                    if dir.x.abs() < 0.1 && dir.z.abs() < 0.1 {
-                         mid + Vector3::new(2.0, 0.0, 0.0) // Side loop
-                    } else {
-                         mid + right * 2.0 // Curve side
-                    }
-                } else {
-                    // Structure Edge
-                    // Gentle S-curve or just straight?
-                    // Let's keep it mostly straight but slightly curved for aesthetics
-                    let mid = p0 + (p2 - p0) * 0.5;
-                    mid
-                };
+                let p1 = get_control_point(p0, p2, is_wire);
 
                 // Generate Curve Segments (Quadratic Bezier)
-                // B(t) = (1-t)^2 P0 + 2(1-t)t P1 + t^2 P2
                 let mut prev_pos = p0;
 
                 for i in 1..=segments_per_edge {
                     let t = i as f32 / segments_per_edge as f32;
-                    let it = 1.0 - t;
-
-                    // Bezier using Vectors for math
-                    let v0 = p0.to_vec();
-                    let v1 = p1.to_vec();
-                    let v2 = p2.to_vec();
-
-                    let pos_vec = (v0 * (it * it)) + (v1 * (2.0 * it * t)) + (v2 * (t * t));
-                    let pos = Point3::from_vec(pos_vec);
+                    let pos = get_quadratic_bezier_point(t, p0, p1, p2);
 
                     line_data.push(LambdaLineVertex {
                         position: [prev_pos.x, prev_pos.y, prev_pos.z],
@@ -629,6 +588,7 @@ pub struct LambdaSystem {
     pub dragged_node: Option<usize>,
     pub drag_distance: f32,
     pub hovered_node: Option<usize>,
+    pub hovered_edge: Option<usize>,
     pub anchor_pos: Point3<f32>,
     pub animation_state: AnimationState,
     pub paused: bool,
@@ -646,6 +606,7 @@ impl LambdaSystem {
             dragged_node: None,
             drag_distance: 0.0,
             hovered_node: None,
+            hovered_edge: None,
             anchor_pos: Point3::new(0.0, 5.0, 0.0),
             animation_state: AnimationState::Idle,
             paused: false,
@@ -710,8 +671,88 @@ impl LambdaSystem {
         closest_idx
     }
 
+    pub fn intersect_edge(&self, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) -> Option<usize> {
+        let mut closest_dist = std::f32::MAX;
+        let mut closest_idx = None;
+        let threshold = 0.2; // Hit radius
+
+        for (edge_idx, &(start, end)) in self.edges.iter().enumerate() {
+            if start >= self.nodes.len() || end >= self.nodes.len() { continue; }
+            if self.nodes[start].scale < 0.001 || self.nodes[end].scale < 0.001 { continue; }
+
+            let p0 = self.nodes[start].position;
+            let p2 = self.nodes[end].position;
+            let is_wire = matches!(self.nodes[start].node_type, NodeType::Port);
+            let p1 = get_control_point(p0, p2, is_wire);
+
+            // Ray-Curve Intersection (Approximate with segments)
+            let segments = 10;
+            let mut prev_pos = p0;
+
+            for i in 1..=segments {
+                let t = i as f32 / segments as f32;
+                let pos = get_quadratic_bezier_point(t, p0, p1, p2);
+
+                let seg_dir = pos - prev_pos;
+                let seg_len = seg_dir.magnitude();
+                if seg_len < 0.0001 { prev_pos = pos; continue; }
+                let seg_dir_norm = seg_dir / seg_len;
+
+                let w0 = ray_origin - prev_pos;
+                let a = ray_dir.dot(ray_dir);
+                let b = ray_dir.dot(seg_dir_norm);
+                let c = seg_dir_norm.dot(seg_dir_norm);
+                let d = ray_dir.dot(w0);
+                let e = seg_dir_norm.dot(w0);
+
+                let denom = a * c - b * b;
+                if denom < 0.0001 {
+                    prev_pos = pos;
+                    continue;
+                }
+
+                let mut sc = (b * e - c * d) / denom;
+                let mut tc = (a * e - b * d) / denom;
+
+                if tc < 0.0 {
+                    tc = 0.0;
+                    sc = -d / a;
+                } else if tc > seg_len {
+                    tc = seg_len;
+                    sc = (b * seg_len - d) / a;
+                }
+
+                if sc < 0.0 {
+                     prev_pos = pos;
+                     continue;
+                }
+
+                let p_ray = ray_origin + ray_dir * sc;
+                let p_seg = prev_pos + seg_dir_norm * tc;
+
+                let dist_sq = (p_ray - p_seg).magnitude2();
+                if dist_sq < threshold * threshold {
+                    if sc < closest_dist {
+                        closest_dist = sc;
+                        closest_idx = Some(edge_idx);
+                    }
+                }
+
+                prev_pos = pos;
+            }
+        }
+
+        closest_idx
+    }
+
     pub fn update_hover(&mut self, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) {
         self.hovered_node = self.intersect(ray_origin, ray_dir);
+
+        if self.hovered_node.is_some() {
+            self.hovered_edge = None;
+        } else {
+            self.hovered_edge = self.intersect_edge(ray_origin, ray_dir);
+        }
     }
 
     pub fn start_drag(&mut self, idx: usize, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) {
@@ -1282,6 +1323,41 @@ impl LambdaSystem {
     }
 }
 
+fn get_quadratic_bezier_point(t: f32, p0: Point3<f32>, p1: Point3<f32>, p2: Point3<f32>) -> Point3<f32> {
+    let it = 1.0 - t;
+    let v0 = p0.to_vec();
+    let v1 = p1.to_vec();
+    let v2 = p2.to_vec();
+    let pos_vec = (v0 * (it * it)) + (v1 * (2.0 * it * t)) + (v2 * (t * t));
+    Point3::from_vec(pos_vec)
+}
+
+fn get_control_point(p0: Point3<f32>, p2: Point3<f32>, is_wire: bool) -> Point3<f32> {
+    if is_wire {
+        let mid = p0 + (p2 - p0) * 0.5;
+        let dir = p2 - p0;
+        let right = if dir.magnitude2() > 0.0001 {
+             let r = Vector3::new(-dir.z, 0.0, dir.x);
+             if r.magnitude2() < 0.0001 {
+                 Vector3::unit_x() // fallback
+             } else {
+                 r.normalize()
+             }
+        } else {
+             Vector3::unit_x()
+        };
+
+        if dir.x.abs() < 0.1 && dir.z.abs() < 0.1 {
+            mid + Vector3::new(2.0, 0.0, 0.0)
+        } else {
+            mid + right * 2.0
+        }
+    } else {
+        let mid = p0 + (p2 - p0) * 0.5;
+        mid
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1423,5 +1499,51 @@ mod tests {
         } else {
              assert!(false, "Root term is None");
         }
+    }
+
+    #[test]
+    fn test_intersect_edge() {
+        let mut sys = LambdaSystem::new();
+        // Manually setup two nodes and an edge
+        let n1 = VisualNode {
+            id: 0,
+            term: Rc::new(Term::Var("a".to_string())),
+            position: Point3::new(0.0, 0.0, 0.0),
+            target_position: Point3::new(0.0, 0.0, 0.0),
+            velocity: Vector3::new(0.0, 0.0, 0.0),
+            color: [1.0; 4],
+            scale: 1.0,
+            node_type: NodeType::Var("a".to_string()),
+            collapsed: false,
+        };
+        let n2 = VisualNode {
+            id: 1,
+            term: Rc::new(Term::Var("b".to_string())),
+            position: Point3::new(10.0, 0.0, 0.0),
+            target_position: Point3::new(10.0, 0.0, 0.0),
+            velocity: Vector3::new(0.0, 0.0, 0.0),
+            color: [1.0; 4],
+            scale: 1.0,
+            node_type: NodeType::Var("b".to_string()),
+            collapsed: false,
+        };
+        sys.nodes.push(n1);
+        sys.nodes.push(n2);
+        sys.edges.push((0, 1));
+
+        // Ray passing through the middle of the edge (0,0,0) -> (10,0,0)
+        // Midpoint is (5,0,0).
+        // Since it is NOT a wire (Var -> Var is structure), it is a straight line.
+
+        let ray_origin = Point3::new(5.0, 0.0, -5.0);
+        let ray_dir = Vector3::new(0.0, 0.0, 1.0);
+
+        let hit = sys.intersect_edge(ray_origin, ray_dir);
+        assert_eq!(hit, Some(0));
+
+        // Test miss
+        let ray_origin_miss = Point3::new(5.0, 5.0, -5.0);
+        let hit_miss = sys.intersect_edge(ray_origin_miss, ray_dir);
+        assert_eq!(hit_miss, None);
     }
 }

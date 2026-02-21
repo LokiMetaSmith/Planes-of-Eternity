@@ -551,7 +551,13 @@
                 const btnCloseKeybinds = document.getElementById('btn-close-keybinds');
                 const keybindList = document.getElementById('keybind-list');
 
-                const actions = ["MoveForward", "MoveBackward", "MoveLeft", "MoveRight", "CastSpell"];
+                const actions = [
+                    "MoveForward", "MoveBackward", "MoveLeft", "MoveRight",
+                    "Jump", "Descend",
+                    "CastSpell", "Inscribe",
+                    "ToggleAutoReduce", "Step", "TogglePause",
+                    "VoxelDiffusion", "VoxelTimeReverse", "VoxelDream"
+                ];
                 let currentlyRebinding = null;
 
                 function renderKeybinds() {

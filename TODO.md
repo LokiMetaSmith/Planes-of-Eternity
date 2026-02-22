@@ -32,6 +32,7 @@
 - [x] **Delta Sync**: Optimize `broadcast_world_state` to send only modified chunks or diffs, rather than the entire WorldState JSON.
 - [x] **Conflict Resolution**: Implement timestamp-based or CRDT-like conflict resolution for Anomaly placement to handle race conditions better than the current append-only logic.
     - [x] **Tombstones**: Implemented `deleted` flag and merge logic to support anomaly deletion and propagation.
+    - [x] **Deterministic Hashing**: Ensure chunk hashes are consistent regardless of anomaly insertion order.
 - [x] **Connection UI**: Add visual indicators for PeerJS connection status (Connecting, Connected, Error) in the UI.
 
 ## Persistence

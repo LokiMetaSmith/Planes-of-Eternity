@@ -71,8 +71,13 @@ impl Chunk {
 
     pub fn calculate_hash(&mut self) -> String {
         let mut hasher = Sha256::new();
+
+        // Sort anomalies by UUID for deterministic hashing
+        let mut sorted_anomalies: Vec<&RealityProjector> = self.anomalies.iter().collect();
+        sorted_anomalies.sort_by(|a, b| a.uuid.cmp(&b.uuid));
+
         // Serialize anomalies to JSON to get a consistent byte representation
-        let json = serde_json::to_string(&self.anomalies).unwrap_or_default();
+        let json = serde_json::to_string(&sorted_anomalies).unwrap_or_default();
         hasher.update(json);
         let result = hasher.finalize();
         let hash_string = hex::encode(result);
@@ -352,5 +357,29 @@ mod tests {
         let changed_resurrect = chunk1.merge(&chunk3);
         assert!(!changed_resurrect); // Should NOT accept update because 150 < 200
         assert!(chunk1.anomalies[0].deleted);
+    }
+
+    #[test]
+    fn test_hash_determinism() {
+        let mut chunk1 = Chunk::new(ChunkId { x: 0, z: 0 });
+        let mut chunk2 = Chunk::new(ChunkId { x: 0, z: 0 });
+
+        let sig = RealitySignature::default();
+        let mut proj1 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
+        proj1.uuid = "uuid-1".to_string(); // Force UUID for predictability
+
+        let mut proj2 = RealityProjector::new(Point3::new(1.0, 0.0, 0.0), sig.clone());
+        proj2.uuid = "uuid-2".to_string();
+
+        // Add in different orders
+        chunk1.anomalies.push(proj1.clone());
+        chunk1.anomalies.push(proj2.clone());
+        chunk1.calculate_hash();
+
+        chunk2.anomalies.push(proj2.clone());
+        chunk2.anomalies.push(proj1.clone());
+        chunk2.calculate_hash();
+
+        assert_eq!(chunk1.hash, chunk2.hash, "Hashes should be identical regardless of insertion order");
     }
 }

@@ -573,17 +573,58 @@ impl Chunk {
                             let color = get_color(type_id.abs() as u8);
 
                             // Calculate AO
-                            // Placeholder heuristic: just darken lower parts slightly to simulate depth/ground shading
-                            let calc_ao = |_px: f32, py: f32, _pz: f32, _norm: [f32; 3]| -> f32 {
-                                // use local Y for gradient
-                                let local_y = (py - offset_y) / (CHUNK_SIZE as f32);
-                                (local_y * 0.5 + 0.5).clamp(0.5, 1.0)
+                            // Vertex-based AO using neighbor sampling
+                            let ao_layer = if is_current_face { i + 1 } else { i };
+
+                            // Helper to check if a voxel at (du, dv) in the current layer is solid
+                            let check_voxel = |u_val: i32, v_val: i32| -> bool {
+                                let mut coords = [0i32; 3];
+                                coords[d] = ao_layer;
+                                coords[u] = u_val;
+                                coords[v] = v_val;
+
+                                // Boundary check (Chunk local only)
+                                if coords[0] < 0 || coords[0] >= size as i32 ||
+                                   coords[1] < 0 || coords[1] >= size as i32 ||
+                                   coords[2] < 0 || coords[2] >= size as i32 {
+                                    return false; // Assume empty outside chunk to prevent dark borders
+                                }
+
+                                let vox = self.get(coords[0] as usize, coords[1] as usize, coords[2] as usize);
+                                vox.id != 0
                             };
 
-                            let ao0 = calc_ao(p0[0], p0[1], p0[2], normal);
-                            let ao1 = calc_ao(p1[0], p1[1], p1[2], normal);
-                            let ao2 = calc_ao(p2[0], p2[1], p2[2], normal);
-                            let ao3 = calc_ao(p3[0], p3[1], p3[2], normal);
+                            let calc_ao_vertex = |u_base: i32, v_base: i32, u_quad_dir: i32, v_quad_dir: i32| -> f32 {
+                                // Calculate offsets for quadrants
+                                let u_same = if u_quad_dir == 1 { 0 } else { -1 };
+                                let v_same = if v_quad_dir == 1 { 0 } else { -1 };
+                                let u_opp = if u_quad_dir == 1 { -1 } else { 0 };
+                                let v_opp = if v_quad_dir == 1 { -1 } else { 0 };
+
+                                // Check neighbors in the 3 quadrants NOT occupied by the quad
+                                let side1 = check_voxel(u_base + u_opp, v_base + v_same);
+                                let side2 = check_voxel(u_base + u_same, v_base + v_opp);
+                                let corner = check_voxel(u_base + u_opp, v_base + v_opp);
+
+                                if side1 && side2 {
+                                    0.0 // Fully occluded corner
+                                } else {
+                                    let mut occlusion = 0;
+                                    if side1 { occlusion += 1; }
+                                    if side2 { occlusion += 1; }
+                                    if corner { occlusion += 1; }
+                                    1.0 - (occlusion as f32 * 0.25)
+                                }
+                            };
+
+                            // p0: Min U, Min V. Quad (+1, +1)
+                            let ao0 = calc_ao_vertex(x[u], x[v], 1, 1);
+                            // p1: Min U, Max V. Quad (+1, -1)
+                            let ao1 = calc_ao_vertex(x[u], x[v] + width as i32, 1, -1);
+                            // p2: Max U, Max V. Quad (-1, -1)
+                            let ao2 = calc_ao_vertex(x[u] + height as i32, x[v] + width as i32, -1, -1);
+                            // p3: Max U, Min V. Quad (-1, +1)
+                            let ao3 = calc_ao_vertex(x[u] + height as i32, x[v], -1, 1);
 
                             if is_current_face {
                                 vertices.push(VoxelVertex { position: p0, normal, color, ao: ao0 });
@@ -683,5 +724,74 @@ impl VoxelWorld {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod ao_tests {
+    use super::*;
+
+    #[test]
+    fn test_vertex_ao_corner_occlusion() {
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let mut chunk = Chunk::new(key);
+
+        // Ground Voxel at (1, 0, 1)
+        chunk.set(1, 0, 1, Voxel { id: 1 });
+
+        // Neighbors in the layer ABOVE (y=1), which is the empty space adjacent to the Top Face.
+        // Occluder 1 (Side 1) at (0, 1, 1)
+        chunk.set(0, 1, 1, Voxel { id: 1 });
+        // Occluder 2 (Side 2) at (1, 1, 0)
+        chunk.set(1, 1, 0, Voxel { id: 1 });
+
+        // Note: We leave the Corner (0, 1, 0) empty for this test to check if sides block it.
+        // Logic: if side1 && side2 { 0.0 }
+        // So even if corner is empty, AO should be 0.0.
+
+        let (vertices, _) = chunk.generate_mesh();
+
+        // Find the vertex at (1, 1, 1) with Normal +Y
+        let mut found = false;
+        for v in vertices {
+            if (v.position[0] - 1.0).abs() < 0.001 &&
+               (v.position[1] - 1.0).abs() < 0.001 &&
+               (v.position[2] - 1.0).abs() < 0.001 &&
+               (v.normal[1] - 1.0).abs() < 0.001 {
+
+                assert!(v.ao < 0.001, "Expected AO 0.0 due to sides occlusion, got {}", v.ao);
+                found = true;
+            }
+        }
+        assert!(found, "Did not find expected vertex p0");
+    }
+
+    #[test]
+    fn test_vertex_ao_partial_occlusion() {
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let mut chunk = Chunk::new(key);
+
+        // Ground Voxel at (5, 5, 5)
+        chunk.set(5, 5, 5, Voxel { id: 1 });
+
+        // Only 1 Occluder at (4, 6, 5) (Side 1)
+        chunk.set(4, 6, 5, Voxel { id: 1 });
+
+        let (vertices, _) = chunk.generate_mesh();
+
+        let mut found = false;
+        for v in vertices {
+            // Vertex p0 at (5, 6, 5) (Top face corner)
+            if (v.position[0] - 5.0).abs() < 0.001 &&
+               (v.position[1] - 6.0).abs() < 0.001 &&
+               (v.position[2] - 5.0).abs() < 0.001 &&
+               (v.normal[1] - 1.0).abs() < 0.001 {
+
+                // 1 Occluder -> 1.0 - 0.25 = 0.75
+                assert!((v.ao - 0.75).abs() < 0.001, "Expected AO 0.75, got {}", v.ao);
+                found = true;
+            }
+        }
+        assert!(found, "Did not find expected vertex p0");
     }
 }

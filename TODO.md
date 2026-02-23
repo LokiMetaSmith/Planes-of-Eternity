@@ -5,6 +5,7 @@
 - [x] **LOD System**: Implement Level of Detail for distant chunks (Octree or simplified mesh).
 - [x] **Enhance Visuals**: Add Shadows, Textures, and more complex shading (AO, reflections). (AO, Reflections Implemented)
     - [x] **Day/Night Cycle**: Implement dynamic lighting and skybox based on time.
+    - [x] **Improve Voxel AO (Vertex-based)**: Implement proper ambient occlusion using neighbor sampling.
 - [x] **Depth Buffer**: Fix current simple depth buffering to ensure proper z-sorting/culling of voxel layers.
 - [x] **Fix Voxel Rendering**: Fix winding order bug causing invisible voxels.
 

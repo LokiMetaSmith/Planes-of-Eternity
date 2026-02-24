@@ -324,7 +324,7 @@
     </style>
 
     <script type="module">
-        import init, { start, is_ar_supported, request_ar_session } from './pkg/reality_engine.js';
+        import init, { start, is_ar_supported } from './pkg/reality_engine.js';
 
         async function run() {
             try {
@@ -638,15 +638,8 @@
                     if (arSupported) {
                          try {
                              log("> REQUESTING WEBXR SESSION...");
-                             const session = await request_ar_session();
+                             await gameClient.enter_ar_session();
                              log("> WEBXR SESSION STARTED");
-                             // Note: Rendering integration is pending.
-                             // This confirms the session can be created.
-
-                             session.addEventListener('end', () => {
-                                 log("> WEBXR SESSION ENDED");
-                             });
-
                              return; // Skip Magic Window fallback if WebXR works
                          } catch (e) {
                              log("> WEBXR ERROR: " + e);

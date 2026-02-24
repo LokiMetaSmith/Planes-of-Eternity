@@ -45,7 +45,7 @@
 - [x] **Voxel World Persistence**: Save and load voxel data (with RLE compression) to preserve world changes.
 
 ## AR / WebXR
-- [x] **WebXR Support**: Implemented `immersive-ar` session handling, camera tracking with `navigator.xr`, integration with the engine loop, and proper framebuffer blitting for AR overlay.
+- [x] **WebXR Support**: Implemented `immersive-ar` session handling, camera tracking with `navigator.xr`, integration with the engine loop, and proper framebuffer blitting for AR overlay. (Fixed frontend integration)
 
 ## Polishing
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.

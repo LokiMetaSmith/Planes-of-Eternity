@@ -380,6 +380,16 @@ impl State {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D3,
+                            sample_type: wgpu::TextureSampleType::Uint,
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("texture_bind_group_layout"),
             });
@@ -394,6 +404,10 @@ impl State {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&voxel_density_view),
                 },
             ],
             label: Some("diffuse_bind_group"),
@@ -612,24 +626,6 @@ impl State {
 
         // Voxel Texture Atlas
         let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
-
-        // Voxel Density Texture (3D)
-        let density_size = wgpu::Extent3d {
-            width: 128,
-            height: 128,
-            depth_or_array_layers: 128,
-        };
-        let voxel_density_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Voxel Density Texture"),
-            size: density_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D3,
-            format: wgpu::TextureFormat::R8Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let voxel_density_view = voxel_density_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let voxel_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[

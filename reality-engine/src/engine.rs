@@ -1,13 +1,23 @@
 use std::rc::Rc;
-use cgmath::{EuclideanSpace, InnerSpace, Point3, Vector3};
+use cgmath::{EuclideanSpace, InnerSpace, Point3, Vector3, SquareMatrix};
+use serde::Serialize;
 use crate::camera::{Camera, CameraController};
 use crate::input::{InputConfig, Action};
 use crate::lambda::{self, Term, Primitive};
 use crate::persistence::GameState;
 use crate::projector::RealityProjector;
 use crate::reality_types::{RealityArchetype, RealitySignature};
-use crate::visual_lambda::LambdaSystem;
+use crate::visual_lambda::{self, LambdaSystem};
 use crate::world::WorldState;
+use crate::audio::AudioManager;
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct LabelInfo {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: String,
+}
 
 pub struct Engine {
     pub world_state: WorldState,
@@ -17,6 +27,7 @@ pub struct Engine {
     pub camera: Camera,
     pub camera_controller: CameraController,
     pub input_config: InputConfig,
+    pub audio: AudioManager,
     pub global_offset: [f32; 4],
     pub time: f32,
     pub pending_full_sync: bool,
@@ -34,11 +45,14 @@ impl Engine {
             fovy: 45.0,
             znear: 0.1,
             zfar: 100.0,
+            yaw: std::f32::consts::PI,
+            pitch: -0.4636, // ~ -26.5 degrees
+            projection_override: None,
         };
 
         let camera_controller = CameraController::new(0.2);
 
-        let (player_projector, world_state, active_anomaly, mut lambda_system) = if let Some(state) = initial_state {
+        let (player_projector, world_state, active_anomaly, lambda_system, input_config) = if let Some(state) = initial_state {
             log::info!("Restoring game state...");
             // Restore camera position
             camera.eye = state.player.projector.location;
@@ -56,10 +70,21 @@ impl Engine {
             );
 
             let mut ls = LambdaSystem::new();
-            let term = lambda::parse("FIRE").unwrap();
-            ls.set_term(term);
 
-            (state.player.projector, state.world, Some(active_anomaly), ls)
+            // Restore Lambda State
+            let source = if state.lambda_source.is_empty() { "FIRE".to_string() } else { state.lambda_source };
+            if let Some(term) = lambda::parse(&source) {
+                ls.set_term(term);
+                if !state.lambda_layout.is_empty() {
+                    ls.apply_layout(state.lambda_layout);
+                }
+            } else {
+                 // Fallback
+                 let term = lambda::parse("FIRE").unwrap();
+                 ls.set_term(term);
+            }
+
+            (state.player.projector, state.world, Some(active_anomaly), ls, state.input_config)
         } else {
             let mut player_sig = RealitySignature::default();
             player_sig.active_style.archetype = RealityArchetype::Fantasy;
@@ -89,12 +114,14 @@ impl Engine {
             let term = lambda::parse("FIRE").unwrap();
             ls.set_term(term);
 
-            (player_projector, world_state, Some(active_anomaly), ls)
+            (player_projector, world_state, Some(active_anomaly), ls, InputConfig::default())
         };
 
         // Initial Lambda Setup
         // Check if lambda system needs init from state? For now, always reset as it's not persisted.
         // It was initialized above.
+
+        let audio = AudioManager::new();
 
         Self {
             world_state,
@@ -103,7 +130,8 @@ impl Engine {
             lambda_system,
             camera,
             camera_controller,
-            input_config: InputConfig::default(),
+            input_config,
+            audio,
             global_offset: [0.0; 4],
             time: 0.0,
             pending_full_sync: false,
@@ -137,7 +165,12 @@ impl Engine {
         self.lambda_system.set_anchor(anchor);
 
         // Fixed timestep for lambda physics for now, could use dt
-        self.lambda_system.update(0.016);
+        let events = self.lambda_system.update(0.016);
+        for event in events {
+             match event {
+                 visual_lambda::LambdaEvent::ReductionStarted => self.audio.play_reduce(),
+             }
+        }
     }
 
     pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) {
@@ -148,6 +181,7 @@ impl Engine {
                      if pressed {
                          // Cast Spell
                          log::info!("Casting Lambda Spell!");
+                         self.audio.play_cast();
                          if let Some(term) = &self.lambda_system.root_term {
                              if let Some(anomaly) = self.compile_spell(term.clone()) {
                                  self.world_state.add_anomaly(anomaly.clone());
@@ -158,7 +192,7 @@ impl Engine {
                          }
                      }
                  },
-                 Action::MoveForward | Action::MoveBackward | Action::MoveLeft | Action::MoveRight => {
+                 Action::MoveForward | Action::MoveBackward | Action::MoveLeft | Action::MoveRight | Action::Jump | Action::Descend => {
                      // Camera controller handles WASD implicitly, but we need to map our Config to it.
                      // The CameraController currently hardcodes KeyW, etc.
                      // We need to update CameraController to accept generic Actions or boolean flags.
@@ -169,7 +203,24 @@ impl Engine {
                  },
                  Action::Inscribe => {
                      // Handled by GameClient (lib.rs) triggering window.prompt
-                 }
+                 },
+                 Action::ToggleAutoReduce => {
+                     if pressed {
+                         self.lambda_system.auto_reduce = !self.lambda_system.auto_reduce;
+                     }
+                 },
+                 Action::Step => {
+                     if pressed {
+                         self.lambda_system.reduce_root();
+                     }
+                 },
+                 Action::TogglePause => {
+                     if pressed {
+                         self.lambda_system.paused = !self.lambda_system.paused;
+                     }
+                 },
+                 // Ignore Voxel Actions (Handled by lib.rs / wrapper)
+                 _ => {}
              }
         }
 
@@ -186,6 +237,7 @@ impl Engine {
     }
 
     pub fn process_mouse_down(&mut self, x: f32, y: f32, button: i16) {
+        self.audio.resume_context();
         let (ray_origin, ray_dir) = self.get_ray(x, y);
 
         if button == 0 { // Left
@@ -200,8 +252,19 @@ impl Engine {
     }
 
     pub fn process_mouse_move(&mut self, x: f32, y: f32) {
+        let last_hover = self.lambda_system.hovered_node;
         let (ray_origin, ray_dir) = self.get_ray(x, y);
         self.lambda_system.update_drag(ray_origin, ray_dir);
+        self.lambda_system.update_hover(ray_origin, ray_dir);
+
+        if self.lambda_system.hovered_node.is_some() && self.lambda_system.hovered_node != last_hover {
+            self.audio.play_hover();
+        }
+    }
+
+    pub fn process_mouse_look(&mut self, dx: f32, dy: f32) {
+        let sensitivity = 0.002;
+        self.camera.rotate(-dx * sensitivity, -dy * sensitivity);
     }
 
     pub fn process_mouse_up(&mut self) {
@@ -227,17 +290,17 @@ impl Engine {
              let t = -self.camera.eye.y / ray_dir.y;
              if t > 0.0 {
                  let hit_point = self.camera.eye + ray_dir * t;
-                 log::warn!("Injection at: {:?}", hit_point);
+                 log::info!("Injection at: {:?}", hit_point);
 
                  // Move Active Anomaly to click location
                  if let Some(ref mut anomaly) = self.active_anomaly {
                      anomaly.location = hit_point;
 
                      // "Commit" the anomaly to the world state (Append it)
-                     self.world_state.add_anomaly(RealityProjector {
-                         location: anomaly.location,
-                         reality_signature: anomaly.reality_signature.clone(),
-                     });
+                     self.world_state.add_anomaly(RealityProjector::new(
+                         anomaly.location,
+                         anomaly.reality_signature.clone(),
+                     ));
 
                      log::info!("World Root Hash Updated: {}", self.world_state.root_hash);
                      return true; // State changed, request save
@@ -247,8 +310,89 @@ impl Engine {
         false
     }
 
+    pub fn get_node_labels(&self) -> Vec<LabelInfo> {
+        let view_proj = self.camera.build_view_projection_matrix();
+        let mut labels = Vec::new();
+
+        // Status Label
+        let status_text = if self.lambda_system.paused {
+            "PAUSED".to_string()
+        } else if self.lambda_system.auto_reduce {
+            "AUTO-RUN".to_string()
+        } else {
+            "STEP MODE".to_string()
+        };
+
+        let status_color = if self.lambda_system.paused {
+            "#FFFF00".to_string() // Yellow
+        } else if self.lambda_system.auto_reduce {
+            "#00FF00".to_string() // Green
+        } else {
+            "#00F0FF".to_string() // Cyan
+        };
+
+        labels.push(LabelInfo {
+            text: status_text,
+            x: 0.05,
+            y: 0.05,
+            color: status_color,
+        });
+
+        for node in &self.lambda_system.nodes {
+            // Skip invisible nodes (scale near 0)
+            if node.scale < 0.01 { continue; }
+
+            // Project Position
+            // Point3 to homogeneous Vector4 (x, y, z, 1.0)
+            let p = Point3::new(node.position.x, node.position.y, node.position.z);
+            let clip = view_proj * p.to_homogeneous();
+
+            // Check if in front of camera (w > 0)
+            if clip.w > 0.0 {
+                let ndc_x = clip.x / clip.w;
+                let ndc_y = clip.y / clip.w;
+
+                // Check if within screen bounds (roughly -1 to 1, add some padding for partial visibility)
+                if ndc_x >= -1.2 && ndc_x <= 1.2 && ndc_y >= -1.2 && ndc_y <= 1.2 {
+                    // Convert to 0..1 for CSS (Top-Left origin)
+                    // CSS X: (ndc_x + 1) / 2
+                    // CSS Y: (1 - ndc_y) / 2  <-- Flip Y because CSS Y grows downwards
+                    let screen_x = (ndc_x + 1.0) * 0.5;
+                    let screen_y = (1.0 - ndc_y) * 0.5;
+
+                    let text = match &node.node_type {
+                        visual_lambda::NodeType::Var(s) => s.clone(),
+                        visual_lambda::NodeType::Abs(s) => format!("λ{}", s),
+                        visual_lambda::NodeType::Prim(p) => format!("{:?}", p).to_uppercase(),
+                        visual_lambda::NodeType::Port => {
+                            if let crate::lambda::Term::Var(name) = &*node.term {
+                                name.clone()
+                            } else {
+                                continue;
+                            }
+                        }
+                        _ => continue, // Skip App
+                    };
+
+                    // Hex color from node.color [r,g,b,a]
+                    let r = (node.color[0] * 255.0) as u8;
+                    let g = (node.color[1] * 255.0) as u8;
+                    let b = (node.color[2] * 255.0) as u8;
+                    let color = format!("#{:02x}{:02x}{:02x}", r, g, b);
+
+                    labels.push(LabelInfo {
+                        text,
+                        x: screen_x,
+                        y: screen_y,
+                        color,
+                    });
+                }
+            }
+        }
+        labels
+    }
+
     pub fn get_ray(&self, x: f32, y: f32) -> (Point3<f32>, Vector3<f32>) {
-        use cgmath::SquareMatrix;
         let view_proj = self.camera.build_view_projection_matrix();
         let inv_view_proj = view_proj.invert().unwrap_or(cgmath::Matrix4::identity());
         let ray_clip = cgmath::Vector4::new(x, y, -1.0, 1.0);
@@ -325,10 +469,7 @@ impl Engine {
              _ => return None,
          }
 
-         Some(RealityProjector {
-             location: pos,
-             reality_signature: sig,
-         })
+         Some(RealityProjector::new(pos, sig))
     }
 
     fn combine_primitives(&self, op: Primitive, target: Primitive, pos: Point3<f32>) -> Option<RealityProjector> {

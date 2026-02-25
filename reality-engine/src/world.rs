@@ -4,6 +4,8 @@ use crate::projector::RealityProjector;
 use sha2::{Sha256, Digest};
 use std::fmt::Write;
 
+pub const ANOMALY_GRID_SIZE: f32 = 10.0;
+
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Copy)]
 pub struct ChunkId {
     pub x: i32,
@@ -69,8 +71,13 @@ impl Chunk {
 
     pub fn calculate_hash(&mut self) -> String {
         let mut hasher = Sha256::new();
+
+        // Sort anomalies by UUID for deterministic hashing
+        let mut sorted_anomalies: Vec<&RealityProjector> = self.anomalies.iter().collect();
+        sorted_anomalies.sort_by(|a, b| a.uuid.cmp(&b.uuid));
+
         // Serialize anomalies to JSON to get a consistent byte representation
-        let json = serde_json::to_string(&self.anomalies).unwrap_or_default();
+        let json = serde_json::to_string(&sorted_anomalies).unwrap_or_default();
         hasher.update(json);
         let result = hasher.finalize();
         let hash_string = hex::encode(result);
@@ -80,11 +87,18 @@ impl Chunk {
 
     pub fn merge(&mut self, other: &Chunk) -> bool {
         let mut changed = false;
-        // Simple merge: append anomalies that are not present.
-        // This is O(N^2) but N (anomalies per chunk) is expected to be small.
-        // Uses PartialEq instead of JSON serialization for performance.
+
         for other_anomaly in &other.anomalies {
-            if !self.anomalies.contains(other_anomaly) {
+            // Find if we have an anomaly with same UUID
+            if let Some(existing_idx) = self.anomalies.iter().position(|a| a.uuid == other_anomaly.uuid) {
+                 // Check timestamp
+                 let existing = &mut self.anomalies[existing_idx];
+                 if other_anomaly.last_updated > existing.last_updated {
+                     *existing = other_anomaly.clone();
+                     changed = true;
+                 }
+            } else {
+                // New anomaly (or tombstone)
                 self.anomalies.push(other_anomaly.clone());
                 changed = true;
             }
@@ -128,8 +142,7 @@ impl WorldState {
     }
 
     pub fn add_anomaly(&mut self, projector: RealityProjector) {
-        let chunk_size = 10.0; // Match the grid size from lib.rs
-        let id = ChunkId::from_world_pos(projector.location.x, projector.location.z, chunk_size);
+        let id = ChunkId::from_world_pos(projector.location.x, projector.location.z, ANOMALY_GRID_SIZE);
         let chunk = self.get_or_create_chunk(id);
 
         // Apply stability impact based on archetype
@@ -150,6 +163,22 @@ impl WorldState {
         chunk.calculate_hash();
         self.calculate_root_hash();
         self.dirty_chunks.insert(id);
+    }
+
+    pub fn remove_anomaly(&mut self, uuid: &str, location: cgmath::Point3<f32>) -> bool {
+        let id = ChunkId::from_world_pos(location.x, location.z, ANOMALY_GRID_SIZE);
+
+        if let Some(chunk) = self.chunks.get_mut(&id) {
+            if let Some(idx) = chunk.anomalies.iter().position(|a| a.uuid == uuid) {
+                chunk.anomalies[idx].deleted = true;
+                chunk.anomalies[idx].last_updated = crate::projector::get_current_timestamp();
+                chunk.calculate_hash();
+                self.calculate_root_hash();
+                self.dirty_chunks.insert(id);
+                return true;
+            }
+        }
+        false
     }
 
     pub fn calculate_root_hash(&mut self) {
@@ -286,5 +315,71 @@ mod tests {
 
         let deserialized: WorldState = serde_json::from_str(&serialized).unwrap();
         assert!(deserialized.chunks.contains_key(&id));
+    }
+
+    #[test]
+    fn test_tombstone_propagation() {
+        let mut chunk1 = Chunk::new(ChunkId { x: 0, z: 0 });
+        let mut chunk2 = Chunk::new(ChunkId { x: 0, z: 0 });
+
+        let sig = RealitySignature::default();
+        let mut proj1 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
+        proj1.last_updated = 100;
+
+        // Chunk 1 has active anomaly
+        chunk1.anomalies.push(proj1.clone());
+
+        // Chunk 2 has deleted anomaly (tombstone) with newer timestamp
+        let mut proj1_deleted = proj1.clone();
+        proj1_deleted.deleted = true;
+        proj1_deleted.last_updated = 200;
+        chunk2.anomalies.push(proj1_deleted.clone());
+
+        // Merge Chunk 2 into Chunk 1
+        // Chunk 1 should accept the deletion because timestamp is newer
+        let changed = chunk1.merge(&chunk2);
+        assert!(changed);
+        assert_eq!(chunk1.anomalies.len(), 1);
+        assert!(chunk1.anomalies[0].deleted);
+        assert_eq!(chunk1.anomalies[0].last_updated, 200);
+
+        // Merge Chunk 1 (deleted) into Chunk 2 (deleted) -> No change
+        let changed_back = chunk2.merge(&chunk1);
+        assert!(!changed_back);
+
+        // Scenario: Resurrection Attempt (Old update arrives later)
+        let mut chunk3 = Chunk::new(ChunkId { x: 0, z: 0 });
+        let mut proj1_old = proj1.clone();
+        proj1_old.last_updated = 150; // Newer than original, but older than deletion
+        chunk3.anomalies.push(proj1_old);
+
+        // Merge Chunk 3 into Chunk 1 (which has deleted @ 200)
+        let changed_resurrect = chunk1.merge(&chunk3);
+        assert!(!changed_resurrect); // Should NOT accept update because 150 < 200
+        assert!(chunk1.anomalies[0].deleted);
+    }
+
+    #[test]
+    fn test_hash_determinism() {
+        let mut chunk1 = Chunk::new(ChunkId { x: 0, z: 0 });
+        let mut chunk2 = Chunk::new(ChunkId { x: 0, z: 0 });
+
+        let sig = RealitySignature::default();
+        let mut proj1 = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig.clone());
+        proj1.uuid = "uuid-1".to_string(); // Force UUID for predictability
+
+        let mut proj2 = RealityProjector::new(Point3::new(1.0, 0.0, 0.0), sig.clone());
+        proj2.uuid = "uuid-2".to_string();
+
+        // Add in different orders
+        chunk1.anomalies.push(proj1.clone());
+        chunk1.anomalies.push(proj2.clone());
+        chunk1.calculate_hash();
+
+        chunk2.anomalies.push(proj2.clone());
+        chunk2.anomalies.push(proj1.clone());
+        chunk2.calculate_hash();
+
+        assert_eq!(chunk1.hash, chunk2.hash, "Hashes should be identical regardless of insertion order");
     }
 }

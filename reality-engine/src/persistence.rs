@@ -1,11 +1,12 @@
 use serde::{Serialize, Deserialize};
+use crate::input::InputConfig;
 use crate::projector::RealityProjector;
 use crate::world::WorldState;
 #[cfg(target_arch = "wasm32")]
 use web_sys::Storage;
 use log::{info, error};
 
-pub const SAVE_VERSION: u32 = 1;
+pub const SAVE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PlayerState {
@@ -16,6 +17,14 @@ pub struct PlayerState {
 pub struct GameState {
     pub player: PlayerState,
     pub world: WorldState,
+    #[serde(default)]
+    pub lambda_source: String,
+    #[serde(default)]
+    pub lambda_layout: Vec<[f32; 3]>,
+    #[serde(default)]
+    pub input_config: InputConfig,
+    #[serde(default)]
+    pub voxel_world: Option<crate::voxel::VoxelWorld>,
     pub timestamp: u64,
     #[serde(default)]
     pub version: u32,

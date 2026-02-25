@@ -60,7 +60,15 @@ chmod +x setup_dev.sh
     ```
     This verifies engine initialization, interaction logic, and P2P state synchronization.
 
-5.  **Serve:**
+5.  **Run Signaling Server:**
+    For multiplayer features to work, the signaling server must be running locally:
+    ```bash
+    cd reality-signal-server
+    cargo run
+    ```
+    This will start a WebSocket server on `ws://localhost:9000`.
+
+6.  **Serve:**
     The engine requires a local server to serve the WASM and assets. You can use Python's built-in HTTP server:
     ```bash
     # macOS / Linux

@@ -20,6 +20,37 @@ var<uniform> reality: RealityUniform;
 var t_diffuse: texture_2d<f32>;
 @group(0) @binding(1)
 var s_diffuse: sampler;
+@group(0) @binding(2)
+var t_density: texture_3d<u32>;
+
+fn ray_march_shadow(origin: vec3<f32>, direction: vec3<f32>) -> f32 {
+    let max_dist = 60.0;
+    let step_size = 0.5;
+    var current_pos = origin + direction * 1.5; // Start bias
+    var dist = 0.0;
+
+    loop {
+        if (dist > max_dist) { break; }
+
+        // Map to Texture Space (World -64..64 -> 0..128)
+        // Offset: X+64, Y+32, Z+64
+        let tx = i32(floor(current_pos.x + 64.0));
+        let ty = i32(floor(current_pos.y + 32.0));
+        let tz = i32(floor(current_pos.z + 64.0));
+
+        // Bounds Check
+        if (tx >= 0 && tx < 128 && ty >= 0 && ty < 128 && tz >= 0 && tz < 128) {
+            let val = textureLoad(t_density, vec3<i32>(tx, ty, tz), 0).r;
+            if (val > 0u) {
+                return 0.0; // Shadow
+            }
+        }
+
+        current_pos += direction * step_size;
+        dist += step_size;
+    }
+    return 1.0; // Lit
+}
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -344,9 +375,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let final_gen_color = pattern_color + vec3<f32>(wireframe);
 
     // Lighting
-    let light_dir = normalize(vec3<f32>(0.5, 1.0, 0.5));
-    let diffuse = max(dot(in.normal, light_dir), 0.0);
-    let ambient = 0.3;
+    let time = reality.global_offset.z;
+    let cycle = time * 0.1;
+    let light_x = sin(cycle);
+    let light_y = cos(cycle);
+    let light_dir = normalize(vec3<f32>(light_x, light_y, 0.5));
+
+    // Shadow
+    var shadow = 1.0;
+    if (light_y > 0.0) {
+        shadow = ray_march_shadow(in.world_pos, light_dir);
+    } else {
+        shadow = 0.0; // No direct sun at night
+    }
+
+    let diffuse = max(dot(in.normal, light_dir), 0.0) * shadow;
+
+    // Ambient varies with Day/Night
+    var ambient = 0.3;
+    if (light_y < 0.0) { ambient = 0.05; }
+
     let lighting = diffuse + ambient;
 
     // Apply lighting to reality
@@ -354,7 +402,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Apply lighting to base texture
     let base_normal = vec3<f32>(0.0, 1.0, 0.0);
-    let base_diffuse = max(dot(base_normal, light_dir), 0.0);
+    let base_diffuse = max(dot(base_normal, light_dir), 0.0) * shadow;
     let lit_base = base_texture.rgb * (base_diffuse + ambient);
 
     let result = mix(lit_base, lit_reality, in.visibility);

@@ -1,10 +1,17 @@
+#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
+#[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
-use web_sys::HtmlCanvasElement;
+#[cfg(target_arch = "wasm32")]
+use web_sys::{HtmlCanvasElement, XrSession, XrWebGlLayer, XrRenderStateInit, XrReferenceSpace, XrReferenceSpaceType, XrFrame, XrViewerPose, XrView, XrEye};
 use wgpu::util::DeviceExt;
-use cgmath::{InnerSpace, SquareMatrix};
+use cgmath::{InnerSpace, SquareMatrix, Rotation};
+use serde::Serialize;
+use std::collections::HashMap;
 
 pub mod camera;
 mod texture;
@@ -12,16 +19,22 @@ pub mod reality_types;
 pub mod projector;
 pub mod persistence;
 pub mod world;
+pub mod voxel;
+pub mod genie_bridge;
 pub mod network;
 pub mod lambda;
 pub mod visual_lambda;
 pub mod input;
 pub mod engine;
+pub mod audio;
+#[cfg(target_arch = "wasm32")]
+pub mod xr;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
+    camera_pos: [f32; 4], // xyz, w=padding
 }
 
 impl CameraUniform {
@@ -29,11 +42,13 @@ impl CameraUniform {
         use cgmath::SquareMatrix;
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
+            camera_pos: [0.0; 4],
         }
     }
 
     fn update_view_proj(&mut self, camera: &camera::Camera) {
         self.view_proj = camera.build_view_projection_matrix().into();
+        self.camera_pos = [camera.eye.x, camera.eye.y, camera.eye.z, 1.0];
     }
 }
 
@@ -207,12 +222,20 @@ impl Instance {
     }
 }
 
+pub struct ChunkMesh {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub index_count: u32,
+    pub lod_level: usize,
+}
+
 struct ChunkData {
     position: cgmath::Vector3<f32>,
     aabb_min: cgmath::Point3<f32>,
     aabb_max: cgmath::Point3<f32>,
 }
 
+#[cfg(target_arch = "wasm32")]
 pub struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -251,6 +274,19 @@ pub struct State {
     // time moved to engine
 
     pub engine: engine::Engine,
+
+    pub depth_texture: texture::Texture,
+    pub voxel_world: voxel::VoxelWorld,
+    pub voxel_pipeline: wgpu::RenderPipeline,
+    pub voxel_meshes: HashMap<voxel::ChunkKey, ChunkMesh>,
+    pub voxel_dirty: bool,
+    pub last_lod_update_pos: cgmath::Point3<f32>,
+    pub voxel_atlas: texture::Texture,
+    pub voxel_bind_group: wgpu::BindGroup,
+    pub voxel_density_texture: wgpu::Texture,
+    pub voxel_density_view: wgpu::TextureView,
+    pub in_xr: bool,
+    pub canvas: HtmlCanvasElement,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -262,7 +298,7 @@ impl State {
         let instance = wgpu::Instance::default();
 
         // Create surface from canvas
-        let surface_target = wgpu::SurfaceTarget::Canvas(canvas);
+        let surface_target = wgpu::SurfaceTarget::Canvas(canvas.clone());
         let surface = instance.create_surface(surface_target).unwrap();
 
         let adapter = instance
@@ -345,6 +381,16 @@ impl State {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D3,
+                            sample_type: wgpu::TextureSampleType::Uint,
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("texture_bind_group_layout"),
             });
@@ -360,9 +406,15 @@ impl State {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&voxel_density_view),
+                },
             ],
             label: Some("diffuse_bind_group"),
         });
+
+        let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -370,7 +422,15 @@ impl State {
         });
 
         // Init Engine Logic
-        let loaded_state = persistence::load_from_local_storage("reality_engine_save");
+        let mut loaded_state = persistence::load_from_local_storage("reality_engine_save");
+
+        // Extract voxel_world if present
+        let loaded_voxel_world = if let Some(ref mut state) = loaded_state {
+             state.voxel_world.take()
+        } else {
+             None
+        };
+
         let engine = engine::Engine::new(width, height, loaded_state);
 
         let mut camera_uniform = CameraUniform::new();
@@ -534,7 +594,13 @@ impl State {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -549,7 +615,126 @@ impl State {
             &camera_bind_group_layout,
         );
 
-        Self {
+        // --- Voxel Initialization ---
+        let voxel_world = if let Some(vw) = loaded_voxel_world {
+            log::info!("Restored Voxel World from save.");
+            vw
+        } else {
+            let mut vw = voxel::VoxelWorld::new();
+            vw.generate_default_world();
+            vw
+        };
+
+        // Voxel Texture Atlas
+        let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
+
+        let voxel_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        sample_type: wgpu::TextureSampleType::Uint,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("voxel_bind_group_layout"),
+        });
+
+        let voxel_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &voxel_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&voxel_atlas.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&voxel_atlas.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&voxel_density_view),
+                },
+            ],
+            label: Some("voxel_bind_group"),
+        });
+
+        let voxel_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Voxel Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader_voxel.wgsl"))),
+        });
+
+        let voxel_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Voxel Pipeline Layout"),
+            bind_group_layouts: &[
+                &camera_bind_group_layout, // Group 0
+                &voxel_bind_group_layout,  // Group 1
+                &reality_bind_group_layout, // Group 2
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Voxel Render Pipeline"),
+            layout: Some(&voxel_pipeline_layout),
+            cache: None,
+            vertex: wgpu::VertexState {
+                module: &voxel_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[voxel::VoxelVertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &voxel_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
+        let mut state = Self {
             surface,
             device,
             queue,
@@ -573,7 +758,89 @@ impl State {
             height,
             lambda_renderer,
             engine,
+            depth_texture,
+            voxel_world,
+            voxel_pipeline,
+            voxel_meshes: HashMap::new(),
+            voxel_dirty: false,
+            last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
+            voxel_atlas,
+            voxel_bind_group,
+            voxel_density_texture,
+            voxel_density_view,
+            in_xr: false,
+            canvas: canvas.clone(),
+        };
+
+        state.last_lod_update_pos = state.engine.camera.eye;
+        state.update_lods(true);
+        state.update_voxel_texture(); // Initial upload
+
+        state
+    }
+
+    pub fn update_voxel_texture(&self) {
+        let size = 128;
+        let mut data = vec![0u8; size * size * size];
+
+        // World Bounds: X: -64..64, Y: -32..96, Z: -64..64
+        // Texture: 0..128
+        // Mapping: tx = wx + 64, ty = wy + 32, tz = wz + 64
+
+        // Iterate over active chunks and stamp them into the buffer
+        for chunk in self.voxel_world.chunks.values() {
+             let cx = chunk.key.x; // e.g. -2, -1, 0, 1
+             let cy = chunk.key.y; // e.g. -1, 0, 1
+             let cz = chunk.key.z; // e.g. -2, -1, 0, 1
+
+             let base_x = cx * 32 + 64;
+             let base_y = cy * 32 + 32;
+             let base_z = cz * 32 + 64;
+
+             if base_x < 0 || base_x >= 128 || base_y < 0 || base_y >= 128 || base_z < 0 || base_z >= 128 {
+                 continue; // Out of texture bounds
+             }
+
+             for z in 0..32 {
+                 for y in 0..32 {
+                     for x in 0..32 {
+                         let v = chunk.get(x, y, z);
+                         if v.id != 0 {
+                             let tx = base_x + x as i32;
+                             let ty = base_y + y as i32;
+                             let tz = base_z + z as i32;
+
+                             if tx >= 0 && tx < 128 && ty >= 0 && ty < 128 && tz >= 0 && tz < 128 {
+                                 let idx = tx as usize + (ty as usize) * 128 + (tz as usize) * 128 * 128;
+                                 data[idx] = 1; // Solid
+                             }
+                         }
+                     }
+                 }
+             }
         }
+
+        let density_size = wgpu::Extent3d {
+            width: 128,
+            height: 128,
+            depth_or_array_layers: 128,
+        };
+
+        self.queue.write_texture(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &self.voxel_density_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            &data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(128),
+                rows_per_image: Some(128),
+            },
+            density_size,
+        );
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
@@ -583,34 +850,32 @@ impl State {
             self.config.width = new_width;
             self.config.height = new_height;
             self.surface.configure(&self.device, &self.config);
+            self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
             self.engine.resize(new_width, new_height);
         }
     }
 
     pub fn process_keyboard(&mut self, key_code: &str) {
-        // Logic moved to engine
-        // But we need to know if we need to track pressed state for engine.
-        // Engine's process_keyboard takes (key_code, pressed).
-        // The original State::process_keyboard only took key_code (implied press).
-        // Wait, original State::process_keyboard was called by keydown_closure, so it was "pressed".
-        // But camera controller needed both press and release.
-        // Original: process_keyboard(code) -> logic for casting spell (on press)
-        // AND camera_controller.process_events(code, true) (on press)
-
-        // I will update State::process_keyboard to match what's needed or update the closure.
-        // The closure calls:
-        // state.process_keyboard(&code);
-        // state.camera_controller.process_events(&code, true);
-
-        // I'll make State::process_keyboard take `pressed`?
-        // Or keep it as "on press" trigger.
-        // Engine::process_keyboard handles both logic (spell) and camera.
-
-        // Let's update `process_keyboard` to just call `engine.process_keyboard(code, true)`.
-        // And update `process_keyup` equivalent?
-        // Original `process_keyboard` was only called on keydown.
-        // I'll change the signature in `lib.rs` closures later? No, I am rewriting `lib.rs` now.
-        // I can change `process_keyboard` signature to take `pressed`.
+        // Voxel Inputs via Config
+        if let Some(action) = self.engine.input_config.map_key(key_code) {
+             match action {
+                 input::Action::VoxelDiffusion => {
+                     self.voxel_world.update_dynamics();
+                     self.voxel_world.save_all_states();
+                     self.voxel_dirty = true;
+                 },
+                 input::Action::VoxelTimeReverse => {
+                     self.voxel_world.revert_all_states();
+                     self.voxel_dirty = true;
+                 },
+                 input::Action::VoxelDream => {
+                     self.voxel_world.dream();
+                     self.voxel_world.save_all_states();
+                     self.voxel_dirty = true;
+                 },
+                 _ => {}
+             }
+        }
 
         self.engine.process_keyboard(key_code, true);
     }
@@ -635,14 +900,21 @@ impl State {
     pub fn process_click(&mut self, x: f32, y: f32) {
         if self.engine.process_click(x, y) {
              // State changed, save
+             let lambda_source = if let Some(term) = &self.engine.lambda_system.root_term {
+                 term.to_string()
+             } else {
+                 "".to_string()
+             };
+
              let game_state = persistence::GameState {
                 player: persistence::PlayerState {
-                    projector: projector::RealityProjector {
-                        location: self.engine.player_projector.location,
-                        reality_signature: self.engine.player_projector.reality_signature.clone(),
-                    }
+                    projector: self.engine.player_projector.clone(),
                 },
                 world: self.engine.world_state.clone(),
+                lambda_source,
+                lambda_layout: self.engine.lambda_system.get_layout(),
+                input_config: self.engine.input_config.clone(),
+                voxel_world: Some(self.voxel_world.clone()),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
             };
@@ -650,8 +922,93 @@ impl State {
         }
     }
 
+    pub fn update_lods(&mut self, force: bool) {
+        let cam_pos = self.engine.camera.eye;
+
+        let mut to_update = Vec::new();
+        let mut valid_keys = Vec::new();
+
+        for (key, chunk) in &self.voxel_world.chunks {
+            valid_keys.push(*key);
+
+            let chunk_world_x = chunk.key.x as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
+            let chunk_world_y = chunk.key.y as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
+            let chunk_world_z = chunk.key.z as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
+
+            let dist_sq = (cam_pos.x - chunk_world_x).powi(2) +
+                          (cam_pos.y - chunk_world_y).powi(2) +
+                          (cam_pos.z - chunk_world_z).powi(2);
+            let dist = dist_sq.sqrt();
+
+            let desired_lod = if dist > 128.0 {
+                4
+            } else if dist > 64.0 {
+                2
+            } else {
+                1
+            };
+
+            let needs_update = force || match self.voxel_meshes.get(key) {
+                Some(mesh) => mesh.lod_level != desired_lod,
+                None => true,
+            };
+
+            if needs_update {
+                to_update.push((*key, desired_lod));
+            }
+        }
+
+        // Remove meshes for chunks that no longer exist
+        self.voxel_meshes.retain(|k, _| valid_keys.contains(k));
+
+        for (key, lod) in to_update {
+            if let Some(chunk) = self.voxel_world.chunks.get(&key) {
+                let mesh_chunk = chunk.create_lod(lod);
+                let (v, i) = mesh_chunk.generate_mesh();
+
+                if !i.is_empty() {
+                    let v_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Voxel Chunk Vertex"),
+                        contents: bytemuck::cast_slice(&v),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                    let i_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Voxel Chunk Index"),
+                        contents: bytemuck::cast_slice(&i),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+
+                    self.voxel_meshes.insert(key, ChunkMesh {
+                        vertex_buffer: v_buf,
+                        index_buffer: i_buf,
+                        index_count: i.len() as u32,
+                        lod_level: lod,
+                    });
+                } else {
+                    self.voxel_meshes.remove(&key);
+                }
+            }
+        }
+
+        self.voxel_dirty = false;
+        self.last_lod_update_pos = cam_pos;
+    }
+
     pub fn update(&mut self) {
         self.engine.update(0.016); // Assuming ~60fps fixed step in update
+
+        // Rebuild meshes if dirty or if camera moved significantly (LOD update trigger)
+        let cam_pos = self.engine.camera.eye;
+        let dist_sq = (cam_pos.x - self.last_lod_update_pos.x).powi(2) +
+                      (cam_pos.y - self.last_lod_update_pos.y).powi(2) +
+                      (cam_pos.z - self.last_lod_update_pos.z).powi(2);
+
+        if self.voxel_dirty || dist_sq > 256.0 {
+            self.update_lods(self.voxel_dirty);
+            if self.voxel_dirty {
+                self.update_voxel_texture();
+            }
+        }
 
         // Sync WGPU buffers with Engine State
         self.camera_uniform.update_view_proj(&self.engine.camera);
@@ -748,7 +1105,9 @@ impl State {
             &self.device,
             &self.queue,
             &self.engine.lambda_system.nodes,
-            &self.engine.lambda_system.edges
+            &self.engine.lambda_system.edges,
+            self.engine.lambda_system.hovered_node,
+            self.engine.lambda_system.hovered_edge
         );
     }
 
@@ -765,26 +1124,35 @@ impl State {
             });
 
         {
+            let clear_color = if self.in_xr {
+                wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
+            } else {
+                wgpu::Color { r: 0.1, g: 0.1, b: 0.2, a: 1.0 }
+            };
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 0.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
 
+            // Draw Terrain
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
@@ -795,6 +1163,18 @@ impl State {
                 render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
+            }
+
+            // Draw Voxels
+            render_pass.set_pipeline(&self.voxel_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
+
+            for mesh in self.voxel_meshes.values() {
+                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {
@@ -828,6 +1208,12 @@ pub struct GameClient {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
+    pub fn get_node_labels(&self) -> String {
+        let state = self.state.borrow();
+        let labels = state.engine.get_node_labels();
+        serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string())
+    }
+
     pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {
         let mut state = self.state.borrow_mut();
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -878,7 +1264,7 @@ impl GameClient {
         let mut state = self.state.borrow_mut();
         if let Some(action) = input::Action::from_string(&action_name) {
              state.engine.input_config.set_binding(action, key_code);
-             // TODO: Persist input config
+             self.save_state(&state);
         }
     }
 
@@ -920,8 +1306,28 @@ impl GameClient {
             ));
 
             state.engine.lambda_system = visual_lambda::LambdaSystem::new();
-            let term = lambda::parse("FIRE").unwrap();
-            state.engine.lambda_system.set_term(term);
+            state.engine.input_config = loaded_state.input_config;
+
+            // Restore Voxel World
+            if let Some(voxel_world) = loaded_state.voxel_world {
+                state.voxel_world = voxel_world;
+                state.voxel_dirty = true;
+                state.update_voxel_texture();
+                state.update_lods(true);
+            }
+
+            // Restore Lambda State
+            let source = if loaded_state.lambda_source.is_empty() { "FIRE".to_string() } else { loaded_state.lambda_source };
+            if let Some(term) = lambda::parse(&source) {
+                state.engine.lambda_system.set_term(term);
+                if !loaded_state.lambda_layout.is_empty() {
+                    state.engine.lambda_system.apply_layout(loaded_state.lambda_layout);
+                }
+            } else {
+                 // Fallback
+                 let term = lambda::parse("FIRE").unwrap();
+                 state.engine.lambda_system.set_term(term);
+            }
 
             log::info!("Game Loaded from slot: {}", slot_name);
         } else {
@@ -945,20 +1351,148 @@ impl GameClient {
     }
 
     fn save_state(&self, state: &State) {
+        let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
+            term.to_string()
+        } else {
+            "".to_string()
+        };
+
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
-                projector: projector::RealityProjector {
-                    location: state.engine.player_projector.location,
-                    reality_signature: state.engine.player_projector.reality_signature.clone(),
-                }
+                projector: state.engine.player_projector.clone(),
             },
             world: state.engine.world_state.clone(),
+            lambda_source,
+            lambda_layout: state.engine.lambda_system.get_layout(),
+            input_config: state.engine.input_config.clone(),
+            voxel_world: Some(state.voxel_world.clone()),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
         let slot = self.current_save_slot.borrow().clone();
         let key = persistence::get_save_key(&slot);
         persistence::save_to_local_storage(&key, &game_state);
+    }
+
+    pub async fn enter_ar_session(&self) -> Result<(), JsValue> {
+        if !xr::is_ar_supported().await? {
+             return Err(JsValue::from_str("AR not supported"));
+        }
+
+        let session = xr::request_ar_session().await?;
+
+        // 1. Get State & Canvas (Brief Borrow)
+        let canvas = {
+            let mut state = self.state.borrow_mut();
+            state.in_xr = true;
+            state.canvas.clone()
+        };
+
+        // 2. Get Context (No Borrow)
+        let gl_context = canvas.get_context("webgl2")?
+            .ok_or_else(|| JsValue::from_str("No WebGL2 context found"))?
+            .dyn_into::<web_sys::WebGl2RenderingContext>()?;
+
+        // 3. Create Layer (No Borrow)
+        let layer = XrWebGlLayer::new_with_web_gl2_rendering_context(&session, &gl_context)?;
+
+        let mut render_state_init = XrRenderStateInit::new();
+        render_state_init.set_base_layer(Some(&layer));
+        session.update_render_state_with_state(&render_state_init);
+
+        // 4. Request Reference Space (Async - Must not hold borrow)
+        let reference_space = wasm_bindgen_futures::JsFuture::from(
+            session.request_reference_space(XrReferenceSpaceType::Local)
+        ).await?.unchecked_into::<XrReferenceSpace>();
+
+        let state_xr = self.state.clone();
+        let session_clone = session.clone();
+        let reference_space_clone = reference_space.clone();
+
+        let f_xr: Rc<RefCell<Option<Closure<dyn FnMut(f64, XrFrame)>>>> = Rc::new(RefCell::new(None));
+        let g_xr = f_xr.clone();
+
+        *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
+            let mut state = state_xr.borrow_mut();
+
+            let pose = frame.get_viewer_pose(&reference_space_clone);
+            if let Some(pose) = pose {
+                 let views = pose.views();
+                 if views.length() > 0 {
+                      let view = views.get(0).unchecked_into::<XrView>();
+
+                      // Tracking
+                      let transform = view.transform();
+                      let pos = transform.position();
+                      let orient = transform.orientation();
+
+                      let q = cgmath::Quaternion::new(orient.w() as f32, orient.x() as f32, orient.y() as f32, orient.z() as f32);
+                      let forward = q.rotate_vector(cgmath::Vector3::new(0.0, 0.0, -1.0));
+                      let up = q.rotate_vector(cgmath::Vector3::new(0.0, 1.0, 0.0));
+
+                      state.engine.camera.eye = cgmath::Point3::new(pos.x() as f32, pos.y() as f32, pos.z() as f32);
+                      state.engine.camera.target = state.engine.camera.eye + forward;
+                      state.engine.camera.up = up;
+
+                      // Projection
+                      let proj_data = view.projection_matrix();
+
+                      if proj_data.len() >= 16 {
+                          state.engine.camera.projection_override = Some(cgmath::Matrix4::from_cols(
+                              cgmath::Vector4::new(proj_data[0], proj_data[1], proj_data[2], proj_data[3]),
+                              cgmath::Vector4::new(proj_data[4], proj_data[5], proj_data[6], proj_data[7]),
+                              cgmath::Vector4::new(proj_data[8], proj_data[9], proj_data[10], proj_data[11]),
+                              cgmath::Vector4::new(proj_data[12], proj_data[13], proj_data[14], proj_data[15]),
+                          ));
+                      }
+
+                      if let Some(viewport) = layer.get_viewport(&view) {
+                           let vp_width = viewport.width() as u32;
+                           let vp_height = viewport.height() as u32;
+                           if vp_width != state.width || vp_height != state.height {
+                                state.resize(vp_width, vp_height);
+                                state.canvas.set_width(vp_width);
+                                state.canvas.set_height(vp_height);
+                           }
+                      }
+                 }
+            }
+
+            state.update();
+
+            // Render to Canvas (wgpu Surface)
+            let _ = state.render();
+
+            // Blit Canvas to XR Framebuffer
+            let width = state.width as i32;
+            let height = state.height as i32;
+            let framebuffer = layer.framebuffer();
+
+            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::READ_FRAMEBUFFER, None);
+            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::DRAW_FRAMEBUFFER, framebuffer.as_ref());
+
+            gl_context.blit_framebuffer(
+                0, 0, width, height,
+                0, 0, width, height,
+                web_sys::WebGl2RenderingContext::COLOR_BUFFER_BIT,
+                web_sys::WebGl2RenderingContext::NEAREST
+            );
+
+            session_clone.request_animation_frame(f_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+        }));
+
+        session.request_animation_frame(g_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+
+        let state_end = self.state.clone();
+        let onend_closure = Closure::wrap(Box::new(move |_| {
+            let mut state = state_end.borrow_mut();
+            state.in_xr = false;
+            log::info!("XR Session Ended");
+        }) as Box<dyn FnMut(JsValue)>);
+        session.set_onend(Some(onend_closure.as_ref().unchecked_ref()));
+        onend_closure.forget();
+
+        Ok(())
     }
 }
 
@@ -1062,13 +1596,23 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let canvas_down = canvas.clone();
     let mouse_state_down = mouse_state.clone();
     let mousedown_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-        let rect = canvas_down.get_bounding_client_rect();
-        let x = event.client_x() as f32 - rect.left() as f32;
-        let y = event.client_y() as f32 - rect.top() as f32;
-        let width = rect.width() as f32;
-        let height = rect.height() as f32;
-        let ndc_x = (x / width) * 2.0 - 1.0;
-        let ndc_y = -((y / height) * 2.0 - 1.0);
+        let document = web_sys::window().unwrap().document().unwrap();
+        let locked = document.pointer_lock_element().is_some();
+
+        if !locked {
+             canvas_down.request_pointer_lock();
+        }
+
+        let (ndc_x, ndc_y) = if locked {
+            (0.0, 0.0)
+        } else {
+            let rect = canvas_down.get_bounding_client_rect();
+            let x = event.client_x() as f32 - rect.left() as f32;
+            let y = event.client_y() as f32 - rect.top() as f32;
+            let width = rect.width() as f32;
+            let height = rect.height() as f32;
+            ((x / width) * 2.0 - 1.0, -((y / height) * 2.0 - 1.0))
+        };
 
         let button = event.button();
         state_down.borrow_mut().process_mouse_down(ndc_x, ndc_y, button);
@@ -1083,15 +1627,27 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_move = state.clone();
     let canvas_move = canvas.clone();
     let mousemove_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-        let rect = canvas_move.get_bounding_client_rect();
-        let x = event.client_x() as f32 - rect.left() as f32;
-        let y = event.client_y() as f32 - rect.top() as f32;
-        let width = rect.width() as f32;
-        let height = rect.height() as f32;
-        let ndc_x = (x / width) * 2.0 - 1.0;
-        let ndc_y = -((y / height) * 2.0 - 1.0);
+        let document = web_sys::window().unwrap().document().unwrap();
+        let locked = document.pointer_lock_element().is_some();
 
-        state_move.borrow_mut().process_mouse_move(ndc_x, ndc_y);
+        if locked {
+            state_move.borrow_mut().engine.process_mouse_look(
+                event.movement_x() as f32,
+                event.movement_y() as f32
+            );
+            // Also update drag with center ray to allow carrying items
+            state_move.borrow_mut().process_mouse_move(0.0, 0.0);
+        } else {
+            let rect = canvas_move.get_bounding_client_rect();
+            let x = event.client_x() as f32 - rect.left() as f32;
+            let y = event.client_y() as f32 - rect.top() as f32;
+            let width = rect.width() as f32;
+            let height = rect.height() as f32;
+            let ndc_x = (x / width) * 2.0 - 1.0;
+            let ndc_y = -((y / height) * 2.0 - 1.0);
+
+            state_move.borrow_mut().process_mouse_move(ndc_x, ndc_y);
+        }
     }) as Box<dyn FnMut(_)>);
 
     // Mousemove on window
@@ -1183,9 +1739,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_copy = state.clone();
     *g.borrow_mut() = Some(Closure::new(move || {
         let mut state = state_copy.borrow_mut();
-        state.update();
-        state.render().expect("Render failed");
-
+        if !state.in_xr {
+            state.update();
+            state.render().expect("Render failed");
+        }
         request_animation_frame(f.borrow().as_ref().unwrap());
     }));
 
@@ -1232,14 +1789,21 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     let autosave_closure = Closure::wrap(Box::new(move || {
         let mut state = state_autosave.borrow_mut();
+        let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
+             term.to_string()
+        } else {
+             "".to_string()
+        };
+
         let game_state = persistence::GameState {
             player: persistence::PlayerState {
-                projector: projector::RealityProjector {
-                    location: state.engine.player_projector.location,
-                    reality_signature: state.engine.player_projector.reality_signature.clone(),
-                }
+                projector: state.engine.player_projector.clone(),
             },
             world: state.engine.world_state.clone(),
+            lambda_source,
+            lambda_layout: state.engine.lambda_system.get_layout(),
+            input_config: state.engine.input_config.clone(),
+            voxel_world: Some(state.voxel_world.clone()),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };

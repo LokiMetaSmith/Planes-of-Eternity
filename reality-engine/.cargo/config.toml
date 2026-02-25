@@ -3,3 +3,5 @@ linker = "link.exe"
 # Note: Windows SDK paths should be set by vcvarsall.bat
 # If build fails, ensure Windows SDK is installed via Visual Studio Installer
 
+[build]
+rustflags = ["--cfg=web_sys_unstable_apis"]

@@ -227,6 +227,8 @@ pub struct ChunkMesh {
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
     pub lod_level: usize,
+    pub aabb_min: cgmath::Point3<f32>,
+    pub aabb_max: cgmath::Point3<f32>,
 }
 
 struct ChunkData {
@@ -993,11 +995,21 @@ impl State {
                         usage: wgpu::BufferUsages::INDEX,
                     });
 
+                    let size = voxel::CHUNK_SIZE as f32;
+                    let min_x = key.x as f32 * size;
+                    let min_y = key.y as f32 * size;
+                    let min_z = key.z as f32 * size;
+
+                    let aabb_min = cgmath::Point3::new(min_x, min_y, min_z);
+                    let aabb_max = cgmath::Point3::new(min_x + size, min_y + size, min_z + size);
+
                     self.voxel_meshes.insert(key, ChunkMesh {
                         vertex_buffer: v_buf,
                         index_buffer: i_buf,
                         index_count: i.len() as u32,
                         lod_level: lod,
+                        aabb_min,
+                        aabb_max,
                     });
                 } else {
                     self.voxel_meshes.remove(&key);
@@ -1127,6 +1139,8 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let view_proj = self.engine.camera.build_view_projection_matrix();
+
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -1187,6 +1201,9 @@ impl State {
             render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
 
             for mesh in self.voxel_meshes.values() {
+                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &view_proj) {
+                    continue;
+                }
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);

@@ -9,6 +9,7 @@
     - [x] **Voxel Shadows on Terrain**: Implemented ray-marched shadows from voxels onto the procedural terrain.
 - [x] **Depth Buffer**: Fix current simple depth buffering to ensure proper z-sorting/culling of voxel layers.
 - [x] **Fix Voxel Rendering**: Fix winding order bug causing invisible voxels.
+- [x] **Optimize Rendering**: Implement Frustum Culling for Voxel Chunks.
 
 ## Visual Lambda System
 - [x] **Render Graph Edges**: Implement a Line Pipeline in `LambdaRenderer` to visualize connections (edges) between lambda nodes. Currently, only nodes are rendered as spheres.

@@ -890,6 +890,11 @@ impl State {
                      self.voxel_world.save_all_states();
                      self.voxel_dirty = true;
                  },
+                 input::Action::VoxelDiffuse => {
+                     self.voxel_world.diffuse_chunk();
+                     self.voxel_world.save_all_states();
+                     self.voxel_dirty = true;
+                 },
                  _ => {}
              }
         }

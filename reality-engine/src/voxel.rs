@@ -714,6 +714,12 @@ impl VoxelWorld {
         }
     }
 
+    pub fn diffuse_chunk(&mut self) {
+        for chunk in self.chunks.values_mut() {
+            self.genie.diffuse_chunk(chunk);
+        }
+    }
+
     pub fn generate_default_world(&mut self) {
         for x in -2..2 {
             for y in -1..2 {

@@ -919,7 +919,40 @@ impl State {
         self.engine.process_mouse_up();
     }
 
-    pub fn process_click(&mut self, x: f32, y: f32) {
+    pub fn process_click(&mut self, x: f32, y: f32, is_shift: bool) {
+        // Handle Voxel Interaction (Shift + Click = Dig)
+        if is_shift {
+            let (ray_origin, ray_dir) = self.engine.get_ray(x, y);
+            if let Some((key, lx, ly, lz, _normal)) = self.voxel_world.ray_cast(ray_origin, ray_dir, 10.0) {
+                // Dig: Set to 0 (Air)
+                if let Some(chunk) = self.voxel_world.get_chunk_mut(key) {
+                    chunk.set(lx, ly, lz, voxel::Voxel { id: 0 });
+                    chunk.save_state();
+                    self.voxel_dirty = true;
+                    // Trigger save
+                    let lambda_source = if let Some(term) = &self.engine.lambda_system.root_term {
+                        term.to_string()
+                    } else {
+                        "".to_string()
+                    };
+                    let game_state = persistence::GameState {
+                        player: persistence::PlayerState {
+                            projector: self.engine.player_projector.clone(),
+                        },
+                        world: self.engine.world_state.clone(),
+                        lambda_source,
+                        lambda_layout: self.engine.lambda_system.get_layout(),
+                        input_config: self.engine.input_config.clone(),
+                        voxel_world: Some(self.voxel_world.clone()),
+                        timestamp: js_sys::Date::now() as u64,
+                        version: persistence::SAVE_VERSION,
+                    };
+                    persistence::save_to_local_storage("reality_engine_save", &game_state);
+                    return;
+                }
+            }
+        }
+
         if self.engine.process_click(x, y) {
              // State changed, save
              let lambda_source = if let Some(term) = &self.engine.lambda_system.root_term {
@@ -1712,7 +1745,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
              let elapsed = js_sys::Date::now() - ms.down_time;
 
              if dist < 0.05 && elapsed < 300.0 {
-                 state_up.borrow_mut().process_click(ndc_x, ndc_y);
+                 state_up.borrow_mut().process_click(ndc_x, ndc_y, event.shift_key());
              }
         }
         ms.down_pos = None;

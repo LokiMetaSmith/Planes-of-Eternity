@@ -690,6 +690,30 @@ impl VoxelWorld {
         self.chunks.entry(key).or_insert_with(|| Chunk::new(key))
     }
 
+    pub fn set_voxel_at(&mut self, x: i32, y: i32, z: i32, voxel: Voxel) {
+        let cx = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
+        let cy = (y as f32 / CHUNK_SIZE as f32).floor() as i32;
+        let cz = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
+
+        let lx = (x - cx * CHUNK_SIZE as i32) as usize;
+        let ly = (y - cy * CHUNK_SIZE as i32) as usize;
+        let lz = (z - cz * CHUNK_SIZE as i32) as usize;
+
+        let key = ChunkKey { x: cx, y: cy, z: cz };
+
+        // Ensure chunk exists (optional, or just ignore if not?)
+        // If we want to build bridges into void, we should create chunk.
+        // For digging, we only care if it exists.
+
+        if let Some(chunk) = self.get_chunk_mut(key) {
+            chunk.set(lx, ly, lz, voxel);
+        } else if voxel.id != 0 {
+             // Create chunk if placing block
+             let chunk = self.create_chunk(key);
+             chunk.set(lx, ly, lz, voxel);
+        }
+    }
+
     pub fn save_all_states(&mut self) {
         for chunk in self.chunks.values_mut() {
             chunk.save_state();
@@ -730,6 +754,141 @@ impl VoxelWorld {
                 }
             }
         }
+    }
+
+    pub fn ray_cast(&self, origin: cgmath::Point3<f32>, direction: cgmath::Vector3<f32>, max_dist: f32) -> Option<(ChunkKey, usize, usize, usize, [i32; 3])> {
+        let start = origin;
+        let dir = direction;
+
+        let mut t = 0.0;
+        let mut x = start.x.floor() as i32;
+        let mut y = start.y.floor() as i32;
+        let mut z = start.z.floor() as i32;
+
+        let step_x = if dir.x > 0.0 { 1 } else { -1 };
+        let step_y = if dir.y > 0.0 { 1 } else { -1 };
+        let step_z = if dir.z > 0.0 { 1 } else { -1 };
+
+        let dx = dir.x.abs();
+        let dy = dir.y.abs();
+        let dz = dir.z.abs();
+
+        let dt_x = if dx > 0.0 { 1.0 / dx } else { f32::INFINITY };
+        let dt_y = if dy > 0.0 { 1.0 / dy } else { f32::INFINITY };
+        let dt_z = if dz > 0.0 { 1.0 / dz } else { f32::INFINITY };
+
+        let mut t_next_x = if step_x > 0 {
+            (x as f32 + 1.0 - start.x) * dt_x
+        } else {
+            (start.x - x as f32) * dt_x
+        };
+
+        let mut t_next_y = if step_y > 0 {
+            (y as f32 + 1.0 - start.y) * dt_y
+        } else {
+            (start.y - y as f32) * dt_y
+        };
+
+        let mut t_next_z = if step_z > 0 {
+            (z as f32 + 1.0 - start.z) * dt_z
+        } else {
+            (start.z - z as f32) * dt_z
+        };
+
+        let mut normal = [0, 0, 0];
+
+        while t <= max_dist {
+            // Check voxel at (x, y, z)
+            // Convert world coord to ChunkKey and local index
+            let cx = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
+            let cy = (y as f32 / CHUNK_SIZE as f32).floor() as i32;
+            let cz = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
+
+            let lx = (x - cx * CHUNK_SIZE as i32) as usize;
+            let ly = (y - cy * CHUNK_SIZE as i32) as usize;
+            let lz = (z - cz * CHUNK_SIZE as i32) as usize;
+
+            if let Some(chunk) = self.get_chunk(ChunkKey { x: cx, y: cy, z: cz }) {
+                let voxel = chunk.get(lx, ly, lz);
+                if voxel.id != 0 {
+                    return Some((ChunkKey { x: cx, y: cy, z: cz }, lx, ly, lz, normal));
+                }
+            }
+
+            // Step
+            if t_next_x < t_next_y {
+                if t_next_x < t_next_z {
+                    x += step_x;
+                    t = t_next_x;
+                    t_next_x += dt_x;
+                    normal = [-step_x, 0, 0];
+                } else {
+                    z += step_z;
+                    t = t_next_z;
+                    t_next_z += dt_z;
+                    normal = [0, 0, -step_z];
+                }
+            } else {
+                if t_next_y < t_next_z {
+                    y += step_y;
+                    t = t_next_y;
+                    t_next_y += dt_y;
+                    normal = [0, -step_y, 0];
+                } else {
+                    z += step_z;
+                    t = t_next_z;
+                    t_next_z += dt_z;
+                    normal = [0, 0, -step_z];
+                }
+            }
+        }
+
+        None
+    }
+}
+
+#[cfg(test)]
+mod raycast_tests {
+    use super::*;
+    use cgmath::{Point3, Vector3};
+
+    #[test]
+    fn test_raycast_hit() {
+        let mut world = VoxelWorld::new();
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let chunk = world.create_chunk(key);
+        // Place a block at (5, 5, 5)
+        chunk.set(5, 5, 5, Voxel { id: 1 });
+
+        // Ray from (5.5, 10.0, 5.5) pointing down (-Y)
+        // Should hit (5, 5, 5) on top face (Normal 0, 1, 0)
+        let origin = Point3::new(5.5, 10.0, 5.5);
+        let direction = Vector3::new(0.0, -1.0, 0.0);
+
+        let hit = world.ray_cast(origin, direction, 20.0);
+        assert!(hit.is_some());
+        let (k, x, y, z, n) = hit.unwrap();
+        assert_eq!(k, key);
+        assert_eq!(x, 5);
+        assert_eq!(y, 5);
+        assert_eq!(z, 5);
+        assert_eq!(n, [0, 1, 0]);
+    }
+
+    #[test]
+    fn test_raycast_miss() {
+        let mut world = VoxelWorld::new();
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let chunk = world.create_chunk(key);
+        // Place a block at (5, 5, 5)
+        chunk.set(5, 5, 5, Voxel { id: 1 });
+
+        // Ray from (0,0,0) pointing away
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let direction = Vector3::new(-1.0, 0.0, 0.0);
+
+        let hit = world.ray_cast(origin, direction, 20.0);
+        assert!(hit.is_none());
     }
 }
 

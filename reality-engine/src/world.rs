@@ -184,8 +184,8 @@ impl WorldState {
     pub fn calculate_root_hash(&mut self) {
         let mut hasher = Sha256::new();
         // To ensure deterministic order, we must sort keys
-        let mut keys: Vec<&ChunkId> = self.chunks.keys().collect();
-        keys.sort_by(|a, b| {
+        let mut keys_and_hashes: Vec<(&ChunkId, &String)> = self.chunks.iter().map(|(k, c)| (k, &c.hash)).collect();
+        keys_and_hashes.sort_unstable_by(|(a, _), (b, _)| {
             if a.z != b.z {
                 a.z.cmp(&b.z)
             } else {
@@ -193,10 +193,8 @@ impl WorldState {
             }
         });
 
-        for key in keys {
-            if let Some(chunk) = self.chunks.get(key) {
-                hasher.update(&chunk.hash);
-            }
+        for (_, hash) in keys_and_hashes {
+            hasher.update(hash);
         }
         let result = hasher.finalize();
         self.root_hash = hex::encode(result);

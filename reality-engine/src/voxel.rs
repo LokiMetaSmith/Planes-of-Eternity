@@ -456,6 +456,8 @@ impl Chunk {
             }
         }
 
+        let mut mask = [0i16; CHUNK_SIZE * CHUNK_SIZE]; // Max size is 32x32
+
         // Iterate over 3 axes (0=X, 1=Y, 2=Z)
         for d in 0..3 {
             let u = (d + 1) % 3;
@@ -463,7 +465,6 @@ impl Chunk {
 
             let mut x = [0; 3];
             let mut q = [0; 3];
-            let mut mask = vec![0i16; size * size]; // Mask of voxel IDs (signed for orientation)
 
             q[d] = 1;
 

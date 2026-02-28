@@ -108,28 +108,37 @@ impl Vertex {
 
 // Helper for Frustum Culling
 fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, view_proj: &cgmath::Matrix4<f32>) -> bool {
-    let corners = [
-        cgmath::Point3::new(min.x, min.y, min.z),
-        cgmath::Point3::new(max.x, min.y, min.z),
-        cgmath::Point3::new(min.x, max.y, min.z),
-        cgmath::Point3::new(max.x, max.y, min.z),
-        cgmath::Point3::new(min.x, min.y, max.z),
-        cgmath::Point3::new(max.x, min.y, max.z),
-        cgmath::Point3::new(min.x, max.y, max.z),
-        cgmath::Point3::new(max.x, max.y, max.z),
+    // cgmath::Matrix4 is column-major. view_proj.x, .y, .z, .w are columns.
+    let m = view_proj;
+
+    let planes = [
+        // Left
+        cgmath::Vector4::new(m.x.w + m.x.x, m.y.w + m.y.x, m.z.w + m.z.x, m.w.w + m.w.x),
+        // Right
+        cgmath::Vector4::new(m.x.w - m.x.x, m.y.w - m.y.x, m.z.w - m.z.x, m.w.w - m.w.x),
+        // Bottom
+        cgmath::Vector4::new(m.x.w + m.x.y, m.y.w + m.y.y, m.z.w + m.z.y, m.w.w + m.w.y),
+        // Top
+        cgmath::Vector4::new(m.x.w - m.x.y, m.y.w - m.y.y, m.z.w - m.z.y, m.w.w - m.w.y),
+        // Near (WGPU depth is 0..1)
+        cgmath::Vector4::new(m.x.z, m.y.z, m.z.z, m.w.z),
+        // Far
+        cgmath::Vector4::new(m.x.w - m.x.z, m.y.w - m.y.z, m.z.w - m.z.z, m.w.w - m.w.z),
     ];
 
-    for p in corners {
-         let clip = view_proj * p.to_homogeneous();
-         let w = clip.w;
-         // Check if point is inside frustum (conservative check)
-         if clip.x >= -w && clip.x <= w &&
-            clip.y >= -w && clip.y <= w &&
-            clip.z >= 0.0 && clip.z <= w {
-                return true;
-         }
+    for plane in &planes {
+        // Find the corner of the AABB furthest along the plane's normal
+        let px = if plane.x > 0.0 { max.x } else { min.x };
+        let py = if plane.y > 0.0 { max.y } else { min.y };
+        let pz = if plane.z > 0.0 { max.z } else { min.z };
+
+        // If the furthest point is behind the plane (distance < 0), the whole AABB is outside
+        if plane.x * px + plane.y * py + plane.z * pz + plane.w < 0.0 {
+            return false;
+        }
     }
-    false
+
+    true
 }
 
 fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
@@ -818,10 +827,12 @@ impl State {
                  continue; // Out of texture bounds
              }
 
+             let mut i = 0;
              for z in 0..32 {
                  for y in 0..32 {
                      for x in 0..32 {
-                         let v = chunk.get(x, y, z);
+                         let v = chunk.data[i];
+                         i += 1;
                          if v.id != 0 {
                              let tx = base_x + x as i32;
                              let ty = base_y + y as i32;

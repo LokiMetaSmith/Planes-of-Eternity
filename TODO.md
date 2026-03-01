@@ -51,6 +51,7 @@
 - [x] **WebXR Support**: Implemented `immersive-ar` session handling, camera tracking with `navigator.xr`, integration with the engine loop, and proper framebuffer blitting for AR overlay. (Fixed frontend integration)
 
 ## Polishing
+- [x] **Loading Screen**: Implement a loading screen / progress bar while WGPU initializes.
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
 - [x] **Fix Cargo Test**: Gate WASM-specific code (State, xr) to allow `cargo test` to run on host successfully.
 - [x] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.

@@ -596,6 +596,12 @@ pub struct LambdaSystem {
     pub auto_reduce_timer: f32,
 }
 
+impl Default for LambdaSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LambdaSystem {
     pub fn new() -> Self {
         Self {
@@ -731,11 +737,9 @@ impl LambdaSystem {
                 let p_seg = prev_pos + seg_dir_norm * tc;
 
                 let dist_sq = (p_ray - p_seg).magnitude2();
-                if dist_sq < threshold * threshold {
-                    if sc < closest_dist {
-                        closest_dist = sc;
-                        closest_idx = Some(edge_idx);
-                    }
+                if dist_sq < threshold * threshold && sc < closest_dist {
+                    closest_dist = sc;
+                    closest_idx = Some(edge_idx);
                 }
 
                 prev_pos = pos;
@@ -1353,8 +1357,7 @@ fn get_control_point(p0: Point3<f32>, p2: Point3<f32>, is_wire: bool) -> Point3<
             mid + right * 2.0
         }
     } else {
-        let mid = p0 + (p2 - p0) * 0.5;
-        mid
+        p0 + (p2 - p0) * 0.5
     }
 }
 
@@ -1386,8 +1389,8 @@ mod tests {
         // Should have triggered reduction.
         // In (\x.x) y, it IS a beta reduction, so it should enter AnimationState::Reducing.
         match sys.animation_state {
-            AnimationState::Reducing { .. } => assert!(true),
-            _ => assert!(false, "Should be reducing"),
+            AnimationState::Reducing { .. } => {},
+            _ => panic!("Should be reducing"),
         }
     }
 
@@ -1404,8 +1407,8 @@ mod tests {
 
         // Should NOT be reducing
         match sys.animation_state {
-            AnimationState::Idle => assert!(true),
-            _ => assert!(false, "Should stay idle when paused"),
+            AnimationState::Idle => {},
+            _ => panic!("Should stay idle when paused"),
         }
     }
 
@@ -1447,7 +1450,7 @@ mod tests {
              let s = root.to_string().replace(" ", "");
              assert_eq!(s, "(λx.(λy.y))");
         } else {
-             assert!(false, "Root term is None");
+             panic!("Root term is None");
         }
     }
 
@@ -1497,7 +1500,7 @@ mod tests {
              // (x x) -> (y x)
              assert_eq!(s, "(λx.(λy.(yx)))");
         } else {
-             assert!(false, "Root term is None");
+             panic!("Root term is None");
         }
     }
 

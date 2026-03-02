@@ -298,6 +298,10 @@ pub struct State {
     pub voxel_density_view: wgpu::TextureView,
     pub in_xr: bool,
     pub canvas: HtmlCanvasElement,
+
+    // Caching logic for instanced chunk updates
+    pub last_view_proj: Option<cgmath::Matrix4<f32>>,
+    pub last_stability_hash: String,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -796,6 +800,8 @@ impl State {
             voxel_density_view,
             in_xr: false,
             canvas: canvas.clone(),
+            last_view_proj: None,
+            last_stability_hash: String::new(),
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
@@ -1144,36 +1150,47 @@ impl State {
 
         // Update Frustum Culling & Instances
         let view_proj = self.engine.camera.build_view_projection_matrix();
+        let stability_hash = self.engine.world_state.root_hash.clone();
 
-        let mut visible_instances = Vec::new();
-        for chunk_data in &self.chunk_data {
-            if is_aabb_visible(chunk_data.aabb_min, chunk_data.aabb_max, &view_proj) {
-                let model = cgmath::Matrix4::from_translation(chunk_data.position);
+        let needs_update = match &self.last_view_proj {
+            Some(last_vp) => *last_vp != view_proj || self.last_stability_hash != stability_hash,
+            None => true,
+        };
 
-                // Get Stability from World State
-                let chunk_size = 10.0;
-                let id = world::ChunkId::from_world_pos(chunk_data.position.x, chunk_data.position.z, chunk_size);
-                let stability = if let Some(chunk) = self.engine.world_state.chunks.get(&id) {
-                    chunk.stability
-                } else {
-                    1.0
-                };
+        if needs_update {
+            let mut visible_instances = Vec::new();
+            for chunk_data in &self.chunk_data {
+                if is_aabb_visible(chunk_data.aabb_min, chunk_data.aabb_max, &view_proj) {
+                    let model = cgmath::Matrix4::from_translation(chunk_data.position);
 
-                visible_instances.push(Instance {
-                    model: model.into(),
-                    stability,
-                    padding: [0.0; 3],
-                });
+                    // Get Stability from World State
+                    let chunk_size = 10.0;
+                    let id = world::ChunkId::from_world_pos(chunk_data.position.x, chunk_data.position.z, chunk_size);
+                    let stability = if let Some(chunk) = self.engine.world_state.chunks.get(&id) {
+                        chunk.stability
+                    } else {
+                        1.0
+                    };
+
+                    visible_instances.push(Instance {
+                        model: model.into(),
+                        stability,
+                        padding: [0.0; 3],
+                    });
+                }
             }
-        }
 
-        self.num_instances = visible_instances.len() as u32;
-        if self.num_instances > 0 {
-            self.queue.write_buffer(
-                &self.instance_buffer,
-                0,
-                bytemuck::cast_slice(&visible_instances),
-            );
+            self.num_instances = visible_instances.len() as u32;
+            if self.num_instances > 0 {
+                self.queue.write_buffer(
+                    &self.instance_buffer,
+                    0,
+                    bytemuck::cast_slice(&visible_instances),
+                );
+            }
+
+            self.last_view_proj = Some(view_proj);
+            self.last_stability_hash = stability_hash;
         }
 
         // Update Lambda System buffers

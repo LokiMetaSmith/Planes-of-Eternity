@@ -170,15 +170,9 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Voxel {
     pub id: VoxelId,
-}
-
-impl Default for Voxel {
-    fn default() -> Self {
-        Self { id: 0 }
-    }
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Copy)]
@@ -229,7 +223,7 @@ pub struct Chunk {
 fn hash(x: i32, y: i32, z: i32) -> f32 {
     let mut n = x.wrapping_mul(374761393) ^ y.wrapping_mul(668265263) ^ z.wrapping_mul(393555907);
     n = (n ^ (n >> 13)).wrapping_mul(1274126177);
-    (n as f32) / (std::i32::MAX as f32)
+    (n as f32) / (i32::MAX as f32)
 }
 
 impl Chunk {
@@ -366,15 +360,12 @@ impl Chunk {
                     if wy == -1 { voxel.id = 5; }
 
                     // Castle (Procedural)
-                    if wx.abs() < 10 && wz.abs() < 10 {
-                        if wy >= 0 && wy < 10 {
-                            if wx.abs() > 8 || wz.abs() > 8 { voxel.id = 1; }
-                            else if wy == 0 { voxel.id = 1; }
-                        }
+                    if (-9..=9).contains(&wx) && (-9..=9).contains(&wz) && (0..10).contains(&wy) {
+                        if wx.abs() > 8 || wz.abs() > 8 || wy == 0 { voxel.id = 1; }
                     }
 
                     // Bridge
-                    if wz == 0 && wx > 10 && wx < 30 && wy == 5 { voxel.id = 6; }
+                    if wz == 0 && (11..30).contains(&wx) && wy == 5 { voxel.id = 6; }
 
                     // Volcano
                     let vx = wx - 40;
@@ -537,7 +528,7 @@ impl Chunk {
 
                             let is_current_face = type_id > 0;
 
-                            let pos_offset = if is_current_face { 1.0 } else { 1.0 };
+                            let pos_offset = 1.0;
 
                             let mut p = [x1, y1, z1];
                             p[d] += pos_offset;
@@ -571,7 +562,7 @@ impl Chunk {
                                 let mut n = [0.0; 3]; n[d] = -1.0; n
                             };
 
-                            let color = get_color(type_id.abs() as u8);
+                            let color = get_color(type_id.unsigned_abs() as u8);
 
                             // Calculate AO
                             // Vertex-based AO using neighbor sampling
@@ -829,18 +820,16 @@ impl VoxelWorld {
                     t_next_z += dt_z;
                     normal = [0, 0, -step_z];
                 }
+            } else if t_next_y < t_next_z {
+                y += step_y;
+                t = t_next_y;
+                t_next_y += dt_y;
+                normal = [0, -step_y, 0];
             } else {
-                if t_next_y < t_next_z {
-                    y += step_y;
-                    t = t_next_y;
-                    t_next_y += dt_y;
-                    normal = [0, -step_y, 0];
-                } else {
-                    z += step_z;
-                    t = t_next_z;
-                    t_next_z += dt_z;
-                    normal = [0, 0, -step_z];
-                }
+                z += step_z;
+                t = t_next_z;
+                t_next_z += dt_z;
+                normal = [0, 0, -step_z];
             }
         }
 

@@ -161,7 +161,7 @@ fn test_voxel_input_configuration() {
 #[test]
 fn test_merge_conflict_resolution() {
     use reality_engine::projector::RealityProjector;
-    use reality_engine::reality_types::{RealitySignature, RealityArchetype};
+    use reality_engine::reality_types::RealitySignature;
     use reality_engine::world::{Chunk, ChunkId};
     use cgmath::Point3;
 
@@ -268,12 +268,11 @@ fn test_lambda_layout_persistence() {
     use reality_engine::persistence::{GameState, PlayerState};
     use reality_engine::world::WorldState;
     use reality_engine::projector::RealityProjector;
-    use reality_engine::reality_types::{RealitySignature, RealityArchetype};
+    use reality_engine::reality_types::RealitySignature;
     use cgmath::Point3;
 
     // 1. Create a mock GameState with custom Lambda data
-    let mut custom_layout = Vec::new();
-    custom_layout.push([10.0, 20.0, 30.0]); // Specific position for root
+    let custom_layout = vec![[10.0, 20.0, 30.0]]; // Specific position for root
 
     let game_state = GameState {
         player: PlayerState {

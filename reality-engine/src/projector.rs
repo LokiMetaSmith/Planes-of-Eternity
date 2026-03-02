@@ -158,10 +158,14 @@ mod tests {
 
     #[test]
     fn test_get_blend_weight() {
-        let mut sig_a = RealitySignature::default();
-        sig_a.fidelity = 100.0;
-        let mut sig_b = RealitySignature::default();
-        sig_b.fidelity = 100.0;
+        let sig_a = RealitySignature {
+            fidelity: 100.0,
+            ..Default::default()
+        };
+        let sig_b = RealitySignature {
+            fidelity: 100.0,
+            ..Default::default()
+        };
 
         let proj_a = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig_a);
         let proj_b = RealityProjector::new(Point3::new(10.0, 0.0, 0.0), sig_b);

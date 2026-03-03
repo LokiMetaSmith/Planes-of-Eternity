@@ -1,4 +1,4 @@
-use cgmath::{Point3, Vector3, InnerSpace, MetricSpace, EuclideanSpace};
+use cgmath::{Point3, Vector3, InnerSpace, EuclideanSpace};
 use std::rc::Rc;
 use std::collections::HashMap;
 use crate::lambda::{Term, Primitive};

@@ -9,6 +9,8 @@
     - [x] **Voxel Shadows on Terrain**: Implemented ray-marched shadows from voxels onto the procedural terrain.
 - [x] **Depth Buffer**: Fix current simple depth buffering to ensure proper z-sorting/culling of voxel layers.
 - [x] **Fix Voxel Rendering**: Fix winding order bug causing invisible voxels.
+- [x] **Optimize Rendering**: Implement Frustum Culling for Voxel Chunks.
+- [x] **Voxel Interaction**: Implement voxel raycasting and picking (Dig/Place).
 
 ## Visual Lambda System
 - [x] **Render Graph Edges**: Implement a Line Pipeline in `LambdaRenderer` to visualize connections (edges) between lambda nodes. Currently, only nodes are rendered as spheres.
@@ -49,6 +51,7 @@
 - [x] **WebXR Support**: Implemented `immersive-ar` session handling, camera tracking with `navigator.xr`, integration with the engine loop, and proper framebuffer blitting for AR overlay. (Fixed frontend integration)
 
 ## Polishing
+- [x] **Loading Screen**: Implement a loading screen / progress bar while WGPU initializes.
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
 - [x] **Fix Cargo Test**: Gate WASM-specific code (State, xr) to allow `cargo test` to run on host successfully.
 - [x] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.

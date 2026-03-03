@@ -353,7 +353,7 @@ impl Engine {
                 let ndc_y = clip.y / clip.w;
 
                 // Check if within screen bounds (roughly -1 to 1, add some padding for partial visibility)
-                if ndc_x >= -1.2 && ndc_x <= 1.2 && ndc_y >= -1.2 && ndc_y <= 1.2 {
+                if (-1.2..=1.2).contains(&ndc_x) && (-1.2..=1.2).contains(&ndc_y) {
                     // Convert to 0..1 for CSS (Top-Left origin)
                     // CSS X: (ndc_x + 1) / 2
                     // CSS Y: (1 - ndc_y) / 2  <-- Flip Y because CSS Y grows downwards
@@ -439,8 +439,10 @@ impl Engine {
     }
 
     fn primitive_to_anomaly(&self, p: Primitive, pos: Point3<f32>) -> Option<RealityProjector> {
-         let mut sig = RealitySignature::default();
-         sig.fidelity = 100.0;
+         let mut sig = RealitySignature {
+             fidelity: 100.0,
+             ..Default::default()
+         };
          sig.active_style.scale = 5.0;
 
          match p {

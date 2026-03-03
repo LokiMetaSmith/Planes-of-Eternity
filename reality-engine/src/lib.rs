@@ -108,28 +108,37 @@ impl Vertex {
 
 // Helper for Frustum Culling
 fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, view_proj: &cgmath::Matrix4<f32>) -> bool {
-    let corners = [
-        cgmath::Point3::new(min.x, min.y, min.z),
-        cgmath::Point3::new(max.x, min.y, min.z),
-        cgmath::Point3::new(min.x, max.y, min.z),
-        cgmath::Point3::new(max.x, max.y, min.z),
-        cgmath::Point3::new(min.x, min.y, max.z),
-        cgmath::Point3::new(max.x, min.y, max.z),
-        cgmath::Point3::new(min.x, max.y, max.z),
-        cgmath::Point3::new(max.x, max.y, max.z),
+    // cgmath::Matrix4 is column-major. view_proj.x, .y, .z, .w are columns.
+    let m = view_proj;
+
+    let planes = [
+        // Left
+        cgmath::Vector4::new(m.x.w + m.x.x, m.y.w + m.y.x, m.z.w + m.z.x, m.w.w + m.w.x),
+        // Right
+        cgmath::Vector4::new(m.x.w - m.x.x, m.y.w - m.y.x, m.z.w - m.z.x, m.w.w - m.w.x),
+        // Bottom
+        cgmath::Vector4::new(m.x.w + m.x.y, m.y.w + m.y.y, m.z.w + m.z.y, m.w.w + m.w.y),
+        // Top
+        cgmath::Vector4::new(m.x.w - m.x.y, m.y.w - m.y.y, m.z.w - m.z.y, m.w.w - m.w.y),
+        // Near (WGPU depth is 0..1)
+        cgmath::Vector4::new(m.x.z, m.y.z, m.z.z, m.w.z),
+        // Far
+        cgmath::Vector4::new(m.x.w - m.x.z, m.y.w - m.y.z, m.z.w - m.z.z, m.w.w - m.w.z),
     ];
 
-    for p in corners {
-         let clip = view_proj * p.to_homogeneous();
-         let w = clip.w;
-         // Check if point is inside frustum (conservative check)
-         if clip.x >= -w && clip.x <= w &&
-            clip.y >= -w && clip.y <= w &&
-            clip.z >= 0.0 && clip.z <= w {
-                return true;
-         }
+    for plane in &planes {
+        // Find the corner of the AABB furthest along the plane's normal
+        let px = if plane.x > 0.0 { max.x } else { min.x };
+        let py = if plane.y > 0.0 { max.y } else { min.y };
+        let pz = if plane.z > 0.0 { max.z } else { min.z };
+
+        // If the furthest point is behind the plane (distance < 0), the whole AABB is outside
+        if plane.x * px + plane.y * py + plane.z * pz + plane.w < 0.0 {
+            return false;
+        }
     }
-    false
+
+    true
 }
 
 fn create_grid_mesh(size: f32, resolution: u32) -> (Vec<Vertex>, Vec<u16>) {
@@ -227,6 +236,8 @@ pub struct ChunkMesh {
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
     pub lod_level: usize,
+    pub aabb_min: cgmath::Point3<f32>,
+    pub aabb_max: cgmath::Point3<f32>,
 }
 
 struct ChunkData {
@@ -287,6 +298,10 @@ pub struct State {
     pub voxel_density_view: wgpu::TextureView,
     pub in_xr: bool,
     pub canvas: HtmlCanvasElement,
+
+    // Caching logic for instanced chunk updates
+    pub last_view_proj: Option<cgmath::Matrix4<f32>>,
+    pub last_stability_hash: String,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -786,6 +801,8 @@ impl State {
             voxel_density_view,
             in_xr: false,
             canvas: canvas.clone(),
+            last_view_proj: None,
+            last_stability_hash: String::new(),
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
@@ -817,10 +834,12 @@ impl State {
                  continue; // Out of texture bounds
              }
 
+             let mut i = 0;
              for z in 0..32 {
                  for y in 0..32 {
                      for x in 0..32 {
-                         let v = chunk.get(x, y, z);
+                         let v = chunk.data[i];
+                         i += 1;
                          if v.id != 0 {
                              let tx = base_x + x as i32;
                              let ty = base_y + y as i32;
@@ -889,6 +908,11 @@ impl State {
                      self.voxel_world.save_all_states();
                      self.voxel_dirty = true;
                  },
+                 input::Action::VoxelDiffuse => {
+                     self.voxel_world.diffuse_chunk();
+                     self.voxel_world.save_all_states();
+                     self.voxel_dirty = true;
+                 },
                  _ => {}
              }
         }
@@ -913,7 +937,40 @@ impl State {
         self.engine.process_mouse_up();
     }
 
-    pub fn process_click(&mut self, x: f32, y: f32) {
+    pub fn process_click(&mut self, x: f32, y: f32, is_shift: bool) {
+        // Handle Voxel Interaction (Shift + Click = Dig)
+        if is_shift {
+            let (ray_origin, ray_dir) = self.engine.get_ray(x, y);
+            if let Some((key, lx, ly, lz, _normal)) = self.voxel_world.ray_cast(ray_origin, ray_dir, 10.0) {
+                // Dig: Set to 0 (Air)
+                if let Some(chunk) = self.voxel_world.get_chunk_mut(key) {
+                    chunk.set(lx, ly, lz, voxel::Voxel { id: 0 });
+                    chunk.save_state();
+                    self.voxel_dirty = true;
+                    // Trigger save
+                    let lambda_source = if let Some(term) = &self.engine.lambda_system.root_term {
+                        term.to_string()
+                    } else {
+                        "".to_string()
+                    };
+                    let game_state = persistence::GameState {
+                        player: persistence::PlayerState {
+                            projector: self.engine.player_projector.clone(),
+                        },
+                        world: self.engine.world_state.clone(),
+                        lambda_source,
+                        lambda_layout: self.engine.lambda_system.get_layout(),
+                        input_config: self.engine.input_config.clone(),
+                        voxel_world: Some(self.voxel_world.clone()),
+                        timestamp: js_sys::Date::now() as u64,
+                        version: persistence::SAVE_VERSION,
+                    };
+                    persistence::save_to_local_storage("reality_engine_save", &game_state);
+                    return;
+                }
+            }
+        }
+
         if self.engine.process_click(x, y) {
              // State changed, save
              let lambda_source = if let Some(term) = &self.engine.lambda_system.root_term {
@@ -994,11 +1051,21 @@ impl State {
                         usage: wgpu::BufferUsages::INDEX,
                     });
 
+                    let size = voxel::CHUNK_SIZE as f32;
+                    let min_x = key.x as f32 * size;
+                    let min_y = key.y as f32 * size;
+                    let min_z = key.z as f32 * size;
+
+                    let aabb_min = cgmath::Point3::new(min_x, min_y, min_z);
+                    let aabb_max = cgmath::Point3::new(min_x + size, min_y + size, min_z + size);
+
                     self.voxel_meshes.insert(key, ChunkMesh {
                         vertex_buffer: v_buf,
                         index_buffer: i_buf,
                         index_count: i.len() as u32,
                         lod_level: lod,
+                        aabb_min,
+                        aabb_max,
                     });
                 } else {
                     self.voxel_meshes.remove(&key);
@@ -1084,36 +1151,47 @@ impl State {
 
         // Update Frustum Culling & Instances
         let view_proj = self.engine.camera.build_view_projection_matrix();
+        let stability_hash = self.engine.world_state.root_hash.clone();
 
-        let mut visible_instances = Vec::new();
-        for chunk_data in &self.chunk_data {
-            if is_aabb_visible(chunk_data.aabb_min, chunk_data.aabb_max, &view_proj) {
-                let model = cgmath::Matrix4::from_translation(chunk_data.position);
+        let needs_update = match &self.last_view_proj {
+            Some(last_vp) => *last_vp != view_proj || self.last_stability_hash != stability_hash,
+            None => true,
+        };
 
-                // Get Stability from World State
-                let chunk_size = 10.0;
-                let id = world::ChunkId::from_world_pos(chunk_data.position.x, chunk_data.position.z, chunk_size);
-                let stability = if let Some(chunk) = self.engine.world_state.chunks.get(&id) {
-                    chunk.stability
-                } else {
-                    1.0
-                };
+        if needs_update {
+            let mut visible_instances = Vec::new();
+            for chunk_data in &self.chunk_data {
+                if is_aabb_visible(chunk_data.aabb_min, chunk_data.aabb_max, &view_proj) {
+                    let model = cgmath::Matrix4::from_translation(chunk_data.position);
 
-                visible_instances.push(Instance {
-                    model: model.into(),
-                    stability,
-                    padding: [0.0; 3],
-                });
+                    // Get Stability from World State
+                    let chunk_size = 10.0;
+                    let id = world::ChunkId::from_world_pos(chunk_data.position.x, chunk_data.position.z, chunk_size);
+                    let stability = if let Some(chunk) = self.engine.world_state.chunks.get(&id) {
+                        chunk.stability
+                    } else {
+                        1.0
+                    };
+
+                    visible_instances.push(Instance {
+                        model: model.into(),
+                        stability,
+                        padding: [0.0; 3],
+                    });
+                }
             }
-        }
 
-        self.num_instances = visible_instances.len() as u32;
-        if self.num_instances > 0 {
-            self.queue.write_buffer(
-                &self.instance_buffer,
-                0,
-                bytemuck::cast_slice(&visible_instances),
-            );
+            self.num_instances = visible_instances.len() as u32;
+            if self.num_instances > 0 {
+                self.queue.write_buffer(
+                    &self.instance_buffer,
+                    0,
+                    bytemuck::cast_slice(&visible_instances),
+                );
+            }
+
+            self.last_view_proj = Some(view_proj);
+            self.last_stability_hash = stability_hash;
         }
 
         // Update Lambda System buffers
@@ -1128,6 +1206,8 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let view_proj = self.engine.camera.build_view_projection_matrix();
+
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -1188,6 +1268,9 @@ impl State {
             render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
 
             for mesh in self.voxel_meshes.values() {
+                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &view_proj) {
+                    continue;
+                }
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
@@ -1691,7 +1774,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
              let elapsed = js_sys::Date::now() - ms.down_time;
 
              if dist < 0.05 && elapsed < 300.0 {
-                 state_up.borrow_mut().process_click(ndc_x, ndc_y);
+                 state_up.borrow_mut().process_click(ndc_x, ndc_y, event.shift_key());
              }
         }
         ms.down_pos = None;

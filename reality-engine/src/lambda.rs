@@ -30,19 +30,21 @@ impl fmt::Display for Primitive {
     }
 }
 
-impl Primitive {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for Primitive {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
-            "FIRE" => Some(Primitive::Fire),
-            "WATER" => Some(Primitive::Water),
-            "EARTH" => Some(Primitive::Earth),
-            "AIR" => Some(Primitive::Air),
-            "GROWTH" => Some(Primitive::Growth),
-            "DECAY" => Some(Primitive::Decay),
-            "ENERGY" => Some(Primitive::Energy),
-            "STABLE" => Some(Primitive::Stable),
-            "VOID" => Some(Primitive::Void),
-            _ => None,
+            "FIRE" => Ok(Primitive::Fire),
+            "WATER" => Ok(Primitive::Water),
+            "EARTH" => Ok(Primitive::Earth),
+            "AIR" => Ok(Primitive::Air),
+            "GROWTH" => Ok(Primitive::Growth),
+            "DECAY" => Ok(Primitive::Decay),
+            "ENERGY" => Ok(Primitive::Energy),
+            "STABLE" => Ok(Primitive::Stable),
+            "VOID" => Ok(Primitive::Void),
+            _ => Err(()),
         }
     }
 }
@@ -313,7 +315,7 @@ fn parse_atom(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
         }
         Token::Ident(name) => {
             // Check if it's a Primitive
-            if let Some(prim) = Primitive::from_str(name) {
+            if let Ok(prim) = name.parse::<Primitive>() {
                 Some((Term::prim(prim), &tokens[1..]))
             } else {
                 Some((Term::var(name), &tokens[1..]))
@@ -331,8 +333,8 @@ mod tests {
     fn test_primitive_parse() {
         let term = parse("FIRE").unwrap();
         match *term {
-            Term::Prim(Primitive::Fire) => assert!(true),
-            _ => assert!(false, "Expected Prim(Fire)"),
+            Term::Prim(Primitive::Fire) => {},
+            _ => panic!("Expected Prim(Fire)"),
         }
     }
 

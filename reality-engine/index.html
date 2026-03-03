@@ -198,9 +198,45 @@
             overflow: hidden;
             z-index: 5;
         }
+
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #050505;
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: #00f0ff;
+            font-family: 'Courier New', monospace;
+            font-size: 1.5rem;
+            text-shadow: 0 0 10px #00f0ff;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(0, 240, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #00f0ff;
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
+    <div id="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div>INITIALIZING REALITY ENGINE...</div>
+    </div>
     <video id="ar-feed" autoplay playsinline></video>
     <div class="scanline"></div>
     <canvas id="reality-canvas"></canvas>
@@ -347,6 +383,9 @@
 
                 log("> STARTING ENGINE...");
                 const gameClient = await start("reality-canvas");
+
+                // Hide loading overlay
+                document.getElementById('loading-overlay').style.display = 'none';
 
                 log("> CORE LINK ESTABLISHED");
                 log("> RENDER LOOP ACTIVE");

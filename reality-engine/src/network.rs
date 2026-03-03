@@ -75,14 +75,12 @@ impl NetworkManager {
 
                     if let Ok(packet) = serde_json::from_str::<PollenPacket>(&txt_string) {
                          let mut inner = manager.borrow_mut();
-                         if packet.peer_id != inner.peer_id {
-                             if !inner.connections.contains_key(&packet.peer_id) {
-                                 info!("Discovered new peer: {}. Connecting via WebRTC...", packet.peer_id);
-                                 let conn = inner.peer.connect(&packet.peer_id);
-                                 inner.connections.insert(packet.peer_id.clone(), conn.clone().unchecked_into());
-                                 drop(inner);
-                                 NetworkManager::handle_connection(manager.clone(), conn);
-                             }
+                         if packet.peer_id != inner.peer_id && !inner.connections.contains_key(&packet.peer_id) {
+                             info!("Discovered new peer: {}. Connecting via WebRTC...", packet.peer_id);
+                             let conn = inner.peer.connect(&packet.peer_id);
+                             inner.connections.insert(packet.peer_id.clone(), conn.clone().unchecked_into());
+                             drop(inner);
+                             NetworkManager::handle_connection(manager.clone(), conn);
                          }
                     }
                 }

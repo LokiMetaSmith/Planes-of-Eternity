@@ -17,6 +17,7 @@ pub enum Action {
     VoxelDiffusion,
     VoxelTimeReverse,
     VoxelDream,
+    VoxelDiffuse,
     // Add more actions as needed
 }
 
@@ -37,27 +38,33 @@ impl Action {
             "VoxelDiffusion" => Some(Action::VoxelDiffusion),
             "VoxelTimeReverse" => Some(Action::VoxelTimeReverse),
             "VoxelDream" => Some(Action::VoxelDream),
+            "VoxelDiffuse" => Some(Action::VoxelDiffuse),
             _ => None,
         }
     }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            Action::MoveForward => "MoveForward".to_string(),
-            Action::MoveBackward => "MoveBackward".to_string(),
-            Action::MoveLeft => "MoveLeft".to_string(),
-            Action::MoveRight => "MoveRight".to_string(),
-            Action::Jump => "Jump".to_string(),
-            Action::Descend => "Descend".to_string(),
-            Action::CastSpell => "CastSpell".to_string(),
-            Action::Inscribe => "Inscribe".to_string(),
-            Action::ToggleAutoReduce => "ToggleAutoReduce".to_string(),
-            Action::Step => "Step".to_string(),
-            Action::TogglePause => "TogglePause".to_string(),
-            Action::VoxelDiffusion => "VoxelDiffusion".to_string(),
-            Action::VoxelTimeReverse => "VoxelTimeReverse".to_string(),
-            Action::VoxelDream => "VoxelDream".to_string(),
-        }
+}
+
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Action::MoveForward => "MoveForward",
+            Action::MoveBackward => "MoveBackward",
+            Action::MoveLeft => "MoveLeft",
+            Action::MoveRight => "MoveRight",
+            Action::Jump => "Jump",
+            Action::Descend => "Descend",
+            Action::CastSpell => "CastSpell",
+            Action::Inscribe => "Inscribe",
+            Action::ToggleAutoReduce => "ToggleAutoReduce",
+            Action::Step => "Step",
+            Action::TogglePause => "TogglePause",
+            Action::VoxelDiffusion => "VoxelDiffusion",
+            Action::VoxelTimeReverse => "VoxelTimeReverse",
+            Action::VoxelDream => "VoxelDream",
+            Action::VoxelDiffuse => "VoxelDiffuse",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -84,6 +91,7 @@ impl Default for InputConfig {
         bindings.insert(Action::VoxelDiffusion, "KeyY".to_string());
         bindings.insert(Action::VoxelTimeReverse, "KeyT".to_string());
         bindings.insert(Action::VoxelDream, "KeyG".to_string());
+        bindings.insert(Action::VoxelDiffuse, "KeyH".to_string());
 
         let mut config = Self {
             bindings,

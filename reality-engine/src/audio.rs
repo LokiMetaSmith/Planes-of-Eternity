@@ -6,6 +6,12 @@ pub struct AudioManager {
     ctx: Option<AudioContext>,
 }
 
+impl Default for AudioManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioManager {
     pub fn new() -> Self {
         #[cfg(target_arch = "wasm32")]

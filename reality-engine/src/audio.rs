@@ -1,5 +1,5 @@
 #[cfg(target_arch = "wasm32")]
-use web_sys::{AudioContext, AudioNode, OscillatorType};
+use web_sys::AudioContext;
 
 pub struct AudioManager {
     #[cfg(target_arch = "wasm32")]

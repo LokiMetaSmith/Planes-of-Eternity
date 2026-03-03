@@ -7,10 +7,9 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
-use web_sys::{HtmlCanvasElement, XrSession, XrWebGlLayer, XrRenderStateInit, XrReferenceSpace, XrReferenceSpaceType, XrFrame, XrViewerPose, XrView, XrEye};
+use web_sys::{HtmlCanvasElement, XrWebGlLayer, XrRenderStateInit, XrReferenceSpace, XrReferenceSpaceType, XrFrame, XrView};
 use wgpu::util::DeviceExt;
-use cgmath::{InnerSpace, SquareMatrix, Rotation};
-use serde::Serialize;
+use cgmath::{SquareMatrix, Rotation};
 use std::collections::HashMap;
 
 pub mod camera;
@@ -263,7 +262,6 @@ pub struct State {
     chunk_data: Vec<ChunkData>, // CPU side data for culling
 
     diffuse_bind_group: wgpu::BindGroup,
-    diffuse_texture: texture::Texture,
     // camera moved to engine
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -571,8 +569,6 @@ impl State {
         // Define logical chunks (Positions)
         let mut chunk_data = Vec::new();
         let grid_count = 3; // 3x3
-        let half_grid = (grid_count as f32 * chunk_size) / 2.0;
-        let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
 
         for z in 0..grid_count {
             for x in 0..grid_count {
@@ -777,7 +773,6 @@ impl State {
             num_instances: chunk_data.len() as u32,
             chunk_data,
             diffuse_bind_group,
-            diffuse_texture,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
@@ -1494,7 +1489,7 @@ impl GameClient {
         // 3. Create Layer (No Borrow)
         let layer = XrWebGlLayer::new_with_web_gl2_rendering_context(&session, &gl_context)?;
 
-        let mut render_state_init = XrRenderStateInit::new();
+        let render_state_init = XrRenderStateInit::new();
         render_state_init.set_base_layer(Some(&layer));
         session.update_render_state_with_state(&render_state_init);
 
@@ -1680,9 +1675,6 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     keyup_closure.forget();
 
     // Mouse Handler
-    let state_mouse = state.clone();
-    let canvas_mouse = canvas.clone();
-
     // MouseState tracking for click detection
     struct MouseState {
         down_pos: Option<(f32, f32)>,

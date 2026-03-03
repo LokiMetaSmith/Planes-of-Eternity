@@ -60,24 +60,16 @@ chmod +x setup_dev.sh
     ```
     This verifies engine initialization, interaction logic, and P2P state synchronization.
 
-5.  **Run Signaling Server:**
-    For multiplayer features to work, the signaling server must be running locally:
+5.  **Run Signaling Server & Web Server:**
+    For the engine to serve files and multiplayer features to work, the signaling server must be running locally:
     ```bash
     cd reality-signal-server
     cargo run
     ```
-    This will start a WebSocket server on `ws://localhost:9000`.
+    This will start the static web server and WebSocket server on `http://localhost:9000`.
 
 6.  **Serve:**
-    The engine requires a local server to serve the WASM and assets. You can use Python's built-in HTTP server:
-    ```bash
-    # macOS / Linux
-    python3 -m http.server
-
-    # Windows (if python3 is not available)
-    python -m http.server
-    ```
-    Then open your browser to `http://localhost:8000/reality-engine/index.html`.
+    Open your browser to `http://localhost:9000/`.
 
 ## Troubleshooting
 

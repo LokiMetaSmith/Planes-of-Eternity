@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use crate::projector::RealityProjector;
 use sha2::{Sha256, Digest};
-use std::fmt::Write;
 
 pub const ANOMALY_GRID_SIZE: f32 = 10.0;
 

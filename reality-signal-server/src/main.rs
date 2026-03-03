@@ -22,7 +22,7 @@ async fn main() {
     // Turn our "state" into a new Filter...
     let users = warp::any().map(move || users.clone());
 
-    // GET /chat -> websocket upgrade
+    // GET /ws -> websocket upgrade
     let chat = warp::path("ws")
         // The `ws()` filter will prepare Websocket handshake...
         .and(warp::ws())
@@ -32,11 +32,21 @@ async fn main() {
             ws.on_upgrade(move |socket| user_connected(socket, users))
         });
 
+    // Serve static files from the parent directory (repo root)
+    let static_files = warp::fs::dir("..");
+
+    // Redirect root to the game's index.html
+    let root_redirect = warp::path::end().map(|| {
+        warp::redirect(warp::http::Uri::from_static("/reality-engine/index.html"))
+    });
+
+    let routes = chat.or(root_redirect).or(static_files);
+
     let cors = warp::cors().allow_any_origin();
 
-    println!("Signaling server running on localhost:9000");
+    println!("Signaling server and static file server running on http://localhost:9000/");
 
-    warp::serve(chat.with(cors))
+    warp::serve(routes.with(cors))
         .run(([127, 0, 0, 1], 9000))
         .await;
 }

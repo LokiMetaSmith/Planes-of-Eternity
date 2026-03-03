@@ -18,7 +18,7 @@ trap cleanup SIGINT
 echo "=== Reality Engine Startup Script ==="
 
 # 1. Build the Engine (WASM)
-echo "[1/3] Building Reality Engine (WASM)..."
+echo "[1/2] Building Reality Engine (WASM)..."
 cd reality-engine
 if ! command -v wasm-pack &> /dev/null; then
     echo "Error: wasm-pack is not installed. Please run setup_dev.sh first."
@@ -31,8 +31,8 @@ if [ $? -ne 0 ]; then
 fi
 cd ..
 
-# 2. Start Signaling Server
-echo "[2/3] Starting Signaling Server..."
+# 2. Start Signaling & Web Server
+echo "[2/2] Starting Signaling Server..."
 cd reality-signal-server
 cargo run -q &
 SIGNAL_PID=$!
@@ -41,24 +41,9 @@ cd ..
 # Wait a moment for the server to initialize
 sleep 2
 
-# 3. Start HTTP Server
-echo "[3/3] Starting HTTP Server..."
-# Python 3 is preferred
-if command -v python3 &> /dev/null; then
-    python3 -m http.server 8000 &
-    HTTP_PID=$!
-elif command -v python &> /dev/null; then
-    python -m http.server 8000 &
-    HTTP_PID=$!
-else
-    echo "Error: Python is not installed. Cannot start HTTP server."
-    cleanup
-    exit 1
-fi
-
 echo "========================================="
 echo "All systems operational!"
-echo "Open your browser to: http://localhost:8000/reality-engine/index.html"
+echo "Open your browser to: http://localhost:9000/"
 echo "Press Ctrl+C to stop."
 echo "========================================="
 

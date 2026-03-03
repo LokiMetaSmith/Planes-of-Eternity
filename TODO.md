@@ -55,3 +55,6 @@
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
 - [x] **Fix Cargo Test**: Gate WASM-specific code (State, xr) to allow `cargo test` to run on host successfully.
 - [x] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.
+
+## Documentation
+- [x] **Game Bible**: Create a comprehensive game bible (`GAME_BIBLE.md`) summarizing the game concept, core mechanics, archetypes, and technical architecture.

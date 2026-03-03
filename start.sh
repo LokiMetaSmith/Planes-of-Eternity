@@ -43,15 +43,34 @@ sleep 2
 
 # 3. Start HTTP Server
 echo "[3/3] Starting HTTP Server..."
+
+# Setup Python virtual environment
+setup_venv() {
+    local python_cmd=$1
+    if [ ! -d "venv" ]; then
+        echo "Creating Python virtual environment..."
+        $python_cmd -m venv venv
+    fi
+
+    # Activate venv depending on OS
+    if [ -f "venv/Scripts/activate" ]; then
+        source venv/Scripts/activate
+    elif [ -f "venv/bin/activate" ]; then
+        source venv/bin/activate
+    fi
+}
+
 # Python 3 is preferred
-if command -v python3 &> /dev/null; then
+if python3 -c "pass" &> /dev/null; then
+    setup_venv python3
     python3 -m http.server 8000 &
     HTTP_PID=$!
-elif command -v python &> /dev/null; then
+elif python -c "pass" &> /dev/null; then
+    setup_venv python
     python -m http.server 8000 &
     HTTP_PID=$!
 else
-    echo "Error: Python is not installed. Cannot start HTTP server."
+    echo "Error: Python is not installed or not working correctly. Cannot start HTTP server."
     cleanup
     exit 1
 fi

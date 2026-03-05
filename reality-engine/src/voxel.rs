@@ -168,6 +168,69 @@ mod tests {
 
         assert_eq!(data, decoded);
     }
+
+    #[test]
+    fn test_chunk_set_out_of_bounds() {
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let mut chunk = Chunk::new(key);
+
+        // This should safely return without panicking
+        chunk.set(CHUNK_SIZE, CHUNK_SIZE + 1, CHUNK_SIZE + 2, Voxel { id: 1 });
+
+        // Ensure no voxel was actually set at valid bounds due to overflow
+        let voxel = chunk.get(CHUNK_SIZE - 1, CHUNK_SIZE - 1, CHUNK_SIZE - 1);
+        assert_eq!(voxel.id, 0);
+    }
+
+    #[test]
+    fn test_chunk_index_opt_bounds() {
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let chunk = Chunk::new(key);
+
+        assert_eq!(chunk.index_opt(-1, 0, 0), None);
+        assert_eq!(chunk.index_opt(0, -1, 0), None);
+        assert_eq!(chunk.index_opt(0, 0, -1), None);
+
+        assert_eq!(chunk.index_opt(CHUNK_SIZE as i32, 0, 0), None);
+        assert_eq!(chunk.index_opt(0, CHUNK_SIZE as i32, 0), None);
+        assert_eq!(chunk.index_opt(0, 0, CHUNK_SIZE as i32), None);
+
+        // Valid bounds
+        assert!(chunk.index_opt(0, 0, 0).is_some());
+        assert!(chunk.index_opt(CHUNK_SIZE as i32 - 1, CHUNK_SIZE as i32 - 1, CHUNK_SIZE as i32 - 1).is_some());
+    }
+
+    #[test]
+    fn test_voxel_world_set_creates_chunk() {
+        let mut world = VoxelWorld::new();
+        let target_key = ChunkKey { x: 5, y: -2, z: 10 };
+
+        // Ensure chunk doesn't exist
+        assert!(world.get_chunk(target_key).is_none());
+
+        // Calculate world coordinates that map to this chunk
+        // A chunk's local bounds are 0..32, world pos = chunk * 32 + local
+        let world_x = target_key.x * CHUNK_SIZE as i32 + 5;
+        let world_y = target_key.y * CHUNK_SIZE as i32 + 5;
+        let world_z = target_key.z * CHUNK_SIZE as i32 + 5;
+
+        // Set a non-air voxel
+        world.set_voxel_at(world_x, world_y, world_z, Voxel { id: 1 });
+
+        // Verify chunk was created
+        let chunk = world.get_chunk(target_key).expect("Chunk should have been created");
+
+        // Verify voxel was set
+        let voxel = chunk.get(5, 5, 5);
+        assert_eq!(voxel.id, 1);
+
+        // Setting an air block should NOT create a chunk
+        let air_target_key = ChunkKey { x: 6, y: -2, z: 10 };
+        let air_world_x = air_target_key.x * CHUNK_SIZE as i32 + 5;
+        world.set_voxel_at(air_world_x, world_y, world_z, Voxel { id: 0 });
+
+        assert!(world.get_chunk(air_target_key).is_none(), "Air placement should not create new chunks");
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

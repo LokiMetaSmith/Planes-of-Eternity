@@ -58,3 +58,6 @@
 
 ## Documentation
 - [x] **Game Bible**: Create a comprehensive game bible (`GAME_BIBLE.md`) summarizing the game concept, core mechanics, archetypes, and technical architecture.
+
+## End-to-End Testing
+- [x] **E2E Test Platform**: Implement an end-to-end verification platform using Playwright to test visual and UI/UX elements.

@@ -48,3 +48,17 @@ def dev_server():
     print("\nShutting down server...")
     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
     process.wait(timeout=5)
+
+@pytest.fixture(scope="session")
+def browser_type_launch_args(browser_type_launch_args):
+    return {
+        **browser_type_launch_args,
+        "args": [
+            "--use-gl=angle",
+            "--use-angle=gl",
+            "--enable-webgl",
+            "--ignore-gpu-blocklist",
+            "--enable-features=Vulkan",
+            "--enable-unsafe-webgpu"
+        ]
+    }

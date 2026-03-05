@@ -126,7 +126,14 @@ fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, view_proj
         cgmath::Vector4::new(m.x.w - m.x.z, m.y.w - m.y.z, m.z.w - m.z.z, m.w.w - m.w.z),
     ];
 
-    for plane in &planes {
+    for mut plane in planes {
+        // Normalize the plane normal
+        let n = cgmath::Vector3::new(plane.x, plane.y, plane.z);
+        let len = n.magnitude();
+        if len > 0.0 {
+            plane /= len;
+        }
+
         // Find the corner of the AABB furthest along the plane's normal
         let px = if plane.x > 0.0 { max.x } else { min.x };
         let py = if plane.y > 0.0 { max.y } else { min.y };
@@ -240,6 +247,7 @@ pub struct ChunkMesh {
     pub aabb_max: cgmath::Point3<f32>,
 }
 
+#[derive(Serialize)]
 struct ChunkData {
     position: cgmath::Vector3<f32>,
     aabb_min: cgmath::Point3<f32>,
@@ -263,7 +271,7 @@ pub struct State {
     chunk_data: Vec<ChunkData>, // CPU side data for culling
 
     diffuse_bind_group: wgpu::BindGroup,
-    diffuse_texture: texture::Texture,
+    pub diffuse_texture: texture::Texture,
     // camera moved to engine
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -576,8 +584,8 @@ impl State {
 
         for z in 0..grid_count {
             for x in 0..grid_count {
-                let x_pos = (x as f32 * chunk_size) - chunk_size; // 0->-10, 1->0, 2->10
-                let z_pos = (z as f32 * chunk_size) - chunk_size;
+                let x_pos = (x as f32 * chunk_size) - half_grid + offset;
+                let z_pos = (z as f32 * chunk_size) - half_grid + offset;
 
                 chunk_data.push(ChunkData {
                     position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
@@ -875,6 +883,10 @@ impl State {
             },
             density_size,
         );
+    }
+
+    pub fn get_diffuse_texture(&self) -> &texture::Texture {
+        &self.diffuse_texture
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
@@ -1477,7 +1489,7 @@ impl GameClient {
              return Err(JsValue::from_str("AR not supported"));
         }
 
-        let session = xr::request_ar_session().await?;
+        let session: XrSession = xr::request_ar_session().await?;
 
         // 1. Get State & Canvas (Brief Borrow)
         let canvas = {
@@ -1494,7 +1506,7 @@ impl GameClient {
         // 3. Create Layer (No Borrow)
         let layer = XrWebGlLayer::new_with_web_gl2_rendering_context(&session, &gl_context)?;
 
-        let mut render_state_init = XrRenderStateInit::new();
+        let render_state_init = XrRenderStateInit::new();
         render_state_init.set_base_layer(Some(&layer));
         session.update_render_state_with_state(&render_state_init);
 
@@ -1514,10 +1526,12 @@ impl GameClient {
             let mut state = state_xr.borrow_mut();
 
             let pose = frame.get_viewer_pose(&reference_space_clone);
-            if let Some(pose) = pose {
+            let viewer_pose = pose.map(|p| p.unchecked_into::<XrViewerPose>());
+            if let Some(pose) = viewer_pose {
                  let views = pose.views();
                  if views.length() > 0 {
                       let view = views.get(0).unchecked_into::<XrView>();
+                      let _eye: XrEye = view.eye();
 
                       // Tracking
                       let transform = view.transform();
@@ -1682,6 +1696,25 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     // Mouse Handler
     let state_mouse = state.clone();
     let canvas_mouse = canvas.clone();
+
+    // Context menu / right click handler
+    let context_menu_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        event.prevent_default(); // Prevent the browser's context menu from showing
+        // Use the cloned state and canvas, e.g., to process a special interaction
+        let rect = canvas_mouse.get_bounding_client_rect();
+        let x = event.client_x() as f32 - rect.left() as f32;
+        let y = event.client_y() as f32 - rect.top() as f32;
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+        let ndc_x = (x / width) * 2.0 - 1.0;
+        let ndc_y = -((y / height) * 2.0 - 1.0);
+
+        // Pass a middle click logic or special action
+        state_mouse.borrow_mut().process_click(ndc_x, ndc_y, true);
+    }) as Box<dyn FnMut(_)>);
+
+    canvas.add_event_listener_with_callback("contextmenu", context_menu_closure.as_ref().unchecked_ref()).unwrap();
+    context_menu_closure.forget();
 
     // MouseState tracking for click detection
     struct MouseState {

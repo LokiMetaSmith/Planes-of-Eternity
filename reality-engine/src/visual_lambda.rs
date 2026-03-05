@@ -819,7 +819,7 @@ impl LambdaSystem {
                 // Skip invisible nodes
                 if self.nodes[i].scale < 0.001 { continue; }
 
-                let dist = (self.nodes[i].position - self.nodes[dragged_idx].position).magnitude();
+                let dist = self.nodes[i].position.distance(self.nodes[dragged_idx].position);
                 let combined_radius = self.nodes[i].scale + self.nodes[dragged_idx].scale;
 
                 // If overlapping significantly

@@ -17,7 +17,8 @@ impl Serialize for ChunkId {
     where
         S: Serializer,
     {
-        let s = format!("{}:{}", self.x, self.z);
+        let mut s = String::new();
+        let _ = write!(&mut s, "{}:{}", self.x, self.z);
         serializer.serialize_str(&s)
     }
 }

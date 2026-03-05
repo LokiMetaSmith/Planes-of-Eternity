@@ -76,16 +76,16 @@ impl AudioManager {
             if let Ok(osc) = ctx.create_oscillator() {
                 if let Ok(gain) = ctx.create_gain() {
                     osc.set_type(match type_ {
-                        "sine" => web_sys::OscillatorType::Sine,
-                        "square" => web_sys::OscillatorType::Square,
-                        "sawtooth" => web_sys::OscillatorType::Sawtooth,
-                        "triangle" => web_sys::OscillatorType::Triangle,
-                        _ => web_sys::OscillatorType::Sine,
+                        "sine" => OscillatorType::Sine,
+                        "square" => OscillatorType::Square,
+                        "sawtooth" => OscillatorType::Sawtooth,
+                        "triangle" => OscillatorType::Triangle,
+                        _ => OscillatorType::Sine,
                     });
                     osc.frequency().set_value(freq);
 
-                    let _ = osc.connect_with_audio_node(&gain);
-                    let _ = gain.connect_with_audio_node(&ctx.destination());
+                    let _ = osc.connect_with_audio_node(gain.as_ref() as &AudioNode);
+                    let _ = gain.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
 
                     // Envelope
                     // Attack

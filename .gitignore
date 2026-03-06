@@ -1,1 +1,6 @@
-.vs/*server.log
+.vs/*
+server.log
+*.log
+dist/
+/reality-engine/dist/
+target/

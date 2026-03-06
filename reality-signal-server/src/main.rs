@@ -33,11 +33,11 @@ async fn main() {
         });
 
     // Serve static files from the parent directory (repo root)
-    let static_files = warp::fs::dir("..");
+    let static_files = warp::fs::dir("../reality-engine/dist");
 
     // Redirect root to the game's index.html
     let root_redirect = warp::path::end().map(|| {
-        warp::redirect(warp::http::Uri::from_static("/reality-engine/index.html"))
+        warp::redirect(warp::http::Uri::from_static("/index.html"))
     });
 
     let routes = chat.or(root_redirect).or(static_files);

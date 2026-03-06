@@ -20,11 +20,11 @@ echo "=== Reality Engine Startup Script ==="
 # 1. Build the Engine (WASM)
 echo "[1/2] Building Reality Engine (WASM)..."
 cd reality-engine
-if ! command -v wasm-pack &> /dev/null; then
-    echo "Error: wasm-pack is not installed. Please run setup_dev.sh first."
+if ! command -v trunk &> /dev/null; then
+    echo "Error: trunk is not installed. Please run setup_dev.sh first."
     exit 1
 fi
-wasm-pack build --target web
+trunk build --release
 if [ $? -ne 0 ]; then
     echo "Error: Build failed."
     exit 1

@@ -359,13 +359,17 @@
         }
     </style>
 
+    <!-- Add data-type=module to rust link to generate modular bindings that we can import -->
+    <link data-trunk rel="rust" data-wasm-opt="z" data-type="main" />
     <script type="module">
-        import init, { start, is_ar_supported } from './pkg/reality_engine.js';
-
         async function run() {
             try {
-                log("> LOADING WASM MODULES...");
-                await init();
+                log("> WAITING FOR TRUNK INITIALIZATION...");
+                // Trunk injects code that creates window.wasmBindings, let's wait for it.
+                while (!window.wasmBindings) {
+                    await new Promise(r => setTimeout(r, 10));
+                }
+                const { start, is_ar_supported } = window.wasmBindings;
                 log("> WASM INITIALIZED OK");
 
                 // Check WebXR Support

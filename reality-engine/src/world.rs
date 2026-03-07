@@ -156,6 +156,7 @@ impl WorldState {
             RealityArchetype::HyperNature => -0.1, // Healing
             RealityArchetype::Toon => 0.0,
             RealityArchetype::Genie => 0.05,
+            RealityArchetype::Glitch => 0.3,
         };
 
         chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);

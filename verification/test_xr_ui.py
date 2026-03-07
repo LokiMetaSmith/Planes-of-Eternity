@@ -3,7 +3,7 @@ from playwright.sync_api import Page, expect
 def test_xr_ui(page: Page):
     # Navigate to the app
     # Assuming the server is running on localhost:9000 and we serve from root
-    page.goto("http://localhost:9000/reality-engine/index.html")
+    page.goto("http://localhost:9000/")
 
     # Wait for log message indicating WebXR status
     # Since headless chrome might not support WebXR by default, we expect "WEBXR AR NOT DETECTED"

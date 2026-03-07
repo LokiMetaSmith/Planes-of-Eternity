@@ -191,7 +191,7 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         // Create "canyons" or "rivers" by using inverted ridges on top
         let ridges = 1.0 - abs(fbm(pos * scale * 1.5, 4, roughness) * 2.0 - 1.0);
         return n * 0.7 + ridges * 0.3 * params.z; // Use distortion param for ridge intensity
-    } else {
+    } else if (id < 5.5) {
         // Genie (Generative Dream)
         let time = reality.global_offset.z;
         let p = pos * scale * 0.5;
@@ -202,6 +202,32 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         );
         let n = fbm(p + 4.0 * q, 4, roughness);
         return n * params.z; // Use distortion to control height
+    } else {
+        // Glitch (Digital Distortion)
+        let time = reality.global_offset.z;
+
+        // Quantized grid base
+        let block_size = 2.0;
+        let p = floor(pos * scale * block_size) / block_size;
+
+        // Fast flashing noise
+        let t_snap = floor(time * 20.0);
+        let n1 = hash(p + vec2<f32>(t_snap, t_snap * 0.5));
+
+        // Random "staircase" tearing
+        let tear = step(0.8, hash(vec2<f32>(p.y, t_snap)));
+        let offset_x = (hash(vec2<f32>(p.x, t_snap)) - 0.5) * 5.0 * tear;
+
+        let final_p = pos + vec2<f32>(offset_x, 0.0);
+
+        // Sharp spiky noise combined with blocky quantization
+        let base_n = fbm(final_p * scale, 3, roughness);
+        let blocky = floor(base_n * 5.0) / 5.0;
+
+        // Use distortion to create extreme sharp height jumps
+        let spike = step(0.9, hash(final_p + vec2<f32>(t_snap))) * 2.0;
+
+        return (blocky + spike * tear) * params.z;
     }
 }
 
@@ -337,7 +363,7 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let c1 = mix(water, grass, smoothstep(0.3, 0.35, h));
         let c2 = mix(c1, rock, smoothstep(0.6, 0.65, h));
         return mix(c2, snow, smoothstep(0.8, 0.85, h));
-    } else {
+    } else if (id < 5.5) {
         // Genie (Generative Dream)
         let time = reality.global_offset.z;
         let n = fbm(pos.xz * scale + vec2<f32>(time * 0.1), 3, roughness);
@@ -353,6 +379,32 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let w3 = 0.5 + 0.5 * sin((phase + 0.66) * 6.28);
 
         return (c1 * w1 + c2 * w2 + c3 * w3) / (w1 + w2 + w3);
+    } else {
+        // Glitch (Digital Distortion)
+        let time = reality.global_offset.z;
+        let t_snap = floor(time * 15.0);
+
+        // Create scanning bands
+        let scanline = step(0.9, fract(pos.z * scale + time * 5.0));
+
+        // Create static blocks
+        let block_p = floor(pos.xz * scale * 4.0) / 4.0;
+        let static_noise = hash(block_p + vec2<f32>(t_snap));
+
+        // Base dark color
+        var col = vec3<f32>(0.05, 0.05, 0.05);
+
+        // Add neon magenta and cyan based on noise and scanlines
+        if (static_noise > 0.8) {
+            col = vec3<f32>(1.0, 0.0, 1.0); // Magenta
+        } else if (static_noise < 0.2) {
+            col = vec3<f32>(0.0, 1.0, 1.0); // Cyan
+        }
+
+        // Intense scanlines
+        col = mix(col, vec3<f32>(1.0, 1.0, 1.0), scanline * 0.5);
+
+        return col;
     }
 }
 

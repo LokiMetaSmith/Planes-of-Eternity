@@ -10,6 +10,7 @@ pub enum RealityArchetype {
     Toon,        // Toon Logic
     HyperNature, // Procedural Nature
     Genie,       // Generative Dream
+    Glitch,      // Digital Distortion
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

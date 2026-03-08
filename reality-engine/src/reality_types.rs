@@ -11,6 +11,7 @@ pub enum RealityArchetype {
     HyperNature, // Procedural Nature
     Genie,       // Generative Dream
     Glitch,      // Digital Distortion
+    Steampunk,   // Brass and Steam
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

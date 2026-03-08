@@ -202,7 +202,7 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         );
         let n = fbm(p + 4.0 * q, 4, roughness);
         return n * params.z; // Use distortion to control height
-    } else {
+    } else if (id < 6.5) {
         // Glitch (Digital Distortion)
         let time = reality.global_offset.z;
 
@@ -228,7 +228,33 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let spike = step(0.9, hash(final_p + vec2<f32>(t_snap))) * 2.0;
 
         return (blocky + spike * tear) * params.z;
+    } else if (id < 7.5) {
+        // Steampunk (Brass and Steam - blocky/gears and steam vents)
+        // We'll create a layered, terraced look for brass plates/gears
+        let base_scale = scale * 0.5;
+        let p = pos * base_scale;
+
+        // Base structural noise (large plates)
+        let n1 = fbm(p, 4, roughness);
+        // Create sharp terraces (stepped)
+        let terraces = floor(n1 * 6.0) / 6.0;
+
+        // Add some "rivet" or "gear" circular patterns
+        let grid_p = fract(pos * scale * 2.0) - vec2<f32>(0.5);
+        let dist = length(grid_p);
+        // Small raised bumps if distance is small
+        var rivet = 0.0;
+        if (dist < 0.2) {
+            rivet = 0.1;
+        }
+
+        // Combine
+        let distortion = params.z;
+        let final_h = mix(n1, terraces, distortion) + rivet;
+        return final_h * params.z;
     }
+
+    return 0.0;
 }
 
 // Helper to calculate final height at a point, including blending and visibility
@@ -379,7 +405,7 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let w3 = 0.5 + 0.5 * sin((phase + 0.66) * 6.28);
 
         return (c1 * w1 + c2 * w2 + c3 * w3) / (w1 + w2 + w3);
-    } else {
+    } else if (id < 6.5) {
         // Glitch (Digital Distortion)
         let time = reality.global_offset.z;
         let t_snap = floor(time * 15.0);
@@ -405,7 +431,31 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         col = mix(col, vec3<f32>(1.0, 1.0, 1.0), scanline * 0.5);
 
         return col;
+    } else if (id < 7.5) {
+        // Steampunk (Brass and Copper)
+        let p = pos_in.xz * scale;
+        // Use height-like value to color differently based on terraces
+        let h_val = floor(fbm(p, 4, roughness) * 6.0) / 6.0;
+
+        let bronze = vec3<f32>(0.8, 0.5, 0.2); // Bright bronze/brass
+        let copper = vec3<f32>(0.7, 0.3, 0.1); // Reddish copper
+        let dark_iron = vec3<f32>(0.2, 0.2, 0.2); // Iron framework
+
+        // Add dirt/grease via high-frequency noise
+        let dirt = fbm(p * 5.0, 2, 0.8) * 0.5;
+
+        var col = bronze;
+        if (h_val < 0.3) {
+            col = dark_iron;
+        } else if (h_val > 0.7) {
+            col = copper;
+        }
+
+        // Apply grease/dirt
+        return mix(col, vec3<f32>(0.05), dirt);
     }
+
+    return base_color;
 }
 
 @fragment

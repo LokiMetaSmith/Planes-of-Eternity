@@ -64,3 +64,4 @@
 - [x] **E2E Test Platform**: Implement an end-to-end verification platform using Playwright to test visual and UI/UX elements.
 
 - [x] **New Archetypes**: Added Glitch archetype to Reality Engine.
+- [x] **New Archetypes**: Added Steampunk archetype to Reality Engine.

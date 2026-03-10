@@ -158,6 +158,7 @@ impl WorldState {
             RealityArchetype::Genie => 0.05,
             RealityArchetype::Glitch => 0.3,
             RealityArchetype::Steampunk => 0.1,
+            RealityArchetype::Vaporwave => 0.15,
             RealityArchetype::Noir => 0.1,
         };
 

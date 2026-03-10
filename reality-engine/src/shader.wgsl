@@ -268,6 +268,21 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
 
         // Combine flatness with distant mountains
         return n * 5.0 * mountain_zone * params.z;
+    } else if (id < 9.5) {
+        // Noir (Monochrome, high contrast, wet streets)
+        let block_scale = scale * 2.0;
+        let p = pos * block_scale;
+
+        // Blocky city streets / buildings
+        let grid_x = step(0.1, fract(p.x));
+        let grid_y = step(0.1, fract(p.y));
+        let is_building = grid_x * grid_y;
+
+        // Random building heights
+        let h = hash(floor(p)) * 2.0;
+        let base_height = h * is_building;
+
+        return base_height * params.z;
     }
 
     return 0.0;
@@ -485,6 +500,42 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let grid_col = vec3<f32>(0.0, 1.0, 1.0); // Neon cyan grid
 
         return mix(ground_col, grid_col, clamp(g, 0.0, 1.0));
+    } else if (id < 9.5) {
+        // Noir
+        // High contrast black/white/grey
+        let p = pos_in.xz * scale;
+
+        let block_scale = scale * 2.0;
+        let bp = pos_in.xz * block_scale;
+        let grid_x = step(0.1, fract(bp.x));
+        let grid_y = step(0.1, fract(bp.y));
+        let is_building = grid_x * grid_y;
+
+        // Dark streets, gray buildings
+        var col = vec3<f32>(0.05, 0.05, 0.05); // Asphalt
+
+        if (is_building > 0.0) {
+            // Concrete buildings
+            let n = fbm(pos_in.xz * scale * 5.0, 3, roughness);
+            col = mix(vec3<f32>(0.2, 0.2, 0.2), vec3<f32>(0.6, 0.6, 0.6), n);
+
+            // Neon / Lit windows occasionally
+            let window_grid = step(0.8, fract(pos_in.y * 10.0)) * step(0.8, fract(pos_in.x * 10.0 + pos_in.z * 10.0));
+            let is_lit = step(0.9, hash(floor(bp) + floor(pos_in.y * 2.0)));
+            if (window_grid * is_lit > 0.0) {
+                 col = vec3<f32>(0.9, 0.9, 0.8); // Warm yellow/white light
+            }
+        } else {
+            // Wet streets - add some bright reflections based on noise
+            let wetness = fbm(p * 2.0, 2, roughness);
+            let reflection = step(0.8, wetness);
+            col = mix(col, vec3<f32>(0.8, 0.8, 0.9), reflection * 0.5);
+        }
+
+        // Overarching monochrome grading (desaturate base color just in case)
+        let lum = dot(col, vec3<f32>(0.299, 0.587, 0.114));
+        // Add a slight blueish/cyan tint for the cinematic Noir feel
+        return mix(vec3<f32>(lum), vec3<f32>(lum * 0.9, lum * 0.95, lum * 1.0), 0.5);
     }
 
     return base_color;

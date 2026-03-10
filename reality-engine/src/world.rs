@@ -159,6 +159,7 @@ impl WorldState {
             RealityArchetype::Glitch => 0.3,
             RealityArchetype::Steampunk => 0.1,
             RealityArchetype::Vaporwave => 0.15,
+            RealityArchetype::Noir => 0.1,
         };
 
         chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);

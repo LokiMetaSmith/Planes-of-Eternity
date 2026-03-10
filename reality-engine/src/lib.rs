@@ -486,7 +486,7 @@ impl State {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -1125,6 +1125,7 @@ impl State {
                 reality_types::RealityArchetype::Glitch => ( 6.0, [1.0, 0.0, 1.0, 1.0] ), // Magenta
                 reality_types::RealityArchetype::Steampunk => ( 7.0, [0.8, 0.5, 0.2, 1.0] ), // Bronze/Brass
                 reality_types::RealityArchetype::Vaporwave => ( 8.0, [0.0, 1.0, 1.0, 1.0] ), // Cyan
+                reality_types::RealityArchetype::Noir => ( 8.0, [0.1, 0.1, 0.1, 1.0] ), // Dark Gray
             }
         }
 
@@ -1358,6 +1359,7 @@ impl GameClient {
             6 => reality_types::RealityArchetype::Glitch,
             7 => reality_types::RealityArchetype::Steampunk,
             8 => reality_types::RealityArchetype::Vaporwave,
+            9 => reality_types::RealityArchetype::Noir,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {

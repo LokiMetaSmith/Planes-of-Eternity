@@ -13,6 +13,7 @@ pub enum RealityArchetype {
     Glitch,      // Digital Distortion
     Steampunk,   // Brass and Steam
     Vaporwave,   // Synthwave / Outrun
+    Noir,        // Monochrome, High Contrast, Rain
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -12,6 +12,7 @@ pub enum RealityArchetype {
     Genie,       // Generative Dream
     Glitch,      // Digital Distortion
     Steampunk,   // Brass and Steam
+    Noir,        // Monochrome, High Contrast, Rain
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

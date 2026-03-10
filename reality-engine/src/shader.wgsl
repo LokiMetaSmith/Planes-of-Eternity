@@ -252,6 +252,22 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let distortion = params.z;
         let final_h = mix(n1, terraces, distortion) + rivet;
         return final_h * params.z;
+    } else if (id < 8.5) {
+        // Vaporwave (Synthwave / Outrun - Flat neon grid with digital sun/mountains)
+        let time = reality.global_offset.z;
+        let base_scale = scale * 0.5;
+        let p = pos * base_scale;
+
+        // Very flat ground near the viewer, mountains far away (use noise with distance bias)
+        let dist = length(pos);
+        // Only start generating mountains if we are far away
+        let mountain_zone = smoothstep(10.0, 30.0, dist);
+
+        // Procedural wireframe mountains
+        let n = fbm(p * 0.5, 4, roughness);
+
+        // Combine flatness with distant mountains
+        return n * 5.0 * mountain_zone * params.z;
     }
 
     return 0.0;
@@ -453,6 +469,22 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
 
         // Apply grease/dirt
         return mix(col, vec3<f32>(0.05), dirt);
+    } else if (id < 8.5) {
+        // Vaporwave (Synthwave / Outrun - Flat neon grid)
+        let time = reality.global_offset.z;
+
+        let p = pos_in.xz * scale;
+
+        // Base grid (neon cyan)
+        let grid_thickness = 0.05;
+        let p_moving = p + vec2<f32>(0.0, -time * 2.0); // Grid moving towards camera
+        let g = step(1.0 - grid_thickness, fract(p_moving.x)) + step(1.0 - grid_thickness, fract(p_moving.y));
+
+        // Base dark purple ground
+        let ground_col = vec3<f32>(0.05, 0.0, 0.1); // Deep synthwave purple
+        let grid_col = vec3<f32>(0.0, 1.0, 1.0); // Neon cyan grid
+
+        return mix(ground_col, grid_col, clamp(g, 0.0, 1.0));
     }
 
     return base_color;

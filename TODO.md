@@ -65,3 +65,4 @@
 
 - [x] **New Archetypes**: Added Glitch archetype to Reality Engine.
 - [x] **New Archetypes**: Added Steampunk archetype to Reality Engine.
+- [x] **New Archetypes**: Added Vaporwave archetype to Reality Engine.

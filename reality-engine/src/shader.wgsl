@@ -283,6 +283,15 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let base_height = h * is_building;
 
         return base_height * params.z;
+    } else if (id < 10.5) {
+        // CyberSpace (Matrix / Digital Grid)
+        let block_scale = scale * 1.5;
+        let p = floor(pos * block_scale);
+        let grid_h = hash(p);
+
+        let pillar = pow(grid_h, 3.0) * 3.0;
+
+        return pillar * params.z;
     }
 
     return 0.0;
@@ -536,6 +545,24 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let lum = dot(col, vec3<f32>(0.299, 0.587, 0.114));
         // Add a slight blueish/cyan tint for the cinematic Noir feel
         return mix(vec3<f32>(lum), vec3<f32>(lum * 0.9, lum * 0.95, lum * 1.0), 0.5);
+    } else if (id < 10.5) {
+        // CyberSpace
+        let time = reality.global_offset.z;
+        let p = pos_in.xz * scale * 1.5;
+        let bp = floor(p);
+
+        let grid_thickness = 0.05;
+        let g = step(1.0 - grid_thickness, fract(p.x)) + step(1.0 - grid_thickness, fract(p.y));
+        let col_h = hash(bp);
+
+        let dark_green = vec3<f32>(0.0, 0.05, 0.0);
+        let bright_green = vec3<f32>(0.0, 1.0, 0.2);
+        let pale_green = vec3<f32>(0.6, 1.0, 0.6);
+
+        let is_lit = step(0.9, fract(col_h + time * 0.5));
+        let active_col = mix(dark_green, bright_green, is_lit);
+
+        return mix(active_col, pale_green, clamp(g, 0.0, 1.0));
     }
 
     return base_color;

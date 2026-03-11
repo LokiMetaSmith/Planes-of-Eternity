@@ -67,3 +67,4 @@
 - [x] **New Archetypes**: Added Steampunk archetype to Reality Engine.
 - [x] **New Archetypes**: Added Vaporwave archetype to Reality Engine.
 - [x] **New Archetypes**: Added Noir archetype to Reality Engine.
+- [x] **New Archetypes**: Added CyberSpace archetype to Reality Engine.

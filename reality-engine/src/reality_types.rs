@@ -14,6 +14,7 @@ pub enum RealityArchetype {
     Steampunk,   // Brass and Steam
     Vaporwave,   // Synthwave / Outrun
     Noir,        // Monochrome, High Contrast, Rain
+    CyberSpace,  // Matrix / Digital Grid
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

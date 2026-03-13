@@ -139,25 +139,31 @@ mod tests {
     }
 
     #[test]
-    fn bench_lod_generation() {
+    fn test_create_lod_majority_rule() {
         let mut chunk = Chunk::new(ChunkKey { x: 0, y: 0, z: 0 });
 
-        // Populate chunk with deterministic noisy data for a realistic workload
-        for i in 0..(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) {
-            let n = super::hash(i as i32, (i * 3) as i32, (i * 7) as i32);
-            let id = if n > 0.8 { 1 } else if n > 0.6 { 2 } else if n > 0.4 { 3 } else { 0 };
-            chunk.data[i] = Voxel { id };
-        }
+        // We will test factor=2 downsampling (a 2x2x2 block becomes 1 voxel)
+        let factor = 2;
+        let new_size = chunk.size / factor;
 
-        let start = std::time::Instant::now();
+        // Fill the first 2x2x2 block with specific IDs to test majority rule
+        // Block coords: x: 0..2, y: 0..2, z: 0..2
+        chunk.set(0, 0, 0, Voxel { id: 1 }); // 1 x ID 1
+        chunk.set(1, 0, 0, Voxel { id: 2 }); // 3 x ID 2
+        chunk.set(0, 1, 0, Voxel { id: 2 });
+        chunk.set(1, 1, 0, Voxel { id: 2 });
+        chunk.set(0, 0, 1, Voxel { id: 3 }); // 4 x ID 3 (Majority)
+        chunk.set(1, 0, 1, Voxel { id: 3 });
+        chunk.set(0, 1, 1, Voxel { id: 3 });
+        chunk.set(1, 1, 1, Voxel { id: 3 });
 
-        // Generate LOD a few times to get a measurable duration
-        for _ in 0..100 {
-            let _lod = chunk.create_lod(4);
-        }
+        // Generate LOD
+        let lod_chunk = chunk.create_lod(factor);
 
-        let elapsed = start.elapsed();
-        println!("LOD Generation Time for 100 iterations (factor 4): {:?}", elapsed);
+        // The first voxel of the LOD chunk (representing the 2x2x2 block above) should be 3
+        let lod_voxel = lod_chunk.get(0, 0, 0);
+        assert_eq!(lod_voxel.id, 3, "LOD should pick the most frequent ID (majority rule)");
+        assert_eq!(lod_chunk.size, new_size, "LOD chunk size should be reduced by factor");
     }
 
     #[test]

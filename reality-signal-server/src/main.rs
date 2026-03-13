@@ -42,11 +42,10 @@ async fn main() {
 
     let routes = chat.or(root_redirect).or(static_files);
 
-    let cors = warp::cors().allow_any_origin();
-
     println!("Signaling server and static file server running on http://localhost:9000/");
 
-    warp::serve(routes.with(cors))
+    // No need for CORS as the frontend is served by the same origin
+    warp::serve(routes)
         .run(([127, 0, 0, 1], 9000))
         .await;
 }

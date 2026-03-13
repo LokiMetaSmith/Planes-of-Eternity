@@ -139,6 +139,28 @@ mod tests {
     }
 
     #[test]
+    fn bench_lod_generation() {
+        let mut chunk = Chunk::new(ChunkKey { x: 0, y: 0, z: 0 });
+
+        // Populate chunk with deterministic noisy data for a realistic workload
+        for i in 0..(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) {
+            let n = super::hash(i as i32, (i * 3) as i32, (i * 7) as i32);
+            let id = if n > 0.8 { 1 } else if n > 0.6 { 2 } else if n > 0.4 { 3 } else { 0 };
+            chunk.data[i] = Voxel { id };
+        }
+
+        let start = std::time::Instant::now();
+
+        // Generate LOD a few times to get a measurable duration
+        for _ in 0..100 {
+            let _lod = chunk.create_lod(4);
+        }
+
+        let elapsed = start.elapsed();
+        println!("LOD Generation Time for 100 iterations (factor 4): {:?}", elapsed);
+    }
+
+    #[test]
     fn test_rle_compression() {
         let mut data = Vec::new();
         // 5 voxels of id 1
@@ -295,7 +317,9 @@ impl Chunk {
                 for x in 0..new_size {
                     // Downsampling Logic: Voting / Majority Rule
                     // Scan the block of 'factor^3' voxels in the original data
-                    let mut counts = HashMap::new();
+                    // Optimization: Replaced HashMap with a stack-allocated fixed array [u16; 256]
+                    // to eliminate hashing overhead and heap allocations inside the hot-path loop.
+                    let mut counts = [0u16; 256];
 
                     for dz in 0..factor {
                         for dy in 0..factor {
@@ -306,7 +330,7 @@ impl Chunk {
 
                                 let voxel = self.get(ox, oy, oz);
                                 if voxel.id != 0 {
-                                    *counts.entry(voxel.id).or_insert(0) += 1;
+                                    counts[voxel.id as usize] += 1;
                                 }
                             }
                         }
@@ -315,10 +339,10 @@ impl Chunk {
                     // Pick most common non-air voxel
                     let mut best_id = 0;
                     let mut max_count = 0;
-                    for (id, count) in counts {
+                    for (id, &count) in counts.iter().enumerate() {
                         if count > max_count {
                             max_count = count;
-                            best_id = id;
+                            best_id = id as u8;
                         }
                     }
 

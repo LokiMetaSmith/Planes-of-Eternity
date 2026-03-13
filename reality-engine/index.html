@@ -168,10 +168,13 @@
             margin-top: 5px;
         }
 
-        .cyber-button:hover {
+        .cyber-button:hover,
+        .cyber-button:focus-visible {
             background: #00f0ff;
             color: #000;
             box-shadow: 0 0 10px #00f0ff;
+            outline: 2px solid #fff;
+            outline-offset: 2px;
         }
 
         .node-label {
@@ -247,7 +250,7 @@
             <div class="cyber-header">Anomaly Projector</div>
 
             <div class="control-group">
-                <label>Archetype</label>
+                <label for="param-archetype">Archetype</label>
                 <select id="param-archetype">
                     <option value="1" selected>SciFi</option>
                     <option value="0">Fantasy</option>
@@ -264,17 +267,17 @@
             </div>
 
             <div class="control-group">
-                <label>Roughness <span id="val-rough" class="value-display">0.80</span></label>
+                <label for="param-roughness">Roughness <span id="val-rough" class="value-display">0.80</span></label>
                 <input type="range" id="param-roughness" min="0" max="1" step="0.01" value="0.8">
             </div>
 
             <div class="control-group">
-                <label>Scale <span id="val-scale" class="value-display">5.0</span></label>
+                <label for="param-scale">Scale <span id="val-scale" class="value-display">5.0</span></label>
                 <input type="range" id="param-scale" min="0.1" max="10" step="0.1" value="5.0">
             </div>
 
             <div class="control-group">
-                <label>Distortion <span id="val-dist" class="value-display">0.80</span></label>
+                <label for="param-distortion">Distortion <span id="val-dist" class="value-display">0.80</span></label>
                 <input type="range" id="param-distortion" min="0" max="1" step="0.01" value="0.8">
             </div>
 
@@ -295,11 +298,11 @@
         <div class="cyber-card" style="margin-top: 10px;">
             <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Save Manager</div>
             <div class="control-group">
-                <label>Slot Name</label>
+                <label for="input-save-name">Slot Name</label>
                 <input type="text" id="input-save-name" placeholder="default" style="width: 100%; background: #222; color: #00f0ff; border: 1px solid #444; padding: 5px; font-family: monospace;">
             </div>
             <div class="control-group">
-                 <label>Existing Saves</label>
+                 <label for="select-save-slot">Existing Saves</label>
                  <select id="select-save-slot">
                      <option value="default">default</option>
                  </select>
@@ -336,9 +339,9 @@
     <!-- Keybinds Overlay -->
     <div id="keybind-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
         <div class="cyber-card" style="width: 400px; max-width: 90%;">
-            <div class="cyber-header" style="display: flex; justify-content: space-between;">
+            <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;">
                 <span>NEURAL LINK CONFIG</span>
-                <span id="btn-close-keybinds" style="cursor: pointer;">[X]</span>
+                <button id="btn-close-keybinds" aria-label="Close configuration" style="cursor: pointer; background: none; border: none; color: inherit; font: inherit; padding: 0;">[X]</button>
             </div>
             <div id="keybind-list" style="margin-bottom: 20px;">
                 <!-- Bindings populated by JS -->

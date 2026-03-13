@@ -1,0 +1,3 @@
+## 2026-03-13 - Stylized UI Accessibility Anti-patterns
+**Learning:** In heavily stylized, custom-themed UIs (like 'cybercore'), basic accessibility features like form label associations (`<label for="...">`) and semantic interactive elements (using `<button>` instead of `<span>` for actions like 'Close') are often overlooked in favor of visual aesthetics, degrading screen reader and keyboard navigation experiences.
+**Action:** Always verify that form inputs have explicitly associated labels and that interactive pseudo-buttons are replaced with proper semantic HTML elements (e.g., `<button>` with `aria-label`) when refining custom UI themes.

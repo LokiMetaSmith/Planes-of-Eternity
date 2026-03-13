@@ -62,6 +62,7 @@
 
 ## End-to-End Testing
 - [x] **E2E Test Platform**: Implement an end-to-end verification platform using Playwright to test visual and UI/UX elements.
+- [x] **E2E Host Test Coverage**: Expanded host test coverage to correctly render 3D terrain via WebGPU in headless Playwright and perform visual snapshot assertions on various Reality archetypes.
 
 - [x] **New Archetypes**: Added Glitch archetype to Reality Engine.
 - [x] **New Archetypes**: Added Steampunk archetype to Reality Engine.

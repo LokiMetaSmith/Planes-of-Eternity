@@ -139,6 +139,34 @@ mod tests {
     }
 
     #[test]
+    fn test_create_lod_majority_rule() {
+        let mut chunk = Chunk::new(ChunkKey { x: 0, y: 0, z: 0 });
+
+        // We will test factor=2 downsampling (a 2x2x2 block becomes 1 voxel)
+        let factor = 2;
+        let new_size = chunk.size / factor;
+
+        // Fill the first 2x2x2 block with specific IDs to test majority rule
+        // Block coords: x: 0..2, y: 0..2, z: 0..2
+        chunk.set(0, 0, 0, Voxel { id: 1 }); // 1 x ID 1
+        chunk.set(1, 0, 0, Voxel { id: 2 }); // 3 x ID 2
+        chunk.set(0, 1, 0, Voxel { id: 2 });
+        chunk.set(1, 1, 0, Voxel { id: 2 });
+        chunk.set(0, 0, 1, Voxel { id: 3 }); // 4 x ID 3 (Majority)
+        chunk.set(1, 0, 1, Voxel { id: 3 });
+        chunk.set(0, 1, 1, Voxel { id: 3 });
+        chunk.set(1, 1, 1, Voxel { id: 3 });
+
+        // Generate LOD
+        let lod_chunk = chunk.create_lod(factor);
+
+        // The first voxel of the LOD chunk (representing the 2x2x2 block above) should be 3
+        let lod_voxel = lod_chunk.get(0, 0, 0);
+        assert_eq!(lod_voxel.id, 3, "LOD should pick the most frequent ID (majority rule)");
+        assert_eq!(lod_chunk.size, new_size, "LOD chunk size should be reduced by factor");
+    }
+
+    #[test]
     fn test_rle_compression() {
         let mut data = Vec::new();
         // 5 voxels of id 1
@@ -295,7 +323,9 @@ impl Chunk {
                 for x in 0..new_size {
                     // Downsampling Logic: Voting / Majority Rule
                     // Scan the block of 'factor^3' voxels in the original data
-                    let mut counts = HashMap::new();
+                    // Optimization: Replaced HashMap with a stack-allocated fixed array [u16; 256]
+                    // to eliminate hashing overhead and heap allocations inside the hot-path loop.
+                    let mut counts = [0u16; 256];
 
                     for dz in 0..factor {
                         for dy in 0..factor {
@@ -306,7 +336,7 @@ impl Chunk {
 
                                 let voxel = self.get(ox, oy, oz);
                                 if voxel.id != 0 {
-                                    *counts.entry(voxel.id).or_insert(0) += 1;
+                                    counts[voxel.id as usize] += 1;
                                 }
                             }
                         }
@@ -315,10 +345,10 @@ impl Chunk {
                     // Pick most common non-air voxel
                     let mut best_id = 0;
                     let mut max_count = 0;
-                    for (id, count) in counts {
+                    for (id, &count) in counts.iter().enumerate() {
                         if count > max_count {
                             max_count = count;
-                            best_id = id;
+                            best_id = id as u8;
                         }
                     }
 

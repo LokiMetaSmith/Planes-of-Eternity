@@ -59,6 +59,7 @@ def browser_type_launch_args(browser_type_launch_args):
             "--enable-webgl",
             "--ignore-gpu-blocklist",
             "--enable-features=Vulkan",
-            "--enable-unsafe-webgpu"
+            "--enable-unsafe-webgpu",
+            "--use-vulkan=native",
         ]
     }

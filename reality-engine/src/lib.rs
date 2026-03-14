@@ -107,11 +107,8 @@ impl Vertex {
 }
 
 // Helper for Frustum Culling
-fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, view_proj: &cgmath::Matrix4<f32>) -> bool {
-    // cgmath::Matrix4 is column-major. view_proj.x, .y, .z, .w are columns.
-    let m = view_proj;
-
-    let planes = [
+fn extract_frustum_planes(m: &cgmath::Matrix4<f32>) -> [cgmath::Vector4<f32>; 6] {
+    let mut planes = [
         // Left
         cgmath::Vector4::new(m.x.w + m.x.x, m.y.w + m.y.x, m.z.w + m.z.x, m.w.w + m.w.x),
         // Right
@@ -126,14 +123,20 @@ fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, view_proj
         cgmath::Vector4::new(m.x.w - m.x.z, m.y.w - m.y.z, m.z.w - m.z.z, m.w.w - m.w.z),
     ];
 
-    for mut plane in planes {
+    for plane in planes.iter_mut() {
         // Normalize the plane normal
         let n = cgmath::Vector3::new(plane.x, plane.y, plane.z);
         let len = n.magnitude();
         if len > 0.0 {
-            plane /= len;
+            *plane /= len;
         }
+    }
 
+    planes
+}
+
+fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, planes: &[cgmath::Vector4<f32>; 6]) -> bool {
+    for plane in planes {
         // Find the corner of the AABB furthest along the plane's normal
         let px = if plane.x > 0.0 { max.x } else { min.x };
         let py = if plane.y > 0.0 { max.y } else { min.y };
@@ -1175,9 +1178,11 @@ impl State {
         };
 
         if needs_update {
+            // Optimization: Extract frustum planes once per frame instead of per-instance
+            let frustum_planes = extract_frustum_planes(&view_proj);
             let mut visible_instances = Vec::new();
             for chunk_data in &self.chunk_data {
-                if is_aabb_visible(chunk_data.aabb_min, chunk_data.aabb_max, &view_proj) {
+                if is_aabb_visible(chunk_data.aabb_min, chunk_data.aabb_max, &frustum_planes) {
                     let model = cgmath::Matrix4::from_translation(chunk_data.position);
 
                     // Get Stability from World State
@@ -1283,8 +1288,10 @@ impl State {
             render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
             render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
 
+            // Optimization: Extract frustum planes once per frame instead of per-chunk
+            let frustum_planes = extract_frustum_planes(&view_proj);
             for mesh in self.voxel_meshes.values() {
-                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &view_proj) {
+                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &frustum_planes) {
                     continue;
                 }
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));

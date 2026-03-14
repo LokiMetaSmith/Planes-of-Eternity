@@ -177,6 +177,43 @@
             outline-offset: 2px;
         }
 
+        .close-btn {
+            cursor: pointer;
+            background: none;
+            border: none;
+            color: inherit;
+            font: inherit;
+            padding: 2px 5px;
+            transition: color 0.2s, text-shadow 0.2s;
+        }
+
+        .close-btn:hover,
+        .close-btn:focus-visible {
+            color: #ff2a6d;
+            text-shadow: 0 0 5px #ff2a6d;
+            outline: 1px solid #ff2a6d;
+            outline-offset: 2px;
+        }
+
+        .keybind-btn {
+            background: #222;
+            border: 1px solid #444;
+            color: #00f0ff;
+            padding: 2px 8px;
+            cursor: pointer;
+            font-family: monospace;
+            transition: all 0.2s;
+        }
+
+        .keybind-btn:hover,
+        .keybind-btn:focus-visible {
+            background: #00f0ff;
+            color: #000;
+            box-shadow: 0 0 5px #00f0ff;
+            outline: 2px solid #fff;
+            outline-offset: 1px;
+        }
+
         .node-label {
             position: absolute;
             font-family: 'Courier New', monospace;
@@ -312,8 +349,8 @@
                 <button id="btn-load" class="cyber-button" style="flex: 1;">LOAD</button>
             </div>
             <div style="display: flex; gap: 5px; margin-top: 5px;">
-                <button id="btn-delete" class="cyber-button" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">DEL</button>
-                <button id="btn-reset" class="cyber-button" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">RESET</button>
+                <button id="btn-delete" class="cyber-button" aria-label="Delete selected save" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">DEL</button>
+                <button id="btn-reset" class="cyber-button" aria-label="Reset world" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">RESET</button>
             </div>
         </div>
 
@@ -341,7 +378,7 @@
         <div class="cyber-card" style="width: 400px; max-width: 90%;">
             <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;">
                 <span>NEURAL LINK CONFIG</span>
-                <button id="btn-close-keybinds" aria-label="Close configuration" style="cursor: pointer; background: none; border: none; color: inherit; font: inherit; padding: 0;">[X]</button>
+                <button id="btn-close-keybinds" class="close-btn" aria-label="Close configuration">[X]</button>
             </div>
             <div id="keybind-list" style="margin-bottom: 20px;">
                 <!-- Bindings populated by JS -->
@@ -627,19 +664,19 @@
 
                         const btn = document.createElement('button');
                         const currentKey = gameClient.get_key_binding(action);
+                        btn.className = 'keybind-btn';
+                        btn.setAttribute('aria-label', `Rebind ${action}, currently ${currentKey || "UNBOUND"}`);
                         btn.innerText = currentKey || "UNBOUND";
-                        btn.style.background = '#222';
-                        btn.style.border = '1px solid #444';
-                        btn.style.color = '#00f0ff';
-                        btn.style.padding = '2px 8px';
-                        btn.style.cursor = 'pointer';
-                        btn.style.fontFamily = 'monospace';
 
                         if (currentlyRebinding === action) {
                              btn.innerText = "PRESS KEY...";
                              btn.style.background = '#440000';
                              btn.style.borderColor = '#ff0000';
                              btn.style.color = '#fff';
+                        } else {
+                             btn.style.background = '';
+                             btn.style.borderColor = '';
+                             btn.style.color = '';
                         }
 
                         btn.onclick = () => {

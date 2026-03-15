@@ -114,6 +114,11 @@ pub struct LambdaRenderer {
     line_vertex_buffer: wgpu::Buffer,
     line_vertex_count: u32,
     line_capacity: usize,
+
+    // Player Voxel Rendering
+    player_vertex_buffer: wgpu::Buffer,
+    player_index_buffer: wgpu::Buffer,
+    player_num_indices: u32,
 }
 
 impl LambdaRenderer {
@@ -279,6 +284,18 @@ impl LambdaRenderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
+        let (player_vertices, player_indices) = create_voxel_sphere_mesh(0.5, 0.1);
+        let player_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Player Voxel Vertex Buffer"),
+            contents: bytemuck::cast_slice(&player_vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let player_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Player Voxel Index Buffer"),
+            contents: bytemuck::cast_slice(&player_indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
         Self {
             pipeline,
             transparent_pipeline,
@@ -292,6 +309,9 @@ impl LambdaRenderer {
             line_vertex_buffer,
             line_vertex_count: 0,
             line_capacity,
+            player_vertex_buffer,
+            player_index_buffer,
+            player_num_indices: player_indices.len() as u32,
         }
     }
 
@@ -494,11 +514,92 @@ impl LambdaRenderer {
     pub fn render_player<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup, player_instance_buffer: &'a wgpu::Buffer) {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, camera_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, self.player_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, player_instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+        render_pass.set_index_buffer(self.player_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..self.player_num_indices, 0, 0..1);
     }
+}
+
+fn create_voxel_sphere_mesh(radius: f32, voxel_size: f32) -> (Vec<LambdaVertex>, Vec<u16>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    let steps = (radius / voxel_size).ceil() as i32;
+    let mut offset = 0;
+
+    for x in -steps..=steps {
+        for y in -steps..=steps {
+            for z in -steps..=steps {
+                let px = x as f32 * voxel_size;
+                let py = y as f32 * voxel_size;
+                let pz = z as f32 * voxel_size;
+
+                // Only include cubes whose center is within the radius
+                if px * px + py * py + pz * pz <= radius * radius {
+                    let min_x = px - voxel_size / 2.0;
+                    let max_x = px + voxel_size / 2.0;
+                    let min_y = py - voxel_size / 2.0;
+                    let max_y = py + voxel_size / 2.0;
+                    let min_z = pz - voxel_size / 2.0;
+                    let max_z = pz + voxel_size / 2.0;
+
+                    let face_vertices = [
+                        // Top (Y+)
+                        ([min_x, max_y, max_z], [0.0, 1.0, 0.0]),
+                        ([max_x, max_y, max_z], [0.0, 1.0, 0.0]),
+                        ([max_x, max_y, min_z], [0.0, 1.0, 0.0]),
+                        ([min_x, max_y, min_z], [0.0, 1.0, 0.0]),
+                        // Bottom (Y-)
+                        ([min_x, min_y, min_z], [0.0, -1.0, 0.0]),
+                        ([max_x, min_y, min_z], [0.0, -1.0, 0.0]),
+                        ([max_x, min_y, max_z], [0.0, -1.0, 0.0]),
+                        ([min_x, min_y, max_z], [0.0, -1.0, 0.0]),
+                        // Right (X+)
+                        ([max_x, min_y, min_z], [1.0, 0.0, 0.0]),
+                        ([max_x, max_y, min_z], [1.0, 0.0, 0.0]),
+                        ([max_x, max_y, max_z], [1.0, 0.0, 0.0]),
+                        ([max_x, min_y, max_z], [1.0, 0.0, 0.0]),
+                        // Left (X-)
+                        ([min_x, min_y, max_z], [-1.0, 0.0, 0.0]),
+                        ([min_x, max_y, max_z], [-1.0, 0.0, 0.0]),
+                        ([min_x, max_y, min_z], [-1.0, 0.0, 0.0]),
+                        ([min_x, min_y, min_z], [-1.0, 0.0, 0.0]),
+                        // Front (Z+)
+                        ([max_x, min_y, max_z], [0.0, 0.0, 1.0]),
+                        ([max_x, max_y, max_z], [0.0, 0.0, 1.0]),
+                        ([min_x, max_y, max_z], [0.0, 0.0, 1.0]),
+                        ([min_x, min_y, max_z], [0.0, 0.0, 1.0]),
+                        // Back (Z-)
+                        ([min_x, min_y, min_z], [0.0, 0.0, -1.0]),
+                        ([min_x, max_y, min_z], [0.0, 0.0, -1.0]),
+                        ([max_x, max_y, min_z], [0.0, 0.0, -1.0]),
+                        ([max_x, min_y, min_z], [0.0, 0.0, -1.0]),
+                    ];
+
+                    for (pos, norm) in face_vertices.iter() {
+                        vertices.push(LambdaVertex {
+                            position: *pos,
+                            normal: *norm,
+                        });
+                    }
+
+                    for face in 0..6 {
+                        let i = offset + face * 4;
+                        indices.push(i);
+                        indices.push(i + 1);
+                        indices.push(i + 2);
+                        indices.push(i);
+                        indices.push(i + 2);
+                        indices.push(i + 3);
+                    }
+                    offset += 24;
+                }
+            }
+        }
+    }
+
+    (vertices, indices)
 }
 
 fn create_sphere_mesh(radius: f32, sectors: u32, stacks: u32) -> (Vec<LambdaVertex>, Vec<u16>) {

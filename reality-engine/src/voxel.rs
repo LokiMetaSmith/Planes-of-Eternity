@@ -713,13 +713,16 @@ impl VoxelWorld {
     }
 
     pub fn set_voxel_at(&mut self, x: i32, y: i32, z: i32, voxel: Voxel) {
-        let cx = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
-        let cy = (y as f32 / CHUNK_SIZE as f32).floor() as i32;
-        let cz = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
+        // Optimization: Replace f32 casting and floor with Euclidean division
+        // avoiding int-to-float-to-int conversions.
+        let chunk_size = CHUNK_SIZE as i32;
+        let cx = x.div_euclid(chunk_size);
+        let cy = y.div_euclid(chunk_size);
+        let cz = z.div_euclid(chunk_size);
 
-        let lx = (x - cx * CHUNK_SIZE as i32) as usize;
-        let ly = (y - cy * CHUNK_SIZE as i32) as usize;
-        let lz = (z - cz * CHUNK_SIZE as i32) as usize;
+        let lx = x.rem_euclid(chunk_size) as usize;
+        let ly = y.rem_euclid(chunk_size) as usize;
+        let lz = z.rem_euclid(chunk_size) as usize;
 
         let key = ChunkKey { x: cx, y: cy, z: cz };
 
@@ -819,16 +822,19 @@ impl VoxelWorld {
 
         let mut normal = [0, 0, 0];
 
+        let chunk_size = CHUNK_SIZE as i32;
+
         while t <= max_dist {
             // Check voxel at (x, y, z)
             // Convert world coord to ChunkKey and local index
-            let cx = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
-            let cy = (y as f32 / CHUNK_SIZE as f32).floor() as i32;
-            let cz = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
+            // Optimization: Euclidean division avoids f32 conversions inside the hot loop
+            let cx = x.div_euclid(chunk_size);
+            let cy = y.div_euclid(chunk_size);
+            let cz = z.div_euclid(chunk_size);
 
-            let lx = (x - cx * CHUNK_SIZE as i32) as usize;
-            let ly = (y - cy * CHUNK_SIZE as i32) as usize;
-            let lz = (z - cz * CHUNK_SIZE as i32) as usize;
+            let lx = x.rem_euclid(chunk_size) as usize;
+            let ly = y.rem_euclid(chunk_size) as usize;
+            let lz = z.rem_euclid(chunk_size) as usize;
 
             if let Some(chunk) = self.get_chunk(ChunkKey { x: cx, y: cy, z: cz }) {
                 let voxel = chunk.get(lx, ly, lz);

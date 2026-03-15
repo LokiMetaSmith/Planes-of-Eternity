@@ -490,6 +490,15 @@ impl LambdaRenderer {
             render_pass.draw_indexed(0..self.num_indices, 0, self.opaque_count..num_instances);
         }
     }
+
+    pub fn render_player<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup, player_instance_buffer: &'a wgpu::Buffer) {
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, camera_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, player_instance_buffer.slice(..));
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+    }
 }
 
 fn create_sphere_mesh(radius: f32, sectors: u32, stacks: u32) -> (Vec<LambdaVertex>, Vec<u16>) {

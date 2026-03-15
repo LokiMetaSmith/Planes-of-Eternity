@@ -313,6 +313,8 @@ pub struct State {
     // Caching logic for instanced chunk updates
     pub last_view_proj: Option<cgmath::Matrix4<f32>>,
     pub last_stability_hash: String,
+
+    player_instance_buffer: wgpu::Buffer,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -735,6 +737,16 @@ impl State {
             push_constant_ranges: &[],
         });
 
+        let player_instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Player Instance Buffer"),
+            contents: bytemuck::cast_slice(&[visual_lambda::LambdaInstance {
+                position: [0.0, 0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                scale: 1.0,
+            }]),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
         let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Voxel Render Pipeline"),
             layout: Some(&voxel_pipeline_layout),
@@ -813,6 +825,7 @@ impl State {
             canvas: canvas.clone(),
             last_view_proj: None,
             last_stability_hash: String::new(),
+            player_instance_buffer,
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
@@ -1168,6 +1181,18 @@ impl State {
             bytemuck::cast_slice(&[self.reality_uniform]),
         );
 
+        let player_instance = visual_lambda::LambdaInstance {
+            position: [p1.location.x, p1.location.y - 1.0, p1.location.z],
+            color: color1,
+            scale: 1.0,
+        };
+
+        self.queue.write_buffer(
+            &self.player_instance_buffer,
+            0,
+            bytemuck::cast_slice(&[player_instance]),
+        );
+
         // Update Frustum Culling & Instances
         let view_proj = self.engine.camera.build_view_projection_matrix();
         let stability_hash = self.engine.world_state.root_hash.clone();
@@ -1302,6 +1327,8 @@ impl State {
             if !self.engine.lambda_system.nodes.is_empty() {
                  self.lambda_renderer.render(&mut render_pass, &self.camera_bind_group, self.engine.lambda_system.nodes.len() as u32);
             }
+
+            self.lambda_renderer.render_player(&mut render_pass, &self.camera_bind_group, &self.player_instance_buffer);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

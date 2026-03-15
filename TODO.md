@@ -69,3 +69,7 @@
 - [x] **New Archetypes**: Added Vaporwave archetype to Reality Engine.
 - [x] **New Archetypes**: Added Noir archetype to Reality Engine.
 - [x] **New Archetypes**: Added CyberSpace archetype to Reality Engine.
+
+## UI/UX
+- [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.
+- [x] **Player Model**: Rendered a voxel sphere player model at the player's position colored by their active archetype to make the player dynamic and fit the game's voxel aesthetic.

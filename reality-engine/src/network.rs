@@ -133,8 +133,9 @@ impl NetworkManager {
     pub fn new(url: &str) -> Result<Rc<RefCell<Self>>, JsValue> {
         let ws = WebSocket::new(url)?;
 
-        // Generate a random Peer ID
-        let peer_id = format!("peer_{}", (js_sys::Math::random() * 10000.0) as u32);
+        // Generate a random Peer ID using cryptographically secure UUID
+        // Security Enhancement: Prevent predictable IDs and collision DoS
+        let peer_id = format!("peer_{}", uuid::Uuid::new_v4().to_string());
         info!("Initializing Network Manager. My Peer ID: {}", peer_id);
 
         // Initialize PeerJS

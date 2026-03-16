@@ -685,6 +685,7 @@
 
                         if (currentlyRebinding === action) {
                              btn.innerText = "PRESS KEY...";
+                             btn.setAttribute('aria-label', `Press a key to bind to ${action}`);
                              btn.style.background = '#440000';
                              btn.style.borderColor = '#ff0000';
                              btn.style.color = '#fff';

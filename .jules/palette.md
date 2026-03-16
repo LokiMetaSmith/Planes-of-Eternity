@@ -1,0 +1,3 @@
+## 2026-03-16 - [Dynamic aria-label Updates on Keybind Buttons]
+**Learning:** Screen readers do not automatically announce visual text changes in interactive elements when focus remains static, leading to situations where users in a "rebinding" state see "PRESS KEY..." visually but still hear the old label via assistive technologies.
+**Action:** When creating interactable elements with dynamically shifting visual text (such as keybind buttons entering an active "awaiting input" state), explicitly update the `aria-label` via JavaScript (`setAttribute`) to ensure the audible label correctly matches the semantic meaning of the new visual state.

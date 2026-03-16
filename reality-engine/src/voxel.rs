@@ -712,6 +712,21 @@ impl VoxelWorld {
         self.chunks.entry(key).or_insert_with(|| Chunk::new(key))
     }
 
+    pub fn get_voxel_at(&self, x: i32, y: i32, z: i32) -> Option<Voxel> {
+        let chunk_size = CHUNK_SIZE as i32;
+        let cx = x.div_euclid(chunk_size);
+        let cy = y.div_euclid(chunk_size);
+        let cz = z.div_euclid(chunk_size);
+
+        let lx = x.rem_euclid(chunk_size) as usize;
+        let ly = y.rem_euclid(chunk_size) as usize;
+        let lz = z.rem_euclid(chunk_size) as usize;
+
+        let key = ChunkKey { x: cx, y: cy, z: cz };
+
+        self.get_chunk(key).map(|chunk| chunk.get(lx, ly, lz))
+    }
+
     pub fn set_voxel_at(&mut self, x: i32, y: i32, z: i32, voxel: Voxel) {
         // Optimization: Replace f32 casting and floor with Euclidean division
         // avoiding int-to-float-to-int conversions.
@@ -826,19 +841,16 @@ impl VoxelWorld {
 
         while t <= max_dist {
             // Check voxel at (x, y, z)
-            // Convert world coord to ChunkKey and local index
-            // Optimization: Euclidean division avoids f32 conversions inside the hot loop
-            let cx = x.div_euclid(chunk_size);
-            let cy = y.div_euclid(chunk_size);
-            let cz = z.div_euclid(chunk_size);
-
-            let lx = x.rem_euclid(chunk_size) as usize;
-            let ly = y.rem_euclid(chunk_size) as usize;
-            let lz = z.rem_euclid(chunk_size) as usize;
-
-            if let Some(chunk) = self.get_chunk(ChunkKey { x: cx, y: cy, z: cz }) {
-                let voxel = chunk.get(lx, ly, lz);
+            if let Some(voxel) = self.get_voxel_at(x, y, z) {
                 if voxel.id != 0 {
+                    let cx = x.div_euclid(chunk_size);
+                    let cy = y.div_euclid(chunk_size);
+                    let cz = z.div_euclid(chunk_size);
+
+                    let lx = x.rem_euclid(chunk_size) as usize;
+                    let ly = y.rem_euclid(chunk_size) as usize;
+                    let lz = z.rem_euclid(chunk_size) as usize;
+
                     return Some((ChunkKey { x: cx, y: cy, z: cz }, lx, ly, lz, normal));
                 }
             }
@@ -899,6 +911,31 @@ mod raycast_tests {
         assert_eq!(y, 5);
         assert_eq!(z, 5);
         assert_eq!(n, [0, 1, 0]);
+    }
+
+    #[test]
+    fn test_get_voxel_at() {
+        let mut world = VoxelWorld::new();
+        let voxel_type = Voxel { id: 2 };
+
+        // Positive coordinates
+        world.set_voxel_at(10, 20, 30, voxel_type);
+        assert_eq!(world.get_voxel_at(10, 20, 30).unwrap().id, 2);
+
+        // Negative coordinates
+        world.set_voxel_at(-10, -20, -30, voxel_type);
+        assert_eq!(world.get_voxel_at(-10, -20, -30).unwrap().id, 2);
+
+        // Across chunk boundaries
+        world.set_voxel_at(CHUNK_SIZE as i32, 0, 0, voxel_type);
+        assert_eq!(world.get_voxel_at(CHUNK_SIZE as i32, 0, 0).unwrap().id, 2);
+
+        // Empty space should return None because the chunk doesn't exist
+        assert_eq!(world.get_voxel_at(0, 50, 0), None);
+
+        // What happens if we create the chunk but not the voxel?
+        world.create_chunk(ChunkKey { x: 0, y: 0, z: 0 });
+        assert_eq!(world.get_voxel_at(0, 0, 0).unwrap().id, 0); // Voxel::default().id is 0
     }
 
     #[test]

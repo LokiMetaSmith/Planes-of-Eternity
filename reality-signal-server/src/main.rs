@@ -11,11 +11,8 @@ static NEXT_USER_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicU
 ///
 /// - Key is their id
 /// - Value is a sender of `warp::ws::Message`
-type Users = Arc<
-    Mutex<
-        HashMap<usize, mpsc::UnboundedSender<std::result::Result<warp::ws::Message, warp::Error>>>,
-    >,
->;
+type Users =
+    Arc<Mutex<HashMap<usize, mpsc::Sender<std::result::Result<warp::ws::Message, warp::Error>>>>>;
 
 #[tokio::main]
 async fn main() {
@@ -60,15 +57,15 @@ async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
     // Split the socket into a sender and receiver of messages.
     let (mut user_ws_tx, mut user_ws_rx) = ws.split();
 
-    // Use an unbounded channel to handle buffering and flushing of messages
-    // to the websocket...
-    let (tx, rx) = mpsc::unbounded_channel::<std::result::Result<warp::ws::Message, warp::Error>>();
-    let mut rx = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    // Security Enhancement: Use a bounded channel to prevent memory exhaustion DoS
+    // from slow clients accumulating too many messages in memory.
+    let (tx, rx) = mpsc::channel::<std::result::Result<warp::ws::Message, warp::Error>>(100);
+    let mut rx = tokio_stream::wrappers::ReceiverStream::new(rx);
 
     tokio::task::spawn(async move {
         while let Some(message) = rx.next().await {
             user_ws_tx
-                .send(message.unwrap_or_else(|e| {
+                .send(message.unwrap_or_else(|_e| {
                     // Convert error to string or close?
                     warp::ws::Message::close()
                 }))
@@ -127,10 +124,10 @@ async fn user_message(my_id: usize, msg: warp::ws::Message, users: &Users) {
     // New message from this user, send it to everyone else (except same uid)...
     for (&uid, tx) in users.lock().unwrap().iter() {
         if my_id != uid {
-            if let Err(_disconnected) = tx.send(Ok(warp::ws::Message::text(new_msg.clone()))) {
-                // The tx is disconnected, our `user_disconnected` code
-                // should be happening in another task, nothing more to
-                // do here.
+            if let Err(e) = tx.try_send(Ok(warp::ws::Message::text(new_msg.clone()))) {
+                // If the client is too slow or disconnected, drop the message.
+                // This prevents memory exhaustion on the server.
+                eprintln!("Failed to send message to user {}: {}", uid, e);
             }
         }
     }

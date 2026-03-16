@@ -12,3 +12,8 @@
 **Vulnerability:** The random peer ID generation in `reality-engine/src/network.rs` uses `js_sys::Math::random()`, which is a weak pseudo-random number generator that is not cryptographically secure, and the implementation only multiplies by 10,000, creating a very small keyspace (10,000 possible IDs) which is highly vulnerable to collisions and brute-forcing.
 **Learning:** Weak randomness and small keyspaces can lead to predictable IDs, causing potential session hijacking or denial of service by ID collision. The `rand` or `getrandom` crates provide secure, robust random generation in WebAssembly.
 **Prevention:** Use cryptographically secure random number generators (e.g., `getrandom` or the `rand` crate with `OsRng` / Web Crypto API) and larger random values (e.g., UUIDs or a 64-bit/128-bit random number) for session or peer IDs.
+
+## 2024-05-24 - Unbounded WebSocket Sender Channel
+**Vulnerability:** The signaling server originally used an unbounded `mpsc::unbounded_channel()` for sending messages to clients. If a client connection is slow or a user intentionally avoids reading from their socket, messages will queue up indefinitely in the server's memory.
+**Learning:** Unbounded queues on network connections are a classic vector for memory-exhaustion Denial of Service (DoS) attacks.
+**Prevention:** Always use bounded channels (like `tokio::sync::mpsc::channel(capacity)`) for buffering outgoing network traffic, and handle the backpressure gracefully (e.g., dropping messages or disconnecting the client if the queue fills up).

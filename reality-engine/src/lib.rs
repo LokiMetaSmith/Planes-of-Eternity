@@ -853,25 +853,40 @@ impl State {
              let base_y = cy * 32 + 32;
              let base_z = cz * 32 + 64;
 
-             if base_x < 0 || base_x >= 128 || base_y < 0 || base_y >= 128 || base_z < 0 || base_z >= 128 {
-                 continue; // Out of texture bounds
+             // Optimization: Hoist 3D-to-1D index math and remove redundant inner bounds checks.
+             // Calculate precise bounds for the loops so we correctly handle partial chunks
+             // overlapping the 0..128 texture boundaries, eliminating branching in the hot loop.
+             let min_x = std::cmp::max(0, -base_x);
+             let min_y = std::cmp::max(0, -base_y);
+             let min_z = std::cmp::max(0, -base_z);
+
+             let max_x = std::cmp::min(32, 128 - base_x);
+             let max_y = std::cmp::min(32, 128 - base_y);
+             let max_z = std::cmp::min(32, 128 - base_z);
+
+             // If the chunk is entirely outside the bounds, skip it.
+             if min_x >= max_x || min_y >= max_y || min_z >= max_z {
+                 continue;
              }
 
-             let mut i = 0;
-             for z in 0..32 {
-                 for y in 0..32 {
-                     for x in 0..32 {
-                         let v = chunk.data[i];
-                         i += 1;
-                         if v.id != 0 {
-                             let tx = base_x + x as i32;
-                             let ty = base_y + y as i32;
-                             let tz = base_z + z as i32;
+             // Base offset is guaranteed >= 0 since we skipped out of bounds above and min >= -base
+             let safe_base_x = (base_x + min_x) as usize;
+             let safe_base_y = (base_y + min_y) as usize;
+             let safe_base_z = (base_z + min_z) as usize;
 
-                             if tx >= 0 && tx < 128 && ty >= 0 && ty < 128 && tz >= 0 && tz < 128 {
-                                 let idx = tx as usize + (ty as usize) * 128 + (tz as usize) * 128 * 128;
-                                 data[idx] = 1; // Solid
-                             }
+             let base_idx = safe_base_x + safe_base_y * 128 + safe_base_z * 128 * 128;
+
+             for z in min_z..max_z {
+                 let z_idx = base_idx + ((z - min_z) as usize) * 128 * 128;
+                 for y in min_y..max_y {
+                     let y_idx = z_idx + ((y - min_y) as usize) * 128;
+                     for x in min_x..max_x {
+                         // i goes 0..32768, so we compute it from x, y, z
+                         let i = (x as usize) + (y as usize) * 32 + (z as usize) * 32 * 32;
+                         let v = chunk.data[i];
+
+                         if v.id != 0 {
+                             data[y_idx + ((x - min_x) as usize)] = 1; // Solid
                          }
                      }
                  }

@@ -17,3 +17,8 @@
 **Vulnerability:** The signaling server originally used an unbounded `mpsc::unbounded_channel()` for sending messages to clients. If a client connection is slow or a user intentionally avoids reading from their socket, messages will queue up indefinitely in the server's memory.
 **Learning:** Unbounded queues on network connections are a classic vector for memory-exhaustion Denial of Service (DoS) attacks.
 **Prevention:** Always use bounded channels (like `tokio::sync::mpsc::channel(capacity)`) for buffering outgoing network traffic, and handle the backpressure gracefully (e.g., dropping messages or disconnecting the client if the queue fills up).
+
+## 2026-03-14 - Unbounded Connections and Missing Rate Limiting in WebSocket Server
+**Vulnerability:** The signaling server allowed an unlimited number of concurrent WebSocket connections and placed no limit on the rate at which a connected user could send messages.
+**Learning:** These unconstrained resource limits provide a wide-open vector for Denial of Service (DoS) attacks. An attacker can exhaust server memory/file descriptors by opening thousands of connections or exhaust network bandwidth and CPU by rapidly spamming messages to trigger broadcasts to all peers.
+**Prevention:** Always implement hard limits on concurrent connections (`max_connections`) and enforce per-connection rate limits (e.g., maximum messages per second) on endpoints that process user input or broadcast data.

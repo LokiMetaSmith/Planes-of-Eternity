@@ -81,6 +81,13 @@
             cursor: pointer;
             border: 2px solid #fff;
             box-shadow: 0 0 10px #00f0ff;
+            transition: all 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover,
+        input[type="range"]:focus-visible::-webkit-slider-thumb {
+            background: #fff;
+            box-shadow: 0 0 15px #fff, 0 0 5px #00f0ff inset;
         }
 
         select {
@@ -92,6 +99,30 @@
             font-family: 'Courier New', monospace;
             outline: none;
             cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        select:hover,
+        select:focus-visible {
+            border-color: #00f0ff;
+            box-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
+        }
+
+        input[type="text"] {
+            width: 100%;
+            background: #222;
+            color: #00f0ff;
+            border: 1px solid #444;
+            padding: 5px;
+            font-family: 'Courier New', monospace;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        input[type="text"]:hover,
+        input[type="text"]:focus-visible {
+            border-color: #00f0ff;
+            box-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
         }
 
         .value-display {
@@ -351,7 +382,7 @@
             <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Save Manager</div>
             <div class="control-group">
                 <label for="input-save-name">Slot Name</label>
-                <input type="text" id="input-save-name" placeholder="default" style="width: 100%; background: #222; color: #00f0ff; border: 1px solid #444; padding: 5px; font-family: monospace;">
+                <input type="text" id="input-save-name" placeholder="default">
             </div>
             <div class="control-group">
                  <label for="select-save-slot">Existing Saves</label>

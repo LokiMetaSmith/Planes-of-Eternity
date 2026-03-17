@@ -54,6 +54,18 @@ async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
     // Use a counter to assign a new unique ID for this user.
     let my_id = NEXT_USER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
+    // Security Enhancement: Prevent DoS by limiting max connections
+    const MAX_CONNECTIONS: usize = 1000;
+    if users.lock().unwrap().len() >= MAX_CONNECTIONS {
+        eprintln!(
+            "Security Warning: Max connections ({}) reached. Rejecting user {}.",
+            MAX_CONNECTIONS, my_id
+        );
+        let (mut user_ws_tx, _) = ws.split();
+        let _ = user_ws_tx.send(warp::ws::Message::close()).await;
+        return;
+    }
+
     // Split the socket into a sender and receiver of messages.
     let (mut user_ws_tx, mut user_ws_rx) = ws.split();
 
@@ -81,9 +93,28 @@ async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
 
     println!("User {} connected", my_id);
 
+    // Security Enhancement: Rate limit incoming messages to prevent flood DoS
+    let mut message_count = 0;
+    let mut last_reset = std::time::Instant::now();
+    const MAX_MESSAGES_PER_SECOND: usize = 50;
+
     // Every time the user sends a message, broadcast it to
     // all other users...
     while let Some(result) = user_ws_rx.next().await {
+        if last_reset.elapsed().as_secs() >= 1 {
+            message_count = 0;
+            last_reset = std::time::Instant::now();
+        }
+
+        message_count += 1;
+        if message_count > MAX_MESSAGES_PER_SECOND {
+            eprintln!(
+                "Security Warning: User {} exceeded rate limit ({} msgs/sec). Disconnecting.",
+                my_id, MAX_MESSAGES_PER_SECOND
+            );
+            break;
+        }
+
         let msg = match result {
             Ok(msg) => msg,
             Err(e) => {

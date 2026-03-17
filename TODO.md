@@ -1,6 +1,7 @@
 # Reality Engine Tasks
 
 ## 4D Voxel Engine
+- [x] **Voxel Associations**: Add a method for associating voxels to other voxels.
 - [x] **Optimize Rendering**: Implement Greedy Meshing to reduce triangle count.
 - [x] **LOD System**: Implement Level of Detail for distant chunks (Octree or simplified mesh).
 - [x] **Enhance Visuals**: Add Shadows, Textures, and more complex shading (AO, reflections). (AO, Reflections Implemented)

@@ -690,6 +690,7 @@ pub struct VoxelWorld {
     pub chunks: HashMap<ChunkKey, Chunk>,
     #[serde(skip)]
     pub genie: GenieBridge,
+    pub associations: HashMap<[i32; 3], Vec<[i32; 3]>>,
 }
 
 impl VoxelWorld {
@@ -697,6 +698,7 @@ impl VoxelWorld {
         Self {
             chunks: HashMap::new(),
             genie: GenieBridge::new(),
+            associations: HashMap::new(),
         }
     }
 
@@ -751,6 +753,25 @@ impl VoxelWorld {
              // Create chunk if placing block
              let chunk = self.create_chunk(key);
              chunk.set(lx, ly, lz, voxel);
+        }
+    }
+
+    pub fn associate_voxels(&mut self, pos_a: [i32; 3], pos_b: [i32; 3]) {
+        self.associations.entry(pos_a).or_default().push(pos_b);
+        self.associations.entry(pos_b).or_default().push(pos_a);
+    }
+
+    pub fn get_associated_voxels(&self, pos: [i32; 3]) -> Option<&Vec<[i32; 3]>> {
+        self.associations.get(&pos)
+    }
+
+    pub fn remove_voxel_associations(&mut self, pos: [i32; 3]) {
+        if let Some(associated) = self.associations.remove(&pos) {
+            for neighbor_pos in associated {
+                if let Some(neighbors_list) = self.associations.get_mut(&neighbor_pos) {
+                    neighbors_list.retain(|&p| p != pos);
+                }
+            }
         }
     }
 
@@ -1021,5 +1042,52 @@ mod ao_tests {
             }
         }
         assert!(found, "Did not find expected vertex p0");
+    }
+}
+
+#[cfg(test)]
+mod association_tests {
+    use super::*;
+
+    #[test]
+    fn test_associate_and_get_voxels() {
+        let mut world = VoxelWorld::new();
+        let pos1 = [1, 2, 3];
+        let pos2 = [4, 5, 6];
+
+        world.associate_voxels(pos1, pos2);
+
+        let associated_with_1 = world.get_associated_voxels(pos1).unwrap();
+        assert_eq!(associated_with_1.len(), 1);
+        assert_eq!(associated_with_1[0], pos2);
+
+        let associated_with_2 = world.get_associated_voxels(pos2).unwrap();
+        assert_eq!(associated_with_2.len(), 1);
+        assert_eq!(associated_with_2[0], pos1);
+    }
+
+    #[test]
+    fn test_remove_voxel_associations() {
+        let mut world = VoxelWorld::new();
+        let pos1 = [0, 0, 0];
+        let pos2 = [1, 0, 0];
+        let pos3 = [0, 1, 0];
+
+        world.associate_voxels(pos1, pos2);
+        world.associate_voxels(pos1, pos3);
+
+        // pos1 is associated with pos2 and pos3
+        assert_eq!(world.get_associated_voxels(pos1).unwrap().len(), 2);
+        assert_eq!(world.get_associated_voxels(pos2).unwrap().len(), 1);
+        assert_eq!(world.get_associated_voxels(pos3).unwrap().len(), 1);
+
+        world.remove_voxel_associations(pos1);
+
+        // pos1 should have no associations
+        assert!(world.get_associated_voxels(pos1).is_none());
+
+        // pos2 and pos3 should no longer be associated with pos1
+        assert_eq!(world.get_associated_voxels(pos2).unwrap().len(), 0);
+        assert_eq!(world.get_associated_voxels(pos3).unwrap().len(), 0);
     }
 }

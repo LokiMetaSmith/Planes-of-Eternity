@@ -154,10 +154,35 @@ impl Engine {
 
     pub fn update(&mut self, dt: f32) {
         self.time += dt;
+
+        // Apply Player Archetype Gameplay Effects
+        let player_archetype = self.player_projector.reality_signature.active_style.archetype;
+        match player_archetype {
+            RealityArchetype::SciFi => {
+                // SciFi is fast and agile
+                self.camera_controller.speed = 0.4;
+            }
+            RealityArchetype::Steampunk => {
+                // Steampunk is heavy and slow
+                self.camera_controller.speed = 0.15;
+            }
+            RealityArchetype::Fantasy => {
+                // Default / balanced
+                self.camera_controller.speed = 0.2;
+            }
+            _ => {
+                self.camera_controller.speed = 0.2; // Default
+            }
+        }
+
         self.camera_controller.update_camera(&mut self.camera);
 
         // Update Reality Projector Position (Player follows camera)
         self.player_projector.location = self.camera.eye;
+
+        // Apply Player Influence to World State
+        let player_proj = self.player_projector.clone();
+        self.world_state.apply_player_influence(&player_proj, dt);
 
         // Update Lambda System
         let forward = (self.camera.target - self.camera.eye).normalize();

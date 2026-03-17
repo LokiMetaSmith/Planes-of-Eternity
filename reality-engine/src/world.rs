@@ -142,6 +142,30 @@ impl WorldState {
         self.chunks.entry(id).or_insert_with(|| Chunk::new(id))
     }
 
+    pub fn apply_player_influence(&mut self, projector: &RealityProjector, dt: f32) {
+        let id = ChunkId::from_world_pos(projector.location.x, projector.location.z, ANOMALY_GRID_SIZE);
+        let chunk = self.get_or_create_chunk(id);
+
+        use crate::reality_types::RealityArchetype;
+        let stability_cost = match projector.reality_signature.active_style.archetype {
+            RealityArchetype::Horror => 0.2,
+            RealityArchetype::SciFi => 0.1,
+            RealityArchetype::Fantasy => 0.05,
+            RealityArchetype::Void => 0.5,
+            RealityArchetype::HyperNature => -0.1, // Healing
+            RealityArchetype::Toon => 0.0,
+            RealityArchetype::Genie => 0.05,
+            RealityArchetype::Glitch => 0.3,
+            RealityArchetype::Steampunk => 0.1,
+            RealityArchetype::Vaporwave => 0.15,
+            RealityArchetype::Noir => 0.1,
+            RealityArchetype::CyberSpace => 0.15,
+        };
+
+        // Player influence applies over time
+        chunk.stability = (chunk.stability - (stability_cost * dt * 0.1)).clamp(0.0, 1.0);
+    }
+
     pub fn add_anomaly(&mut self, projector: RealityProjector) {
         let id = ChunkId::from_world_pos(projector.location.x, projector.location.z, ANOMALY_GRID_SIZE);
         let chunk = self.get_or_create_chunk(id);

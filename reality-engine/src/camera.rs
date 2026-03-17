@@ -70,7 +70,7 @@ impl Camera {
 }
 
 pub struct CameraController {
-    speed: f32,
+    pub speed: f32,
     is_forward_pressed: bool,
     is_backward_pressed: bool,
     is_left_pressed: bool,

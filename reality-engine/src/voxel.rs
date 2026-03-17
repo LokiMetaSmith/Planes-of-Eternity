@@ -690,6 +690,7 @@ pub struct VoxelWorld {
     pub chunks: HashMap<ChunkKey, Chunk>,
     #[serde(skip)]
     pub genie: GenieBridge,
+    #[serde(default)]
     pub associations: HashMap<[i32; 3], Vec<[i32; 3]>>,
 }
 

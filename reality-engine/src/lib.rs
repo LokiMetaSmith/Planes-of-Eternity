@@ -1041,11 +1041,8 @@ impl State {
         let cam_pos = self.engine.camera.eye;
 
         let mut to_update = Vec::new();
-        let mut valid_keys = Vec::new();
 
         for (key, chunk) in &self.voxel_world.chunks {
-            valid_keys.push(*key);
-
             let chunk_world_x = chunk.key.x as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
             let chunk_world_y = chunk.key.y as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
             let chunk_world_z = chunk.key.z as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
@@ -1074,7 +1071,8 @@ impl State {
         }
 
         // Remove meshes for chunks that no longer exist
-        self.voxel_meshes.retain(|k, _| valid_keys.contains(k));
+        // Optimization: Use O(1) hash map lookup instead of O(N) vector scan to make retain O(M) instead of O(N*M)
+        self.voxel_meshes.retain(|k, _| self.voxel_world.chunks.contains_key(k));
 
         for (key, lod) in to_update {
             if let Some(chunk) = self.voxel_world.chunks.get(&key) {

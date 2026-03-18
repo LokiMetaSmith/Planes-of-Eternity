@@ -12,3 +12,7 @@
 - Added `NpcStateView` and `NpcAction` structs to `genie_bridge.rs` for JSON serialization.
 - Exposed WASM endpoints (`get_all_npcs_json`, `get_npc_state_json`, `execute_npc_action_json`) on `GameClient`.
 - Created a global `window.GenieAI` JS object in `index.html` to easily puppet NPCs via headless browsers or external scripts.
+
+## 2025-03-18 - Avoid Sqrt in Distance Threshold Checks
+**Learning:** In the `update_lods` logic, computing the exact distance between the camera and a chunk requires a computationally expensive `sqrt()` call. Because this occurs inside a hot loop (iterating over every active chunk every time LODs are updated), it becomes a performance bottleneck.
+**Action:** When comparing distances against constant thresholds (like 64.0 or 128.0), compare the squared distance against the squared thresholds instead. This maintains mathematical correctness while entirely eliminating the `sqrt()` operation.

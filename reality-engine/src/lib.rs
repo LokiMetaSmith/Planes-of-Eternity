@@ -2065,3 +2065,49 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     Ok(GameClient { state, network: network_manager, current_save_slot })
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+impl GameClient {
+    pub fn get_npc_state_json(&self, uuid: &str) -> String {
+        let state = self.state.borrow();
+
+        let player_loc = state.engine.player_projector.location;
+        if let Some(npc) = state.engine.world_state.npcs.iter().find(|n| n.uuid == uuid) {
+            use cgmath::MetricSpace;
+            let npc_state = crate::genie_bridge::NpcStateView {
+                uuid: npc.uuid.clone(),
+                x: npc.location.x,
+                y: npc.location.y,
+                z: npc.location.z,
+                archetype: format!("{:?}", npc.reality_signature.active_style.archetype),
+                player_distance: npc.location.distance(player_loc),
+            };
+            return serde_json::to_string(&npc_state).unwrap_or_else(|_| "{}".to_string());
+        }
+        "{}".to_string()
+    }
+
+    pub fn get_all_npcs_json(&self) -> String {
+        let state = self.state.borrow();
+        let uuids: Vec<String> = state.engine.world_state.npcs.iter().map(|n| n.uuid.clone()).collect();
+        serde_json::to_string(&uuids).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    pub fn execute_npc_action_json(&self, uuid: &str, action_json: &str) -> bool {
+        let mut state = self.state.borrow_mut();
+        if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(action_json) {
+            if let Some(npc) = state.engine.world_state.npcs.iter_mut().find(|n| n.uuid == uuid) {
+                if let (Some(tx), Some(ty), Some(tz)) = (action.target_x, action.target_y, action.target_z) {
+                    npc.target_location = Some(cgmath::Point3::new(tx, ty, tz));
+                }
+                if let Some(msg) = action.chat_message {
+                    log::info!("NPC {} says: {}", uuid, msg);
+                    // Could add to an in-game chat log here
+                }
+                return true;
+            }
+        }
+        false
+    }
+}

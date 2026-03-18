@@ -13,6 +13,8 @@ pub struct RealityProjector {
     pub last_updated: u64,
     #[serde(default)]
     pub deleted: bool,
+    #[serde(skip)]
+    pub target_location: Option<Point3<f32>>,
 }
 
 fn default_uuid() -> String {
@@ -43,6 +45,7 @@ impl RealityProjector {
             uuid: Uuid::new_v4().to_string(),
             last_updated: get_current_timestamp(),
             deleted: false,
+            target_location: None,
         }
     }
 

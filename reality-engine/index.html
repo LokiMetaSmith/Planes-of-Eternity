@@ -827,3 +827,30 @@
     </script>
 </body>
 </html>
+
+<!-- MCP / LLM Hook Integration -->
+<script>
+    // This exposes a global window object that an MCP server can poll via CDP/Playwright
+    // or an external script can access to puppet NPCs.
+    window.GenieAI = {
+        getAllNPCs: function() {
+            if (window.gameClient) {
+                return JSON.parse(window.gameClient.get_all_npcs_json());
+            }
+            return [];
+        },
+        getNPCState: function(uuid) {
+            if (window.gameClient) {
+                return JSON.parse(window.gameClient.get_npc_state_json(uuid));
+            }
+            return null;
+        },
+        commandNPC: function(uuid, actionObj) {
+            if (window.gameClient) {
+                let json = JSON.stringify(actionObj);
+                return window.gameClient.execute_npc_action_json(uuid, json);
+            }
+            return false;
+        }
+    };
+</script>

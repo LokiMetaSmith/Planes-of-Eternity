@@ -62,3 +62,24 @@ impl GenieBridge {
         log::warn!("Diffusion model disabled in this build.");
     }
 }
+
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NpcStateView {
+    pub uuid: String,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub archetype: String,
+    // Provide some context about nearby entities (like player)
+    pub player_distance: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NpcAction {
+    pub target_x: Option<f32>,
+    pub target_y: Option<f32>,
+    pub target_z: Option<f32>,
+    pub chat_message: Option<String>,
+}

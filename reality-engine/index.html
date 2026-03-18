@@ -436,7 +436,7 @@
         </div>
     </div>
 
-    <div id="log-area">
+    <div id="log-area" aria-live="polite" role="log">
         <div>> SYSTEM BOOT_SEQUENCE_INIT</div>
         <div>> CHECKING_REALITY_INTEGRITY...</div>
         <div>> WARNING: ANOMALY DETECTED</div>
@@ -590,12 +590,21 @@
                         const savesJson = gameClient.list_saves();
                         const saves = JSON.parse(savesJson);
                         selectSaveSlot.innerHTML = '';
-                        saves.forEach(s => {
+                        if (saves.length === 0) {
                             const opt = document.createElement('option');
-                            opt.value = s;
-                            opt.innerText = s;
+                            opt.value = "";
+                            opt.innerText = "-- NO SAVES --";
+                            opt.disabled = true;
+                            opt.selected = true;
                             selectSaveSlot.appendChild(opt);
-                        });
+                        } else {
+                            saves.forEach(s => {
+                                const opt = document.createElement('option');
+                                opt.value = s;
+                                opt.innerText = s;
+                                selectSaveSlot.appendChild(opt);
+                            });
+                        }
                     } catch (e) {
                         log("> ERROR LISTING SAVES: " + e);
                     }

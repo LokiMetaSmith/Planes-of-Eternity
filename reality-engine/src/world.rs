@@ -125,6 +125,7 @@ pub struct WorldState {
     pub root_hash: String,
     #[serde(skip, default)]
     pub dirty_chunks: HashSet<ChunkId>,
+    pub npcs: Vec<crate::projector::RealityProjector>,
 }
 
 impl Default for WorldState {
@@ -133,6 +134,7 @@ impl Default for WorldState {
             chunks: HashMap::new(),
             root_hash: String::new(),
             dirty_chunks: HashSet::new(),
+            npcs: Vec::new(),
         }
     }
 }

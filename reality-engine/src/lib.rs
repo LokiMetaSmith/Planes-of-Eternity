@@ -314,7 +314,8 @@ pub struct State {
     pub last_view_proj: Option<cgmath::Matrix4<f32>>,
     pub last_stability_hash: String,
 
-    player_instance_buffer: wgpu::Buffer,
+    entities_instance_buffer: wgpu::Buffer,
+    num_entities: u32,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -737,13 +738,15 @@ impl State {
             push_constant_ranges: &[],
         });
 
-        let player_instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Player Instance Buffer"),
-            contents: bytemuck::cast_slice(&[visual_lambda::LambdaInstance {
-                position: [0.0, 0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-                scale: 1.0,
-            }]),
+        let max_entities = 100; // Player + NPCs
+        let initial_entities = vec![visual_lambda::LambdaInstance {
+            position: [0.0, 0.0, 0.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+            scale: 0.0,
+        }; max_entities];
+        let entities_instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Entities Instance Buffer"),
+            contents: bytemuck::cast_slice(&initial_entities),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -825,7 +828,8 @@ impl State {
             canvas: canvas.clone(),
             last_view_proj: None,
             last_stability_hash: String::new(),
-            player_instance_buffer,
+            entities_instance_buffer,
+            num_entities: 1,
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
@@ -1194,16 +1198,44 @@ impl State {
             bytemuck::cast_slice(&[self.reality_uniform]),
         );
 
-        let player_instance = visual_lambda::LambdaInstance {
+        let mut entity_instances = Vec::new();
+
+        // 1. Add Player
+        entity_instances.push(visual_lambda::LambdaInstance {
             position: [p1.location.x, p1.location.y - 1.0, p1.location.z],
             color: color1,
             scale: 1.0,
-        };
+        });
+
+        // 2. Add NPCs
+        for npc in &self.engine.world_state.npcs {
+            let color = match npc.reality_signature.active_style.archetype {
+                crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::HyperNature => [0.0, 0.8, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Genie => [1.0, 0.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Void => [0.1, 0.1, 0.1, 1.0],
+                crate::reality_types::RealityArchetype::Glitch => [0.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Steampunk => [0.8, 0.5, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
+                crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
+            };
+            entity_instances.push(visual_lambda::LambdaInstance {
+                position: [npc.location.x, npc.location.y - 1.0, npc.location.z],
+                color,
+                scale: 1.0,
+            });
+        }
+
+        self.num_entities = entity_instances.len() as u32;
 
         self.queue.write_buffer(
-            &self.player_instance_buffer,
+            &self.entities_instance_buffer,
             0,
-            bytemuck::cast_slice(&[player_instance]),
+            bytemuck::cast_slice(&entity_instances),
         );
 
         // Update Frustum Culling & Instances
@@ -1341,7 +1373,7 @@ impl State {
                  self.lambda_renderer.render(&mut render_pass, &self.camera_bind_group, self.engine.lambda_system.nodes.len() as u32);
             }
 
-            self.lambda_renderer.render_player(&mut render_pass, &self.camera_bind_group, &self.player_instance_buffer);
+            self.lambda_renderer.render_entities(&mut render_pass, &self.camera_bind_group, &self.entities_instance_buffer, self.num_entities);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

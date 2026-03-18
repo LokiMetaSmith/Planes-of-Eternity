@@ -601,6 +601,23 @@ impl Engine {
         // Reset World
         self.world_state = WorldState::default();
 
+        // Spawn initial NPCs
+        let archetypes = vec![RealityArchetype::SciFi, RealityArchetype::Horror, RealityArchetype::HyperNature, RealityArchetype::CyberSpace];
+        for (i, arch) in archetypes.into_iter().enumerate() {
+            let mut sig = RealitySignature::default();
+            sig.active_style.archetype = arch;
+            sig.active_style.roughness = 0.5;
+            sig.active_style.scale = 3.0;
+            sig.active_style.distortion = 0.2;
+            sig.fidelity = 150.0;
+
+            let angle = (i as f32) * std::f32::consts::PI / 2.0;
+            let radius = 15.0;
+            let loc = Point3::new(angle.cos() * radius, 1.0, angle.sin() * radius);
+
+            self.world_state.npcs.push(RealityProjector::new(loc, sig));
+        }
+
         // Reset Player
         let mut player_sig = RealitySignature::default();
         player_sig.active_style.archetype = RealityArchetype::Fantasy;

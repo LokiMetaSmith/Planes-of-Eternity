@@ -1054,11 +1054,12 @@ impl State {
             let dist_sq = (cam_pos.x - chunk_world_x).powi(2) +
                           (cam_pos.y - chunk_world_y).powi(2) +
                           (cam_pos.z - chunk_world_z).powi(2);
-            let dist = dist_sq.sqrt();
 
-            let desired_lod = if dist > 128.0 {
+            // Optimization: Avoid expensive sqrt calculation in chunk iteration loop
+            // Compare squared distance against squared thresholds (128^2 = 16384, 64^2 = 4096)
+            let desired_lod = if dist_sq > 16384.0 {
                 4
-            } else if dist > 64.0 {
+            } else if dist_sq > 4096.0 {
                 2
             } else {
                 1

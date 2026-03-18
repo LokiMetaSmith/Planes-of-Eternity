@@ -108,7 +108,24 @@ impl Engine {
                 anomaly_sig
             );
 
-            let world_state = WorldState::default();
+            let mut world_state = WorldState::default();
+
+            // Spawn initial NPCs
+            let archetypes = vec![RealityArchetype::SciFi, RealityArchetype::Horror, RealityArchetype::HyperNature, RealityArchetype::CyberSpace];
+            for (i, arch) in archetypes.into_iter().enumerate() {
+                let mut sig = RealitySignature::default();
+                sig.active_style.archetype = arch;
+                sig.active_style.roughness = 0.5;
+                sig.active_style.scale = 3.0;
+                sig.active_style.distortion = 0.2;
+                sig.fidelity = 150.0;
+
+                let angle = (i as f32) * std::f32::consts::PI / 2.0;
+                let radius = 15.0;
+                let loc = Point3::new(angle.cos() * radius, 1.0, angle.sin() * radius);
+
+                world_state.npcs.push(RealityProjector::new(loc, sig));
+            }
 
             let mut ls = LambdaSystem::new();
             let term = lambda::parse("FIRE").unwrap();
@@ -154,6 +171,38 @@ impl Engine {
 
     pub fn update(&mut self, dt: f32) {
         self.time += dt;
+
+        // --- NPC AI Logic ---
+        // Simple wandering and reality projection
+        let mut npcs_to_update = Vec::new();
+        for npc in &mut self.world_state.npcs {
+            // Simple deterministic wandering using sine waves based on time and their UUID
+            // This avoids storing velocity/direction state in the struct for this simple iteration
+            // Extract a pseudo-random seed from the UUID string length/chars or just use their index
+            let mut seed = 0.0;
+            for b in npc.uuid.bytes() {
+                seed += b as f32;
+            }
+            seed = seed % 100.0;
+
+            let speed = 2.0;
+            let move_x = (self.time + seed).cos() * speed * dt;
+            let move_z = (self.time + seed * 1.5).sin() * speed * dt;
+
+            npc.location.x += move_x;
+            npc.location.z += move_z;
+
+            // Keep them somewhat grounded (terrain height is not perfectly accessible here easily, so keep around y=1.0)
+            npc.location.y = 1.0;
+
+            npcs_to_update.push(npc.clone());
+        }
+
+        // Apply NPC influence
+        for npc in npcs_to_update {
+            self.world_state.apply_player_influence(&npc, dt);
+        }
+        // ---------------------
 
         // Apply Player Archetype Gameplay Effects
         let player_archetype = self.player_projector.reality_signature.active_style.archetype;

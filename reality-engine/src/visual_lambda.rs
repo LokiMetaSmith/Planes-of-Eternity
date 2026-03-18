@@ -511,13 +511,13 @@ impl LambdaRenderer {
         }
     }
 
-    pub fn render_player<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup, player_instance_buffer: &'a wgpu::Buffer) {
+    pub fn render_entities<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup, entities_instance_buffer: &'a wgpu::Buffer, num_instances: u32) {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.player_vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, player_instance_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, entities_instance_buffer.slice(..));
         render_pass.set_index_buffer(self.player_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.player_num_indices, 0, 0..1);
+        render_pass.draw_indexed(0..self.player_num_indices, 0, 0..num_instances);
     }
 }
 

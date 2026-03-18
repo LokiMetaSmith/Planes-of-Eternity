@@ -22,3 +22,7 @@
 **Vulnerability:** The signaling server allowed an unlimited number of concurrent WebSocket connections and placed no limit on the rate at which a connected user could send messages.
 **Learning:** These unconstrained resource limits provide a wide-open vector for Denial of Service (DoS) attacks. An attacker can exhaust server memory/file descriptors by opening thousands of connections or exhaust network bandwidth and CPU by rapidly spamming messages to trigger broadcasts to all peers.
 **Prevention:** Always implement hard limits on concurrent connections (`max_connections`) and enforce per-connection rate limits (e.g., maximum messages per second) on endpoints that process user input or broadcast data.
+## 2025-03-02 - Sentinel: Add input length limit to lambda parser
+**Vulnerability:** DoS risk via unbound string input parsing. `process_inscription` took user input and parsed it directly using a custom lambda calculus parser without length limits, potentially allowing a malicious user to crash or stall the engine.
+**Learning:** Even internal UI inputs that parse into complex ASTs can be vectors for resource exhaustion DoS if unbounded.
+**Prevention:** Always enforce reasonable maximum length limits on user input before passing it to expensive parsers.

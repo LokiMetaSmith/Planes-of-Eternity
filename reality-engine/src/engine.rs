@@ -587,6 +587,16 @@ impl Engine {
 
     pub fn process_inscription(&mut self, text: &str) {
         log::info!("Inscribing: {}", text);
+
+        // Security Enhancement: Prevent DoS by limiting input length
+        // Parsing extremely long lambda terms could cause excessive memory allocation
+        // and CPU usage during parsing or reduction.
+        const MAX_INSCRIPTION_LEN: usize = 256;
+        if text.len() > MAX_INSCRIPTION_LEN {
+            log::warn!("Security Warning: Inscription exceeded maximum length limit ({} bytes).", MAX_INSCRIPTION_LEN);
+            return;
+        }
+
         // Clean up input (trim)
         let clean_text = text.trim();
         if let Some(term) = lambda::parse(clean_text) {

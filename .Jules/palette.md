@@ -5,3 +5,7 @@
 ## 2026-03-22 - Stylized UI Focus Accessibility Anti-patterns
 **Learning:** In heavily stylized UIs, developers often apply `outline: none` to inputs, selects, and ranges to hide default browser focus rings that clash with the visual aesthetic. However, failing to replace this with a custom `:focus-visible` state completely breaks keyboard navigation by removing all visual indicators of focus.
 **Action:** Always ensure that custom styled interactive elements that use `outline: none` include a fallback `:focus-visible` style (e.g., using `border-color` or `box-shadow`) to maintain keyboard accessibility without compromising the design.
+
+## 2026-03-23 - Empty States in Dynamic Select Elements
+**Learning:** When dynamically populating `<select>` elements (e.g., a list of save slots), failing to handle an empty array results in a visually collapsed, unusable component that is confusing to users and silent to screen readers.
+**Action:** Always insert an explicitly disabled and selected fallback `<option>` (e.g., `<option disabled selected value="">-- NO SAVES --</option>`) to preserve the layout and clearly communicate the empty state to all users.

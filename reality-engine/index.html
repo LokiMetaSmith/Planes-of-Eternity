@@ -318,8 +318,8 @@
     </style>
 </head>
 <body>
-    <div id="loading-overlay">
-        <div class="loading-spinner"></div>
+    <div id="loading-overlay" role="status" aria-busy="true">
+        <div class="loading-spinner" aria-hidden="true"></div>
         <div>INITIALIZING REALITY ENGINE...</div>
     </div>
     <div id="crosshair"></div>
@@ -409,7 +409,7 @@
             <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Controls</div>
             <div style="margin-bottom: 10px;">
                 <button id="btn-keybinds" class="cyber-button" style="font-size: 0.8rem;">CONFIGURE CONTROLS</button>
-                <button id="btn-toggle-ai" class="cyber-button" style="font-size: 0.8rem; margin-top: 5px;">ENABLE BROWSER AI</button>
+                <button id="btn-toggle-ai" class="cyber-button" style="font-size: 0.8rem; margin-top: 5px;" aria-pressed="false">ENABLE BROWSER AI</button>
             </div>
             <div style="font-size: 0.85rem; color: #aaa; line-height: 1.4;">
                 [WASD] Move Camera<br>
@@ -422,10 +422,10 @@
     </div>
 
     <!-- Keybinds Overlay -->
-    <div id="keybind-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
+    <div id="keybind-overlay" role="dialog" aria-modal="true" aria-labelledby="keybind-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
         <div class="cyber-card" style="width: 400px; max-width: 90%;">
             <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;">
-                <span>NEURAL LINK CONFIG</span>
+                <span id="keybind-header">NEURAL LINK CONFIG</span>
                 <button id="btn-close-keybinds" class="close-btn" aria-label="Close configuration">[X]</button>
             </div>
             <div id="keybind-list" style="margin-bottom: 20px;">
@@ -763,6 +763,7 @@
                 btnKeybinds.addEventListener('click', () => {
                     renderKeybinds();
                     keybindOverlay.style.display = 'flex';
+                    btnCloseKeybinds.focus();
                 });
 
                 btnCloseKeybinds.addEventListener('click', () => {
@@ -772,6 +773,7 @@
                         // Remove listeners? Complex without ref.
                         // Just reload list next time.
                     }
+                    btnKeybinds.focus();
                 });
 
                 const btnAR = document.getElementById('btn-start-ar');
@@ -880,6 +882,7 @@
                     btnToggleAI.style.background = "rgba(255, 42, 109, 0.2)";
                     btnToggleAI.style.borderColor = "#ff2a6d";
                     btnToggleAI.style.color = "#ff2a6d";
+                    btnToggleAI.setAttribute("aria-pressed", "true");
 
                     window.aiInterval = setInterval(() => {
                         const npcs = window.GenieAI.getAllNPCs();
@@ -907,6 +910,7 @@
                     btnToggleAI.style.background = "";
                     btnToggleAI.style.borderColor = "";
                     btnToggleAI.style.color = "";
+                    btnToggleAI.setAttribute("aria-pressed", "false");
 
                     if (window.aiInterval) {
                         clearInterval(window.aiInterval);

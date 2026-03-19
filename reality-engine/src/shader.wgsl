@@ -292,6 +292,13 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let pillar = pow(grid_h, 3.0) * 3.0;
 
         return pillar * params.z;
+    } else if (id < 11.5) {
+        // Dream (Soft rolling clouds/hills)
+        let time = reality.global_offset.z;
+        let p = pos * scale * 0.5;
+        let n = fbm(p + vec2<f32>(time * 0.05), 4, roughness);
+        let smooth_hills = smoothstep(0.2, 0.8, n);
+        return smooth_hills * 5.0 * params.z;
     }
 
     return 0.0;
@@ -563,6 +570,18 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let active_col = mix(dark_green, bright_green, is_lit);
 
         return mix(active_col, pale_green, clamp(g, 0.0, 1.0));
+    } else if (id < 11.5) {
+        // Dream (Pastel clouds/colors)
+        let time = reality.global_offset.z;
+        let p = pos_in.xz * scale * 0.5;
+        let n = fbm(p + vec2<f32>(time * 0.1), 3, params.x);
+
+        let pink = vec3<f32>(1.0, 0.7, 0.8);
+        let blue = vec3<f32>(0.6, 0.8, 1.0);
+        let lavender = vec3<f32>(0.8, 0.6, 1.0);
+
+        let mix1 = mix(pink, blue, smoothstep(0.3, 0.7, n));
+        return mix(mix1, lavender, smoothstep(0.4, 0.8, n + time * 0.1));
     }
 
     return base_color;

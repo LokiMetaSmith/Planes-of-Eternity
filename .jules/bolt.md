@@ -16,3 +16,7 @@
 ## 2025-03-18 - Avoid Sqrt in Distance Threshold Checks
 **Learning:** In the `update_lods` logic, computing the exact distance between the camera and a chunk requires a computationally expensive `sqrt()` call. Because this occurs inside a hot loop (iterating over every active chunk every time LODs are updated), it becomes a performance bottleneck.
 **Action:** When comparing distances against constant thresholds (like 64.0 or 128.0), compare the squared distance against the squared thresholds instead. This maintains mathematical correctness while entirely eliminating the `sqrt()` operation.
+
+## 2025-03-19 - Fast Bounds Checking in 3D Grids
+**Learning:** Checking bounds on an XYZ grid conventionally involves `x >= size || y >= size || z >= size`. This creates multiple branches, confusing CPU branch predictors in tight loops like raycasting or chunk meshing where bounding checks are continuously hit.
+**Action:** Use bitwise OR `(x | y | z) >= size` for a single branch. For signed integers, cast to an unsigned integer `(x as u32) >= size` so that negative values wrap around to very large positive numbers, naturally failing the single bounds check and combining both lower `< 0` and upper `>= size` bounds into one operation. And once bounds are safely verified in accessors like `get()` and `set()`, use `get_unchecked` and `get_unchecked_mut` to avoid redundant panic bounds checks by the Rust compiler.

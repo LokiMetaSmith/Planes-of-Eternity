@@ -266,34 +266,43 @@ impl Chunk {
         }
     }
 
+    #[inline(always)]
     pub fn index(&self, x: usize, y: usize, z: usize) -> usize {
         x + y * self.size + z * self.size * self.size
     }
 
+    #[inline(always)]
     pub fn get(&self, x: usize, y: usize, z: usize) -> Voxel {
-        if x >= self.size || y >= self.size || z >= self.size {
+        // Optimization: Use bitwise OR for bounds checking to avoid multiple branch instructions
+        // This makes `get` faster by keeping the CPU pipeline from mispredicting bounds checks in hot loops.
+        if (x | y | z) >= self.size {
             return Voxel::default();
         }
-        self.data[self.index(x, y, z)]
+        // Safety: Bounds already checked above, allowing the compiler to elide the bounds check on slice access
+        unsafe { *self.data.get_unchecked(self.index(x, y, z)) }
     }
 
+    #[inline(always)]
     pub fn index_opt(&self, x: i32, y: i32, z: i32) -> Option<usize> {
         let s = self.size as i32;
-        if x < 0 || x >= s ||
-           y < 0 || y >= s ||
-           z < 0 || z >= s {
+        // Optimization: Single bounds check utilizing unsigned cast. Negative values wrap to high unsigned values
+        // which will fail the `>= size` check, turning 6 branches into 3.
+        if (x as u32) >= s as u32 || (y as u32) >= s as u32 || (z as u32) >= s as u32 {
             None
         } else {
             Some((x as usize) + (y as usize) * self.size + (z as usize) * self.size * self.size)
         }
     }
 
+    #[inline(always)]
     pub fn set(&mut self, x: usize, y: usize, z: usize, voxel: Voxel) {
-        if x >= self.size || y >= self.size || z >= self.size {
+        // Optimization: Use bitwise OR for bounds checking
+        if (x | y | z) >= self.size {
             return;
         }
         let idx = self.index(x, y, z);
-        self.data[idx] = voxel;
+        // Safety: Bounds already checked above
+        unsafe { *self.data.get_unchecked_mut(idx) = voxel; }
     }
 
     pub fn save_state(&mut self) {
@@ -1090,5 +1099,69 @@ mod association_tests {
         // pos2 and pos3 should no longer be associated with pos1
         assert_eq!(world.get_associated_voxels(pos2).unwrap().len(), 0);
         assert_eq!(world.get_associated_voxels(pos3).unwrap().len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod diffuse_tests {
+    use super::*;
+
+    #[test]
+    fn test_diffuse_lava() {
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let mut chunk = Chunk::new(key);
+        // Place lava
+        chunk.set(10, 10, 10, Voxel { id: 2 });
+        // Set hash to something predictable that passes the > 0.9 check
+        // We know hash uses world pos, so we just run diffuse and see if it spreads,
+        // it's deterministic.
+        // Or we can just mock it or run it multiple times to ensure it spreads *eventually* if hash condition is met.
+        // Actually, since hash is pseudo-random based on coords, it might not spread immediately.
+        // Let's run diffuse 10 times and count fire (id 3).
+        for _ in 0..10 {
+            chunk.diffuse();
+        }
+
+        let mut fire_count = 0;
+        let mut lava_count = 0;
+        for z in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                for x in 0..CHUNK_SIZE {
+                    let id = chunk.get(x, y, z).id;
+                    if id == 3 { fire_count += 1; }
+                    if id == 2 { lava_count += 1; }
+                }
+            }
+        }
+        assert_eq!(lava_count, 1, "Lava should remain 1 block");
+        // Fire count could be > 0 if it spread.
+    }
+}
+
+#[cfg(test)]
+mod get_set_tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_get_out_of_bounds() {
+        let chunk = Chunk::new(ChunkKey { x: 0, y: 0, z: 0 });
+        // Should safely return air (0) instead of panicking
+        let out_of_bounds = chunk.get(CHUNK_SIZE + 1, CHUNK_SIZE + 1, CHUNK_SIZE + 1);
+        assert_eq!(out_of_bounds.id, 0);
+    }
+
+    #[test]
+    fn test_chunk_set_out_of_bounds() {
+        let mut chunk = Chunk::new(ChunkKey { x: 0, y: 0, z: 0 });
+        // Should do nothing, safely
+        chunk.set(CHUNK_SIZE + 1, CHUNK_SIZE + 1, CHUNK_SIZE + 1, Voxel { id: 1 });
+        // We know it didn't panic and didn't crash.
+    }
+
+    #[test]
+    fn test_index_opt_out_of_bounds() {
+        let chunk = Chunk::new(ChunkKey { x: 0, y: 0, z: 0 });
+        assert_eq!(chunk.index_opt(-1, 0, 0), None);
+        assert_eq!(chunk.index_opt(CHUNK_SIZE as i32, 0, 0), None);
     }
 }

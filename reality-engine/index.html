@@ -408,6 +408,7 @@
             <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Controls</div>
             <div style="margin-bottom: 10px;">
                 <button id="btn-keybinds" class="cyber-button" style="font-size: 0.8rem;">CONFIGURE CONTROLS</button>
+                <button id="btn-toggle-ai" class="cyber-button" style="font-size: 0.8rem; margin-top: 5px;">ENABLE BROWSER AI</button>
             </div>
             <div style="font-size: 0.85rem; color: #aaa; line-height: 1.4;">
                 [WASD] Move Camera<br>
@@ -837,6 +838,7 @@
 </body>
 </html>
 
+
 <!-- MCP / LLM Hook Integration -->
 <script>
     // This exposes a global window object that an MCP server can poll via CDP/Playwright
@@ -862,4 +864,55 @@
             return false;
         }
     };
+
+    // Browser AI Director
+    window.isAIEnabled = false;
+    window.aiInterval = null;
+
+    document.addEventListener("DOMContentLoaded", () => {
+        const btnToggleAI = document.getElementById('btn-toggle-ai');
+        if (btnToggleAI) {
+            btnToggleAI.addEventListener('click', () => {
+                window.isAIEnabled = !window.isAIEnabled;
+                if (window.isAIEnabled) {
+                    btnToggleAI.innerText = "DISABLE BROWSER AI";
+                    btnToggleAI.style.background = "rgba(255, 42, 109, 0.2)";
+                    btnToggleAI.style.borderColor = "#ff2a6d";
+                    btnToggleAI.style.color = "#ff2a6d";
+
+                    window.aiInterval = setInterval(() => {
+                        const npcs = window.GenieAI.getAllNPCs();
+                        for (const uuid of npcs) {
+                            const state = window.GenieAI.getNPCState(uuid);
+                            if (state) {
+                                let tx, tz, msg;
+                                if (state.player_distance > 10.0) {
+                                    // Wander
+                                    tx = state.x + (Math.random() * 20 - 10);
+                                    tz = state.z + (Math.random() * 20 - 10);
+                                    window.GenieAI.commandNPC(uuid, { target_x: tx, target_z: tz });
+                                } else {
+                                    // Approach and chat
+                                    tx = state.x + (Math.random() * 5 - 2.5);
+                                    tz = state.z + (Math.random() * 5 - 2.5);
+                                    msg = "Hello, traveler!";
+                                    window.GenieAI.commandNPC(uuid, { target_x: tx, target_z: tz, chat_message: msg });
+                                }
+                            }
+                        }
+                    }, 3000);
+                } else {
+                    btnToggleAI.innerText = "ENABLE BROWSER AI";
+                    btnToggleAI.style.background = "";
+                    btnToggleAI.style.borderColor = "";
+                    btnToggleAI.style.color = "";
+
+                    if (window.aiInterval) {
+                        clearInterval(window.aiInterval);
+                        window.aiInterval = null;
+                    }
+                }
+            });
+        }
+    });
 </script>

@@ -1161,6 +1161,7 @@ impl State {
                 reality_types::RealityArchetype::Vaporwave => ( 8.0, [0.0, 1.0, 1.0, 1.0] ), // Cyan
                 reality_types::RealityArchetype::Noir => ( 9.0, [0.1, 0.1, 0.1, 1.0] ), // Dark Gray
                 reality_types::RealityArchetype::CyberSpace => ( 10.0, [0.0, 1.0, 0.0, 1.0] ), // Matrix Green
+                reality_types::RealityArchetype::Dream => ( 11.0, [0.8, 0.6, 1.0, 1.0] ), // Pastel Purple
             }
         }
 
@@ -1223,6 +1224,7 @@ impl State {
                 crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
                 crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
                 crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
             };
             entity_instances.push(visual_lambda::LambdaInstance {
                 position: [npc.location.x, npc.location.y - 1.0, npc.location.z],
@@ -1442,6 +1444,7 @@ impl GameClient {
             8 => reality_types::RealityArchetype::Vaporwave,
             9 => reality_types::RealityArchetype::Noir,
             10 => reality_types::RealityArchetype::CyberSpace,
+            11 => reality_types::RealityArchetype::Dream,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {

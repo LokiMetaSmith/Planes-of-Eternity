@@ -111,7 +111,7 @@ impl Engine {
             let mut world_state = WorldState::default();
 
             // Spawn initial NPCs
-            let archetypes = vec![RealityArchetype::SciFi, RealityArchetype::Horror, RealityArchetype::HyperNature, RealityArchetype::CyberSpace];
+            let archetypes = vec![RealityArchetype::SciFi, RealityArchetype::Horror, RealityArchetype::HyperNature, RealityArchetype::CyberSpace, RealityArchetype::Dream];
             for (i, arch) in archetypes.into_iter().enumerate() {
                 let mut sig = RealitySignature::default();
                 sig.active_style.archetype = arch;
@@ -612,7 +612,7 @@ impl Engine {
         self.world_state = WorldState::default();
 
         // Spawn initial NPCs
-        let archetypes = vec![RealityArchetype::SciFi, RealityArchetype::Horror, RealityArchetype::HyperNature, RealityArchetype::CyberSpace];
+        let archetypes = vec![RealityArchetype::SciFi, RealityArchetype::Horror, RealityArchetype::HyperNature, RealityArchetype::CyberSpace, RealityArchetype::Dream];
         for (i, arch) in archetypes.into_iter().enumerate() {
             let mut sig = RealitySignature::default();
             sig.active_style.archetype = arch;

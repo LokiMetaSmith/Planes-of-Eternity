@@ -71,6 +71,7 @@
 - [x] **New Archetypes**: Added Vaporwave archetype to Reality Engine.
 - [x] **New Archetypes**: Added Noir archetype to Reality Engine.
 - [x] **New Archetypes**: Added CyberSpace archetype to Reality Engine.
+- [x] **New Archetypes**: Added Dream archetype to Reality Engine.
 
 ## UI/UX
 - [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.

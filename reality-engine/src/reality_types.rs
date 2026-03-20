@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
 pub enum RealityArchetype {
     #[default]
     Void,        // Default/Empty
@@ -16,6 +16,7 @@ pub enum RealityArchetype {
     Noir,        // Monochrome, High Contrast, Rain
     CyberSpace,  // Matrix / Digital Grid
     Dream,       // Soft Pastel Clouds
+    ObraDinn,    // 1-bit Dithered Sphere Mapping
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

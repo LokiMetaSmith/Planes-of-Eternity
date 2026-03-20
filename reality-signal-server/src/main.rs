@@ -56,7 +56,8 @@ async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
 
     // Security Enhancement: Prevent DoS by limiting max connections
     const MAX_CONNECTIONS: usize = 1000;
-    if users.lock().unwrap().len() >= MAX_CONNECTIONS {
+    // Security Enhancement: Handle Mutex poisoning gracefully to prevent DoS
+    if users.lock().unwrap_or_else(|e| e.into_inner()).len() >= MAX_CONNECTIONS {
         eprintln!(
             "Security Warning: Max connections ({}) reached. Rejecting user {}.",
             MAX_CONNECTIONS, my_id
@@ -89,7 +90,7 @@ async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
     });
 
     // Save the sender in our list of connected users.
-    users.lock().unwrap().insert(my_id, tx);
+    users.lock().unwrap_or_else(|e| e.into_inner()).insert(my_id, tx);
 
     println!("User {} connected", my_id);
 
@@ -153,7 +154,7 @@ async fn user_message(my_id: usize, msg: warp::ws::Message, users: &Users) {
     let new_msg = format!("{}", msg); // Just echo/relay the pollen
 
     // New message from this user, send it to everyone else (except same uid)...
-    for (&uid, tx) in users.lock().unwrap().iter() {
+    for (&uid, tx) in users.lock().unwrap_or_else(|e| e.into_inner()).iter() {
         if my_id != uid {
             if let Err(e) = tx.try_send(Ok(warp::ws::Message::text(new_msg.clone()))) {
                 // If the client is too slow or disconnected, drop the message.
@@ -167,5 +168,5 @@ async fn user_message(my_id: usize, msg: warp::ws::Message, users: &Users) {
 async fn user_disconnected(my_id: usize, users: &Users) {
     println!("User {} disconnected", my_id);
     // Stream closed up, so remove from the user list
-    users.lock().unwrap().remove(&my_id);
+    users.lock().unwrap_or_else(|e| e.into_inner()).remove(&my_id);
 }

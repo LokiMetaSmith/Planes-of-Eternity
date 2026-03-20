@@ -68,10 +68,14 @@ impl std::fmt::Display for Action {
     }
 }
 
+use crate::reality_types::RealityArchetype;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputConfig {
     pub bindings: HashMap<Action, String>, // Action -> KeyCode (e.g. "KeyW")
     pub reverse_bindings: HashMap<String, Action>, // KeyCode -> Action
+    #[serde(default)]
+    pub archetype_filters: HashMap<RealityArchetype, RealityArchetype>, // Blacklist -> Replacement
 }
 
 impl Default for InputConfig {
@@ -96,6 +100,7 @@ impl Default for InputConfig {
         let mut config = Self {
             bindings,
             reverse_bindings: HashMap::new(),
+            archetype_filters: HashMap::new(),
         };
         config.update_reverse_bindings();
         config

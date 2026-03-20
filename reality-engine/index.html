@@ -347,6 +347,7 @@
                     <option value="9">Noir</option>
                     <option value="10">CyberSpace</option>
                     <option value="11">Dream</option>
+                    <option value="12">Obra Dinn</option>
                 </select>
             </div>
 
@@ -380,7 +381,45 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Save Manager</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Safety Filters</div>
+            <div class="control-group">
+                <label for="filter-block">Block Archetype</label>
+                <select id="filter-block">
+                    <option value="-1">None</option>
+                    <option value="0">Fantasy</option>
+                    <option value="1">SciFi</option>
+                    <option value="2">Horror</option>
+                    <option value="3">Toon</option>
+                    <option value="4">HyperNature</option>
+                    <option value="5">Genie (Dream)</option>
+                    <option value="6">Glitch</option>
+                    <option value="7">Steampunk</option>
+                    <option value="8">Vaporwave</option>
+                    <option value="9">Noir</option>
+                    <option value="10">CyberSpace</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="filter-replace">Replace With</label>
+                <select id="filter-replace">
+                    <option value="0">Fantasy</option>
+                    <option value="1">SciFi</option>
+                    <option value="2">Horror</option>
+                    <option value="3">Toon</option>
+                    <option value="4">HyperNature</option>
+                    <option value="5" selected>Genie (Dream)</option>
+                    <option value="6">Glitch</option>
+                    <option value="7">Steampunk</option>
+                    <option value="8">Vaporwave</option>
+                    <option value="9">Noir</option>
+                    <option value="10">CyberSpace</option>
+                </select>
+            </div>
+            <button id="btn-apply-filter" class="cyber-button" style="width: 100%;">APPLY FILTER</button>
+        </div>
+
+        <div class="cyber-card" style="margin-top: 10px;">
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Save Manager</div>
             <div class="control-group">
                 <label for="input-save-name">Slot Name</label>
                 <input type="text" id="input-save-name" placeholder="default">
@@ -577,6 +616,34 @@
                 distSlider.addEventListener('input', updateParams);
                  distSlider.addEventListener('change', () => {
                      log(`> PARAM_UPDATE: DISTORTION = ${distSlider.value}`);
+                });
+
+                // Safety Filters
+                const filterBlock = document.getElementById('filter-block');
+                const filterReplace = document.getElementById('filter-replace');
+                const btnApplyFilter = document.getElementById('btn-apply-filter');
+
+                function refreshFilterUI() {
+                    const blocked = parseInt(filterBlock.value, 10);
+                    if (blocked >= 0) {
+                        const replaced = gameClient.get_archetype_filter(blocked);
+                        if (replaced >= 0) {
+                            filterReplace.value = replaced;
+                        }
+                    }
+                }
+
+                filterBlock.addEventListener('change', refreshFilterUI);
+
+                btnApplyFilter.addEventListener('click', () => {
+                    const blocked = parseInt(filterBlock.value, 10);
+                    const replaced = parseInt(filterReplace.value, 10);
+                    if (blocked >= 0 && replaced >= 0) {
+                        gameClient.set_archetype_filter(blocked, replaced);
+                        log(`> SAFETY FILTER APPLIED: Blocked [${filterBlock.options[filterBlock.selectedIndex].text}], Replaced with [${filterReplace.options[filterReplace.selectedIndex].text}]`);
+                    } else {
+                        log("> FILTER ERROR: Invalid selection.");
+                    }
                 });
 
                 // Save Management

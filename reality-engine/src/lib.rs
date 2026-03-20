@@ -1162,11 +1162,13 @@ impl State {
                 reality_types::RealityArchetype::Noir => ( 9.0, [0.1, 0.1, 0.1, 1.0] ), // Dark Gray
                 reality_types::RealityArchetype::CyberSpace => ( 10.0, [0.0, 1.0, 0.0, 1.0] ), // Matrix Green
                 reality_types::RealityArchetype::Dream => ( 11.0, [0.8, 0.6, 1.0, 1.0] ), // Pastel Purple
+                reality_types::RealityArchetype::ObraDinn => ( 12.0, [0.9, 0.9, 0.8, 1.0] ), // Pale yellow
             }
         }
 
         let p1 = &self.engine.player_projector;
-        let (id1, color1) = get_archetype_data(p1.reality_signature.active_style.archetype);
+        let p1_archetype = *self.engine.input_config.archetype_filters.get(&p1.reality_signature.active_style.archetype).unwrap_or(&p1.reality_signature.active_style.archetype);
+        let (id1, color1) = get_archetype_data(p1_archetype);
         self.reality_uniform.proj1_pos_fid = [p1.location.x, p1.location.y, p1.location.z, p1.reality_signature.fidelity];
         self.reality_uniform.proj1_params = [
             p1.reality_signature.active_style.roughness,
@@ -1182,7 +1184,8 @@ impl State {
              &self.engine.player_projector
         };
 
-        let (id2, color2) = get_archetype_data(p2.reality_signature.active_style.archetype);
+        let p2_archetype = *self.engine.input_config.archetype_filters.get(&p2.reality_signature.active_style.archetype).unwrap_or(&p2.reality_signature.active_style.archetype);
+        let (id2, color2) = get_archetype_data(p2_archetype);
         self.reality_uniform.proj2_pos_fid = [p2.location.x, p2.location.y, p2.location.z, p2.reality_signature.fidelity];
         self.reality_uniform.proj2_params = [
             p2.reality_signature.active_style.roughness,
@@ -1225,6 +1228,7 @@ impl State {
                 crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
                 crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
                 crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
             };
             entity_instances.push(visual_lambda::LambdaInstance {
                 position: [npc.location.x, npc.location.y - 1.0, npc.location.z],
@@ -1445,12 +1449,88 @@ impl GameClient {
             9 => reality_types::RealityArchetype::Noir,
             10 => reality_types::RealityArchetype::CyberSpace,
             11 => reality_types::RealityArchetype::Dream,
+            12 => reality_types::RealityArchetype::ObraDinn,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
             anomaly.reality_signature.active_style.archetype = archetype;
         }
         self.save_state(&state);
+    }
+
+    pub fn set_archetype_filter(&self, blacklisted_id: i32, replacement_id: i32) {
+        let mut state = self.state.borrow_mut();
+
+        let blacklisted = match blacklisted_id {
+            0 => reality_types::RealityArchetype::Fantasy,
+            1 => reality_types::RealityArchetype::SciFi,
+            2 => reality_types::RealityArchetype::Horror,
+            3 => reality_types::RealityArchetype::Toon,
+            4 => reality_types::RealityArchetype::HyperNature,
+            5 => reality_types::RealityArchetype::Genie,
+            6 => reality_types::RealityArchetype::Glitch,
+            7 => reality_types::RealityArchetype::Steampunk,
+            8 => reality_types::RealityArchetype::Vaporwave,
+            9 => reality_types::RealityArchetype::Noir,
+            10 => reality_types::RealityArchetype::CyberSpace,
+            _ => reality_types::RealityArchetype::Void,
+        };
+
+        let replacement = match replacement_id {
+            0 => reality_types::RealityArchetype::Fantasy,
+            1 => reality_types::RealityArchetype::SciFi,
+            2 => reality_types::RealityArchetype::Horror,
+            3 => reality_types::RealityArchetype::Toon,
+            4 => reality_types::RealityArchetype::HyperNature,
+            5 => reality_types::RealityArchetype::Genie,
+            6 => reality_types::RealityArchetype::Glitch,
+            7 => reality_types::RealityArchetype::Steampunk,
+            8 => reality_types::RealityArchetype::Vaporwave,
+            9 => reality_types::RealityArchetype::Noir,
+            10 => reality_types::RealityArchetype::CyberSpace,
+            _ => reality_types::RealityArchetype::Void,
+        };
+
+        state.engine.input_config.archetype_filters.insert(blacklisted, replacement);
+        self.save_state(&state);
+    }
+
+    pub fn get_archetype_filter(&self, blacklisted_id: i32) -> i32 {
+        let state = self.state.borrow();
+
+        let blacklisted = match blacklisted_id {
+            0 => reality_types::RealityArchetype::Fantasy,
+            1 => reality_types::RealityArchetype::SciFi,
+            2 => reality_types::RealityArchetype::Horror,
+            3 => reality_types::RealityArchetype::Toon,
+            4 => reality_types::RealityArchetype::HyperNature,
+            5 => reality_types::RealityArchetype::Genie,
+            6 => reality_types::RealityArchetype::Glitch,
+            7 => reality_types::RealityArchetype::Steampunk,
+            8 => reality_types::RealityArchetype::Vaporwave,
+            9 => reality_types::RealityArchetype::Noir,
+            10 => reality_types::RealityArchetype::CyberSpace,
+            _ => reality_types::RealityArchetype::Void,
+        };
+
+        if let Some(replacement) = state.engine.input_config.archetype_filters.get(&blacklisted) {
+            match replacement {
+                reality_types::RealityArchetype::Fantasy => 0,
+                reality_types::RealityArchetype::SciFi => 1,
+                reality_types::RealityArchetype::Horror => 2,
+                reality_types::RealityArchetype::Toon => 3,
+                reality_types::RealityArchetype::HyperNature => 4,
+                reality_types::RealityArchetype::Genie => 5,
+                reality_types::RealityArchetype::Glitch => 6,
+                reality_types::RealityArchetype::Steampunk => 7,
+                reality_types::RealityArchetype::Vaporwave => 8,
+                reality_types::RealityArchetype::Noir => 9,
+                reality_types::RealityArchetype::CyberSpace => 10,
+                reality_types::RealityArchetype::Void => -1,
+            }
+        } else {
+            -1 // No filter set
+        }
     }
 
     pub fn get_key_binding(&self, action_name: String) -> String {

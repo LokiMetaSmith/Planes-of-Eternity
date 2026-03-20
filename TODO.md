@@ -72,6 +72,7 @@
 - [x] **New Archetypes**: Added Noir archetype to Reality Engine.
 - [x] **New Archetypes**: Added CyberSpace archetype to Reality Engine.
 - [x] **New Archetypes**: Added Dream archetype to Reality Engine.
+- [x] **New Archetypes**: Added ObraDinn archetype to Reality Engine with spherical dither mapping.
 
 ## UI/UX
 - [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.

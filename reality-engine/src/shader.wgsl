@@ -1,5 +1,6 @@
 struct CameraUniform {
     view_proj: mat4x4<f32>,
+    camera_pos: vec4<f32>,
 };
 @group(1) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -299,6 +300,10 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let n = fbm(p + vec2<f32>(time * 0.05), 4, roughness);
         let smooth_hills = smoothstep(0.2, 0.8, n);
         return smooth_hills * 5.0 * params.z;
+    } else if (id < 12.5) {
+        // Obra Dinn (Dithered Sphere)
+        // Flat terrain to highlight the dither effect
+        return 0.0;
     }
 
     return 0.0;
@@ -582,6 +587,100 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
 
         let mix1 = mix(pink, blue, smoothstep(0.3, 0.7, n));
         return mix(mix1, lavender, smoothstep(0.4, 0.8, n + time * 0.1));
+    } else if (id < 12.5) {
+        // Obra Dinn (Spherical Dither Mapping)
+        let dir = normalize(pos_in - camera.camera_pos.xyz);
+        let pitch = asin(dir.y);
+        let yaw = atan2(dir.z, dir.x);
+
+        // Convert to a scaled UV space for the dither pattern
+        // The scale parameter controls the size of the dither dots
+        let dither_scale = max(scale, 0.1) * 200.0;
+        let uv = vec2<f32>(yaw, pitch) * dither_scale;
+
+        let x = u32(abs(uv.x)) % 8u;
+        let y = u32(abs(uv.y)) % 8u;
+
+        // 8x8 Bayer Matrix
+        var bayer = 0.0;
+        let idx = y * 8u + x;
+        if (idx == 0u) { bayer = 0.0 / 64.0; }
+        else if (idx == 1u) { bayer = 32.0 / 64.0; }
+        else if (idx == 2u) { bayer = 8.0 / 64.0; }
+        else if (idx == 3u) { bayer = 40.0 / 64.0; }
+        else if (idx == 4u) { bayer = 2.0 / 64.0; }
+        else if (idx == 5u) { bayer = 34.0 / 64.0; }
+        else if (idx == 6u) { bayer = 10.0 / 64.0; }
+        else if (idx == 7u) { bayer = 42.0 / 64.0; }
+        else if (idx == 8u) { bayer = 48.0 / 64.0; }
+        else if (idx == 9u) { bayer = 16.0 / 64.0; }
+        else if (idx == 10u) { bayer = 56.0 / 64.0; }
+        else if (idx == 11u) { bayer = 24.0 / 64.0; }
+        else if (idx == 12u) { bayer = 50.0 / 64.0; }
+        else if (idx == 13u) { bayer = 18.0 / 64.0; }
+        else if (idx == 14u) { bayer = 58.0 / 64.0; }
+        else if (idx == 15u) { bayer = 26.0 / 64.0; }
+        else if (idx == 16u) { bayer = 12.0 / 64.0; }
+        else if (idx == 17u) { bayer = 44.0 / 64.0; }
+        else if (idx == 18u) { bayer = 4.0 / 64.0; }
+        else if (idx == 19u) { bayer = 36.0 / 64.0; }
+        else if (idx == 20u) { bayer = 14.0 / 64.0; }
+        else if (idx == 21u) { bayer = 46.0 / 64.0; }
+        else if (idx == 22u) { bayer = 6.0 / 64.0; }
+        else if (idx == 23u) { bayer = 38.0 / 64.0; }
+        else if (idx == 24u) { bayer = 60.0 / 64.0; }
+        else if (idx == 25u) { bayer = 28.0 / 64.0; }
+        else if (idx == 26u) { bayer = 52.0 / 64.0; }
+        else if (idx == 27u) { bayer = 20.0 / 64.0; }
+        else if (idx == 28u) { bayer = 62.0 / 64.0; }
+        else if (idx == 29u) { bayer = 30.0 / 64.0; }
+        else if (idx == 30u) { bayer = 54.0 / 64.0; }
+        else if (idx == 31u) { bayer = 22.0 / 64.0; }
+        else if (idx == 32u) { bayer = 3.0 / 64.0; }
+        else if (idx == 33u) { bayer = 35.0 / 64.0; }
+        else if (idx == 34u) { bayer = 11.0 / 64.0; }
+        else if (idx == 35u) { bayer = 43.0 / 64.0; }
+        else if (idx == 36u) { bayer = 1.0 / 64.0; }
+        else if (idx == 37u) { bayer = 33.0 / 64.0; }
+        else if (idx == 38u) { bayer = 9.0 / 64.0; }
+        else if (idx == 39u) { bayer = 41.0 / 64.0; }
+        else if (idx == 40u) { bayer = 51.0 / 64.0; }
+        else if (idx == 41u) { bayer = 19.0 / 64.0; }
+        else if (idx == 42u) { bayer = 59.0 / 64.0; }
+        else if (idx == 43u) { bayer = 27.0 / 64.0; }
+        else if (idx == 44u) { bayer = 49.0 / 64.0; }
+        else if (idx == 45u) { bayer = 17.0 / 64.0; }
+        else if (idx == 46u) { bayer = 57.0 / 64.0; }
+        else if (idx == 47u) { bayer = 25.0 / 64.0; }
+        else if (idx == 48u) { bayer = 15.0 / 64.0; }
+        else if (idx == 49u) { bayer = 47.0 / 64.0; }
+        else if (idx == 50u) { bayer = 7.0 / 64.0; }
+        else if (idx == 51u) { bayer = 39.0 / 64.0; }
+        else if (idx == 52u) { bayer = 13.0 / 64.0; }
+        else if (idx == 53u) { bayer = 45.0 / 64.0; }
+        else if (idx == 54u) { bayer = 5.0 / 64.0; }
+        else if (idx == 55u) { bayer = 37.0 / 64.0; }
+        else if (idx == 56u) { bayer = 63.0 / 64.0; }
+        else if (idx == 57u) { bayer = 31.0 / 64.0; }
+        else if (idx == 58u) { bayer = 55.0 / 64.0; }
+        else if (idx == 59u) { bayer = 23.0 / 64.0; }
+        else if (idx == 60u) { bayer = 61.0 / 64.0; }
+        else if (idx == 61u) { bayer = 29.0 / 64.0; }
+        else if (idx == 62u) { bayer = 53.0 / 64.0; }
+        else if (idx == 63u) { bayer = 21.0 / 64.0; }
+
+        let lum = dot(base_color, vec3<f32>(0.299, 0.587, 0.114));
+        // Add a slight noise gradient so perfectly flat surfaces aren't solid color
+        let n = fbm(pos_in.xz * scale, 3, roughness);
+        let varied_lum = mix(lum, n, 0.2);
+
+        let threshold = bayer;
+        let is_white = step(threshold, varied_lum);
+
+        let color_dark = vec3<f32>(0.1, 0.1, 0.15);
+        let color_light = vec3<f32>(0.9, 0.9, 0.85);
+
+        return mix(color_dark, color_light, is_white);
     }
 
     return base_color;

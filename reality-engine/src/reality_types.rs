@@ -16,6 +16,7 @@ pub enum RealityArchetype {
     Noir,        // Monochrome, High Contrast, Rain
     CyberSpace,  // Matrix / Digital Grid
     Dream,       // Soft Pastel Clouds
+    ObraDinn,    // 1-bit Dithered Sphere Mapping
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

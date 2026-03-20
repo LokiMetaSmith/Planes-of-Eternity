@@ -330,7 +330,7 @@
 
     <div id="ui-layer">
         <div class="cyber-card">
-            <div class="cyber-header">Anomaly Projector</div>
+            <div class="cyber-header" role="heading" aria-level="2">Anomaly Projector</div>
 
             <div class="control-group">
                 <label for="param-archetype">Archetype</label>
@@ -371,7 +371,7 @@
         </div>
 
         <div id="network-status-panel" class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 5px;">Network Uplink</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 5px;" role="heading" aria-level="2">Network Uplink</div>
             <div style="font-size: 0.8rem; color: #888;">
                 SIGNAL: <span id="status-signal" style="color: #555;">OFFLINE</span><br>
                 PEER ID: <span id="status-peer-id" style="color: #555;">---</span><br>
@@ -380,7 +380,7 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Save Manager</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Save Manager</div>
             <div class="control-group">
                 <label for="input-save-name">Slot Name</label>
                 <input type="text" id="input-save-name" placeholder="default">
@@ -406,7 +406,7 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Controls</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Controls</div>
             <div style="margin-bottom: 10px;">
                 <button id="btn-keybinds" class="cyber-button" style="font-size: 0.8rem;">CONFIGURE CONTROLS</button>
                 <button id="btn-toggle-ai" class="cyber-button" style="font-size: 0.8rem; margin-top: 5px;" aria-pressed="false">ENABLE BROWSER AI</button>
@@ -424,7 +424,7 @@
     <!-- Keybinds Overlay -->
     <div id="keybind-overlay" role="dialog" aria-modal="true" aria-labelledby="keybind-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
         <div class="cyber-card" style="width: 400px; max-width: 90%;">
-            <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;" role="heading" aria-level="2">
                 <span id="keybind-header">NEURAL LINK CONFIG</span>
                 <button id="btn-close-keybinds" class="close-btn" aria-label="Close configuration">[X]</button>
             </div>
@@ -782,16 +782,28 @@
                 btnAR.addEventListener('click', async () => {
                     log("> INITIALIZING AR UPLINK...");
 
+                    const originalText = btnAR.innerText;
+                    btnAR.disabled = true;
+                    btnAR.innerText = "WAITING FOR PERMISSION...";
+                    btnAR.setAttribute('aria-busy', 'true');
+                    btnAR.style.opacity = '0.7';
+                    btnAR.style.cursor = 'wait';
+
                     // Attempt WebXR first if supported
                     if (arSupported) {
                          try {
                              log("> REQUESTING WEBXR SESSION...");
                              await gameClient.enter_ar_session();
                              log("> WEBXR SESSION STARTED");
+                             btnAR.innerText = "UPLINK ESTABLISHED";
+                             btnAR.removeAttribute('aria-busy');
+                             btnAR.style.opacity = '';
+                             btnAR.style.cursor = '';
                              return; // Skip Magic Window fallback if WebXR works
                          } catch (e) {
                              log("> WEBXR ERROR: " + e);
                              log("> FALLING BACK TO MAGIC WINDOW...");
+                             // Will fall through to magic window, keep loading state
                          }
                     }
 
@@ -805,6 +817,11 @@
                         log("> VIDEO FEED ESTABLISHED");
 
                         // iOS 13+ DeviceOrientation permission
+                        btnAR.innerText = "UPLINK ESTABLISHED";
+                        btnAR.removeAttribute('aria-busy');
+                        btnAR.style.opacity = '';
+                        btnAR.style.cursor = '';
+
                         if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                              log("> REQUESTING SENSOR PERMISSION...");
                              const response = await DeviceOrientationEvent.requestPermission();
@@ -817,6 +834,28 @@
                     } catch (e) {
                         console.error(e);
                         log("> AR FAILURE: " + e.message);
+
+                        btnAR.innerText = "UPLINK FAILED";
+                        btnAR.removeAttribute('aria-busy');
+                        btnAR.style.borderColor = "#ff2a6d";
+                        btnAR.style.color = "#ff2a6d";
+                        btnAR.style.background = "rgba(255, 42, 109, 0.1)";
+
+                        setTimeout(() => {
+                            btnAR.disabled = false;
+                            btnAR.innerText = originalText;
+                            btnAR.style.opacity = '';
+                            btnAR.style.cursor = '';
+                            if (arSupported) {
+                                btnAR.style.borderColor = "#00ff00";
+                                btnAR.style.color = "#00ff00";
+                                btnAR.style.background = "rgba(0, 255, 0, 0.1)";
+                            } else {
+                                btnAR.style.borderColor = "";
+                                btnAR.style.color = "";
+                                btnAR.style.background = "";
+                            }
+                        }, 3000);
                     }
                 });
 

@@ -26,3 +26,7 @@
 **Vulnerability:** DoS risk via unbound string input parsing. `process_inscription` took user input and parsed it directly using a custom lambda calculus parser without length limits, potentially allowing a malicious user to crash or stall the engine.
 **Learning:** Even internal UI inputs that parse into complex ASTs can be vectors for resource exhaustion DoS if unbounded.
 **Prevention:** Always enforce reasonable maximum length limits on user input before passing it to expensive parsers.
+## 2026-03-14 - Mutex Poisoning Denial of Service
+**Vulnerability:** The signaling server used `.unwrap()` on `users.lock()` when accessing the shared connected users state (`std::sync::Mutex`).
+**Learning:** In Rust, if a thread panics while holding a `Mutex`, the mutex becomes "poisoned". Any subsequent attempts to lock the mutex and `.unwrap()` it will also panic, causing a complete Denial of Service (DoS) for the entire server, as all new connections or message broadcasts will fail.
+**Prevention:** Handle Mutex poisoning gracefully by using `.unwrap_or_else(|e| e.into_inner())` or pattern matching `match users.lock() { Ok(guard) => guard, Err(poisoned) => poisoned.into_inner() }` to extract the guard and continue operating, assuming the protected data structure is still structurally sound (which it is for a simple HashMap).

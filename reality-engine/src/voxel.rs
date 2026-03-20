@@ -409,10 +409,14 @@ impl Chunk {
                     // Volcano
                     let vx = wx - 40;
                     let vz = wz;
-                    let dist = ((vx*vx + vz*vz) as f32).sqrt();
-                    let height = 20.0 - dist;
-                    if wy as f32 <= height && wy >= 0 {
-                        if dist < 2.0 { voxel.id = 2; } else { voxel.id = 1; }
+                    // Optimization: Use integer arithmetic and squared distances to eliminate expensive f32 conversions
+                    // and float sqrt() calls in this tight chunk generation loop.
+                    if wy >= 0 && wy <= 20 {
+                        let dist_sq = vx * vx + vz * vz;
+                        let max_dist = 20 - wy;
+                        if dist_sq <= max_dist * max_dist {
+                            if dist_sq < 4 { voxel.id = 2; } else { voxel.id = 1; }
+                        }
                     }
 
                     // Fire Noise

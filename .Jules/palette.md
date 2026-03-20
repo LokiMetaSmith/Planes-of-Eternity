@@ -21,3 +21,11 @@
 ## 2026-03-24 - Toggle Button State Announcements
 **Learning:** Stylized toggle buttons that convey their active state only via visual styling changes (like changing text from "ENABLE" to "DISABLE" and altering colors) do not inherently communicate their state to assistive technologies, leading to confusion.
 **Action:** Always add `aria-pressed="false"` to toggle buttons and programmatically update it to `"true"` or `"false"` when the state changes to explicitly convey the on/off state to screen readers.
+
+## 2026-03-24 - Semantic Headings in Custom UIs
+**Learning:** Stylized custom UI dashboards often use `<div>` elements as visual headers (like `.cyber-header`) but fail to provide semantic heading roles, preventing screen reader users from using heading navigation shortcuts to jump between sections.
+**Action:** Always add `role="heading"` and an appropriate `aria-level` (e.g., `aria-level="2"`) to div elements acting as structural titles in custom UI layouts.
+
+## 2026-03-24 - Hardware Permission Loading States
+**Learning:** Native browser permission prompts (like `getUserMedia` or WebXR) silently block UI execution. If the button that triggers them doesn't immediately enter a loading state, users (and screen readers) receive no feedback and may assume the button is broken.
+**Action:** Always immediately set `disabled`, `aria-busy="true"`, and a waiting text state on buttons that trigger native browser hardware permissions, and handle resetting the state on both success and failure to ensure continuous feedback.

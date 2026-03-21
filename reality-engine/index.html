@@ -381,7 +381,7 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Safety Filters</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Safety Filters</div>
             <div class="control-group">
                 <label for="filter-block">Block Archetype</label>
                 <select id="filter-block">
@@ -419,7 +419,7 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Save Manager</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Save Manager</div>
             <div class="control-group">
                 <label for="input-save-name">Slot Name</label>
                 <input type="text" id="input-save-name" placeholder="default">
@@ -790,6 +790,7 @@
                     "VoxelDiffusion", "VoxelTimeReverse", "VoxelDream"
                 ];
                 let currentlyRebinding = null;
+                let currentRebindHandler = null;
 
                 function renderKeybinds() {
                     keybindList.innerHTML = '';
@@ -829,15 +830,16 @@
                             renderKeybinds();
 
                             // One-time listener
-                            const handler = (e) => {
+                            currentRebindHandler = (e) => {
                                 e.preventDefault();
                                 log(`> REBIND: ${action} -> ${e.code}`);
                                 gameClient.set_key_binding(action, e.code);
                                 currentlyRebinding = null;
-                                window.removeEventListener('keydown', handler);
+                                window.removeEventListener('keydown', currentRebindHandler);
+                                currentRebindHandler = null;
                                 renderKeybinds();
                             };
-                            window.addEventListener('keydown', handler);
+                            window.addEventListener('keydown', currentRebindHandler);
                         };
 
                         row.appendChild(label);
@@ -852,14 +854,42 @@
                     btnCloseKeybinds.focus();
                 });
 
-                btnCloseKeybinds.addEventListener('click', () => {
+                const closeKeybindsModal = () => {
                     keybindOverlay.style.display = 'none';
                     if (currentlyRebinding) {
                         currentlyRebinding = null; // Cancel pending?
-                        // Remove listeners? Complex without ref.
+                        if (currentRebindHandler) {
+                            window.removeEventListener('keydown', currentRebindHandler);
+                            currentRebindHandler = null;
+                        }
                         // Just reload list next time.
                     }
                     btnKeybinds.focus();
+                };
+
+                btnCloseKeybinds.addEventListener('click', closeKeybindsModal);
+
+                keybindOverlay.addEventListener('click', (e) => {
+                    if (e.target === keybindOverlay) {
+                        closeKeybindsModal();
+                    }
+                });
+
+                window.addEventListener('keydown', (e) => {
+                    if (e.code === 'Escape') {
+                        if (currentlyRebinding) {
+                            e.preventDefault();
+                            currentlyRebinding = null;
+                            if (currentRebindHandler) {
+                                window.removeEventListener('keydown', currentRebindHandler);
+                                currentRebindHandler = null;
+                            }
+                            renderKeybinds();
+                        } else if (keybindOverlay.style.display === 'flex') {
+                            e.preventDefault();
+                            closeKeybindsModal();
+                        }
+                    }
                 });
 
                 const btnAR = document.getElementById('btn-start-ar');

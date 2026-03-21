@@ -29,3 +29,7 @@
 ## 2026-03-24 - Hardware Permission Loading States
 **Learning:** Native browser permission prompts (like `getUserMedia` or WebXR) silently block UI execution. If the button that triggers them doesn't immediately enter a loading state, users (and screen readers) receive no feedback and may assume the button is broken.
 **Action:** Always immediately set `disabled`, `aria-busy="true"`, and a waiting text state on buttons that trigger native browser hardware permissions, and handle resetting the state on both success and failure to ensure continuous feedback.
+
+## 2026-03-24 - Custom Modal Dismissal Patterns
+**Learning:** Custom UI modal overlays that do not support backdrop clicking or Escape key dismissal violate user expectations and severely hamper keyboard-only users, who rely on `Escape` to quickly exit dialogs and cancel intermediate states (like key rebinding) without submitting.
+**Action:** Always implement explicit background click dismissal (`e.target === overlay`) and global `Escape` key event listeners to cleanly dismiss custom modals and cancel any active pending actions (like pending key listeners).

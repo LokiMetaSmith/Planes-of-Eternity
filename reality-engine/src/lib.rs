@@ -2196,7 +2196,28 @@ impl GameClient {
                     npc.target_location = Some(cgmath::Point3::new(tx, ty, tz));
                 }
                 if let Some(msg) = action.chat_message {
-                    log::info!("NPC {} says: {}", uuid, msg);
+                    // Security Enhancement: Prevent Log Injection/XSS by sanitizing input
+                    const MAX_MSG_CHARS: usize = 256;
+
+                    if msg.chars().count() > MAX_MSG_CHARS {
+                        log::warn!("Security Warning: NPC chat message exceeded maximum length limit ({} characters). Truncating.", MAX_MSG_CHARS);
+                    }
+
+                    // Basic escaping for HTML and removing control characters
+                    let sanitized: String = msg.chars()
+                        .take(MAX_MSG_CHARS)
+                        .filter(|c| !c.is_control())
+                        .map(|c| match c {
+                            '<' => "&lt;".to_string(),
+                            '>' => "&gt;".to_string(),
+                            '&' => "&amp;".to_string(),
+                            '"' => "&quot;".to_string(),
+                            '\'' => "&#x27;".to_string(),
+                            _ => c.to_string(),
+                        })
+                        .collect();
+
+                    log::info!("NPC {} says: {}", uuid, sanitized);
                     // Could add to an in-game chat log here
                 }
                 return true;

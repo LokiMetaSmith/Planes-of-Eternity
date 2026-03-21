@@ -1200,12 +1200,16 @@ impl LambdaSystem {
 
                      if dist_sq < (min_dist * min_dist) {
                          // Hard push (collision)
-                         let force = dir.normalize() * (repulsion_strength * 5.0);
-                         self.nodes[i].velocity += force * dt;
+                         // Optimization: Avoid expensive .normalize() by dividing the precomputed squared distance's square root.
+                         // This skips redundant magnitude recalculations (sqrt(x^2 + y^2 + z^2))
+                         let dist = dist_sq.sqrt();
+                         let scalar_force = (repulsion_strength * 5.0 * dt) / dist;
+                         self.nodes[i].velocity += dir * scalar_force;
                      } else if dist_sq < 150.0 {
                          // Soft push (repulsion)
-                         let force = dir.normalize() * (repulsion_strength / dist_sq);
-                         self.nodes[i].velocity += force * dt;
+                         let dist = dist_sq.sqrt();
+                         let scalar_force = (repulsion_strength * dt) / (dist_sq * dist);
+                         self.nodes[i].velocity += dir * scalar_force;
                      }
                 }
             }
@@ -1230,9 +1234,11 @@ impl LambdaSystem {
 
              if dist > 0.0001 {
                  let force = (dist - rest_len) * stiffness;
-                 let force_vec = dir.normalize() * force;
-                 self.nodes[start].velocity += force_vec * dt;
-                 self.nodes[end].velocity -= force_vec * dt;
+                 // Optimization: Avoid .normalize() by dividing the scalar force by the pre-calculated distance
+                 let scalar_force = (force * dt) / dist;
+                 let force_vec = dir * scalar_force;
+                 self.nodes[start].velocity += force_vec;
+                 self.nodes[end].velocity -= force_vec;
              }
         }
 

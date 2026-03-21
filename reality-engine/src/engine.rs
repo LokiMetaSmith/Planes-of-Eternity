@@ -478,6 +478,100 @@ impl Engine {
         labels
     }
 
+    pub fn get_node_labels_flat(&self) -> Vec<u8> {
+        let view_proj = self.camera.build_view_projection_matrix();
+        let mut bytes = Vec::new();
+
+        // We will write the count later, so we reserve 4 bytes
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        let mut count: u32 = 0;
+
+        // Status Label
+        let status_text = if self.lambda_system.paused {
+            "PAUSED"
+        } else if self.lambda_system.auto_reduce {
+            "AUTO-RUN"
+        } else {
+            "STEP MODE"
+        };
+
+        let (sr, sg, sb) = if self.lambda_system.paused {
+            (255u8, 255u8, 0u8) // Yellow
+        } else if self.lambda_system.auto_reduce {
+            (0u8, 255u8, 0u8) // Green
+        } else {
+            (0u8, 240u8, 255u8) // Cyan
+        };
+
+        let x: f32 = 0.05;
+        let y: f32 = 0.05;
+
+        bytes.extend_from_slice(&x.to_le_bytes());
+        bytes.extend_from_slice(&y.to_le_bytes());
+        bytes.push(sr);
+        bytes.push(sg);
+        bytes.push(sb);
+        bytes.push(255); // a
+        let text_bytes = status_text.as_bytes();
+        bytes.extend_from_slice(&(text_bytes.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(text_bytes);
+        count += 1;
+
+        for node in &self.lambda_system.nodes {
+            if node.scale < 0.01 { continue; }
+
+            let p = Point3::new(node.position.x, node.position.y, node.position.z);
+            let clip = view_proj * p.to_homogeneous();
+
+            if clip.w > 0.0 {
+                let ndc_x = clip.x / clip.w;
+                let ndc_y = clip.y / clip.w;
+
+                if (-1.2..=1.2).contains(&ndc_x) && (-1.2..=1.2).contains(&ndc_y) {
+                    let screen_x = (ndc_x + 1.0) * 0.5;
+                    let screen_y = (1.0 - ndc_y) * 0.5;
+
+                    let text = match &node.node_type {
+                        visual_lambda::NodeType::Var(s) => s.clone(),
+                        visual_lambda::NodeType::Abs(s) => format!("λ{}", s),
+                        visual_lambda::NodeType::Prim(p) => format!("{:?}", p).to_uppercase(),
+                        visual_lambda::NodeType::Port => {
+                            if let crate::lambda::Term::Var(name) = &*node.term {
+                                name.clone()
+                            } else {
+                                continue;
+                            }
+                        }
+                        _ => continue,
+                    };
+
+                    let r = (node.color[0] * 255.0) as u8;
+                    let g = (node.color[1] * 255.0) as u8;
+                    let b = (node.color[2] * 255.0) as u8;
+                    let a = (node.color[3] * 255.0) as u8;
+
+                    bytes.extend_from_slice(&screen_x.to_le_bytes());
+                    bytes.extend_from_slice(&screen_y.to_le_bytes());
+                    bytes.push(r);
+                    bytes.push(g);
+                    bytes.push(b);
+                    bytes.push(a);
+
+                    let t_bytes = text.as_bytes();
+                    bytes.extend_from_slice(&(t_bytes.len() as u16).to_le_bytes());
+                    bytes.extend_from_slice(t_bytes);
+                    count += 1;
+                }
+            }
+        }
+
+        // Write actual count
+        let count_bytes = count.to_le_bytes();
+        bytes[0..4].copy_from_slice(&count_bytes);
+
+        bytes
+    }
+
     pub fn get_ray(&self, x: f32, y: f32) -> (Point3<f32>, Vector3<f32>) {
         let view_proj = self.camera.build_view_projection_matrix();
         let inv_view_proj = view_proj.invert().unwrap_or(cgmath::Matrix4::identity());

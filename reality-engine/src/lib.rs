@@ -1415,6 +1415,14 @@ impl GameClient {
         serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string())
     }
 
+    pub fn get_node_labels_flat(&self) -> js_sys::Uint8Array {
+        let state = self.state.borrow();
+        let bytes = state.engine.get_node_labels_flat();
+        let array = js_sys::Uint8Array::new_with_length(bytes.len() as u32);
+        array.copy_from(&bytes);
+        array
+    }
+
     pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {
         let mut state = self.state.borrow_mut();
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -1526,6 +1534,8 @@ impl GameClient {
                 reality_types::RealityArchetype::Vaporwave => 8,
                 reality_types::RealityArchetype::Noir => 9,
                 reality_types::RealityArchetype::CyberSpace => 10,
+                reality_types::RealityArchetype::Dream => 11,
+                reality_types::RealityArchetype::ObraDinn => 12,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

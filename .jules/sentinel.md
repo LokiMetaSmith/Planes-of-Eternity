@@ -34,3 +34,8 @@
 **Vulnerability:** Lack of input sanitization and length limits on external JSON inputs (`chat_message` via `execute_npc_action_json`). While currently only logged, these messages were vulnerable to Log Injection, and if ever rendered to the DOM, Cross-Site Scripting (XSS). Additionally, unbound length could lead to Denial of Service (DoS) through memory exhaustion.
 **Learning:** External data originating from network or potentially untrusted sources (even internal components communicating via JSON string passing like JS -> Wasm) should always be treated as untrusted and sanitized upon entry into the core engine state, regardless of whether its immediate use appears safe (e.g. logging).
 **Prevention:** Implement strict length limits (e.g. 256 bytes) and basic HTML escaping / control character filtering immediately after deserializing JSON strings that represent user or external text input.
+
+## 2026-03-14 - Sentinel: Add WebRTC message length limit
+**Vulnerability:** DoS risk via unbounded WebRTC message string parsing. `network.rs` received arbitrary strings over PeerJS DataConnection and passed them to `serde_json::from_str` without checking their size, potentially allowing a malicious peer to exhaust memory.
+**Learning:** Even P2P client-side connections can be vectors for resource exhaustion DoS if unbounded incoming payloads are parsed blindly.
+**Prevention:** Always enforce reasonable maximum length limits on external string payloads (e.g. 64KB) before passing them to serializers/deserializers or processing pipelines.

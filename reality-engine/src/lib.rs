@@ -20,6 +20,7 @@ pub mod projector;
 pub mod persistence;
 pub mod world;
 pub mod voxel;
+pub mod voxelizer;
 pub mod genie_bridge;
 pub mod network;
 pub mod lambda;

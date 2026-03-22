@@ -200,6 +200,14 @@ impl NetworkManager {
          let on_data = Closure::wrap(Box::new(move |data: JsValue| {
              // Handle data sync
              if let Some(txt) = data.as_string() {
+                 // Security Enhancement: Prevent DoS by limiting WebRTC message length
+                 // A malicious peer could send a massive JSON payload causing memory exhaustion
+                 const MAX_WEBRTC_MSG_LEN: usize = 65536; // 64KB
+                 if txt.len() > MAX_WEBRTC_MSG_LEN {
+                     warn!("Security Warning: WebRTC message from {} exceeded length limit ({} bytes). Dropping message.", pid_data, txt.len());
+                     return;
+                 }
+
                  info!("Received WebRTC Data from {}: {}", pid_data, txt);
 
                  // Try to parse SyncMessage

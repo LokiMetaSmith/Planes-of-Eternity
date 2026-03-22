@@ -61,6 +61,32 @@ impl GenieBridge {
     pub fn diffuse_chunk(&self, _chunk: &mut Chunk) {
         log::warn!("Diffusion model disabled in this build.");
     }
+
+    /// Dynamically generates a 3D voxel model based on a text prompt
+    /// using the ML logic in the reality-genie crate.
+    pub fn generate_voxel_model(&self, prompt: &str) -> Chunk {
+        // Since we are returning a Chunk without knowing its world key, we can use a dummy key
+        let mut chunk = Chunk::new(crate::voxel::ChunkKey { x: 0, y: 0, z: 0 });
+
+        let generator = reality_genie::sparc::SparseVoxelGenerator::new();
+        let sparse_voxels = generator.generate_from_prompt(prompt);
+
+        for (pos, voxel_id) in sparse_voxels {
+            let x = pos[0];
+            let y = pos[1];
+            let z = pos[2];
+
+            // Validate bounds to prevent out-of-bounds access on Chunk
+            if x >= 0 && x < CHUNK_SIZE as i32 &&
+               y >= 0 && y < CHUNK_SIZE as i32 &&
+               z >= 0 && z < CHUNK_SIZE as i32 {
+                let idx = chunk.index(x as usize, y as usize, z as usize);
+                chunk.data[idx] = Voxel { id: voxel_id };
+            }
+        }
+
+        chunk
+    }
 }
 
 use serde::{Serialize, Deserialize};

@@ -78,3 +78,7 @@
 - [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.
 - [x] **Player Model**: Rendered a voxel sphere player model at the player's position colored by their active archetype to make the player dynamic and fit the game's voxel aesthetic.
 - [x] **Add AI or Non-Player Characters (NPCs)**: Added an array of NPCs to the WorldState, basic deterministic wandering logic to `Engine::update`, and updated rendering to use instanced drawing for the player and NPCs.
+
+## Dynamic 3D Voxel Model Generation
+- [x] **Programmatic Voxelizer**: Implement programmatic voxelization algorithm (OBJ to Voxel Chunk) in `reality-engine`.
+- [x] **Sparse Voxel Generator**: Expand `reality-genie` to include a Text-to-3D Sparse Voxel Generator (Sparc3D concept).

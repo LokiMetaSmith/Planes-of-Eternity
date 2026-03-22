@@ -1,3 +1,4 @@
+pub mod sparc;
 pub mod vqvae;
 pub mod lam;
 pub mod dynamics;

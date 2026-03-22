@@ -1458,10 +1458,13 @@ fn get_control_point(p0: Point3<f32>, p2: Point3<f32>, is_wire: bool) -> Point3<
         let dir = p2 - p0;
         let right = if dir.magnitude2() > 0.0001 {
              let r = Vector3::new(-dir.z, 0.0, dir.x);
-             if r.magnitude2() < 0.0001 {
+             let r_mag_sq = r.magnitude2();
+             if r_mag_sq < 0.0001 {
                  Vector3::unit_x() // fallback
              } else {
-                 r.normalize()
+                 // Optimization: Avoid implicit `.magnitude()` calculation inside `.normalize()`
+                 // by using the previously computed squared magnitude and doing the scalar multiplication manually.
+                 r * (1.0 / r_mag_sq.sqrt())
              }
         } else {
              Vector3::unit_x()

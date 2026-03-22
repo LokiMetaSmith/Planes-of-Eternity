@@ -33,3 +33,7 @@
 ## 2026-03-24 - Custom Modal Dismissal Patterns
 **Learning:** Custom UI modal overlays that do not support backdrop clicking or Escape key dismissal violate user expectations and severely hamper keyboard-only users, who rely on `Escape` to quickly exit dialogs and cancel intermediate states (like key rebinding) without submitting.
 **Action:** Always implement explicit background click dismissal (`e.target === overlay`) and global `Escape` key event listeners to cleanly dismiss custom modals and cancel any active pending actions (like pending key listeners).
+
+## 2026-03-24 - Disabled State Styling and Decorative Element A11y
+**Learning:** In custom UIs, disabled elements might inherit hover styles, confusing sighted users, while decorative visual elements (like scanlines or crosshairs) clutter the screen reader experience. Additionally, relying solely on `aria-label` for abbreviated buttons leaves mouse users without context.
+**Action:** Always provide explicit disabled styling and exclude disabled items from hover/focus effects (`:not(:disabled)`). Mark purely decorative elements with `aria-hidden="true"`, and duplicate `aria-label` text to `title` attributes on abbreviated buttons to provide mouse tooltips.

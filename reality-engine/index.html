@@ -199,13 +199,19 @@
             margin-top: 5px;
         }
 
-        .cyber-button:hover,
-        .cyber-button:focus-visible {
+        .cyber-button:not(:disabled):hover,
+        .cyber-button:not(:disabled):focus-visible {
             background: #00f0ff;
             color: #000;
             box-shadow: 0 0 10px #00f0ff;
             outline: 2px solid #fff;
             outline-offset: 2px;
+        }
+
+        .cyber-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+            filter: grayscale(100%);
         }
 
         .close-btn {
@@ -322,10 +328,10 @@
         <div class="loading-spinner" aria-hidden="true"></div>
         <div>INITIALIZING REALITY ENGINE...</div>
     </div>
-    <div id="crosshair"></div>
+    <div id="crosshair" aria-hidden="true"></div>
     <video id="ar-feed" autoplay playsinline></video>
-    <div class="scanline"></div>
-    <canvas id="reality-canvas"></canvas>
+    <div class="scanline" aria-hidden="true"></div>
+    <canvas id="reality-canvas" role="img" aria-label="Interactive Reality Engine Viewport"></canvas>
     <div id="labels-layer"></div>
 
     <div id="ui-layer">
@@ -435,8 +441,8 @@
                 <button id="btn-load" class="cyber-button" style="flex: 1;">LOAD</button>
             </div>
             <div style="display: flex; gap: 5px; margin-top: 5px;">
-                <button id="btn-delete" class="cyber-button" aria-label="Delete selected save" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">DEL</button>
-                <button id="btn-reset" class="cyber-button" aria-label="Reset world" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">RESET</button>
+                <button id="btn-delete" class="cyber-button" aria-label="Delete selected save" title="Delete selected save" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">DEL</button>
+                <button id="btn-reset" class="cyber-button" aria-label="Reset world" title="Reset world" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">RESET</button>
             </div>
         </div>
 
@@ -465,7 +471,7 @@
         <div class="cyber-card" style="width: 400px; max-width: 90%;">
             <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;" role="heading" aria-level="2">
                 <span id="keybind-header">NEURAL LINK CONFIG</span>
-                <button id="btn-close-keybinds" class="close-btn" aria-label="Close configuration">[X]</button>
+                <button id="btn-close-keybinds" class="close-btn" aria-label="Close configuration" title="Close configuration">[X]</button>
             </div>
             <div id="keybind-list" style="margin-bottom: 20px;">
                 <!-- Bindings populated by JS -->

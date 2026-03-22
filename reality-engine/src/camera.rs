@@ -55,11 +55,13 @@ impl Camera {
 
         // Direction vector from yaw/pitch
         // Y-up system
+        // Optimization: Vector is derived from spherical coordinates so it's guaranteed to be unit length
+        // magnitude = sqrt(cos_p^2*sin_y^2 + sin_p^2 + cos_p^2*cos_y^2) = sqrt(cos_p^2(sin_y^2 + cos_y^2) + sin_p^2) = sqrt(cos_p^2 + sin_p^2) = 1
         let front = Vector3::new(
             cos_p * sin_y,
             sin_p,
             cos_p * cos_y
-        ).normalize();
+        );
 
         // Keep distance to target constant (arbitrary, just needs to be non-zero for look_at)
         // We use a fixed distance or keep previous magnitude?
@@ -132,8 +134,10 @@ impl CameraController {
 
         // Calculate forward direction on XZ plane for movement
         let (sin_y, cos_y) = camera.yaw.sin_cos();
-        let forward_xz = Vector3::new(sin_y, 0.0, cos_y).normalize();
-        let right_xz = forward_xz.cross(Vector3::unit_y()).normalize();
+        // Optimization: Vector3::new(sin_y, 0.0, cos_y) is mathematically guaranteed to be unit length (sin^2 + cos^2 = 1)
+        let forward_xz = Vector3::new(sin_y, 0.0, cos_y);
+        // Optimization: Cross product of two orthogonal unit vectors is a unit vector
+        let right_xz = forward_xz.cross(Vector3::unit_y());
 
         if self.is_forward_pressed {
             camera.eye += forward_xz * self.speed;

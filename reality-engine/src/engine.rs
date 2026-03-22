@@ -183,8 +183,13 @@ impl Engine {
                 use cgmath::MetricSpace;
                 use cgmath::InnerSpace;
                 let dir = target - npc.location;
-                if dir.magnitude() > 0.1 {
-                    let move_vec = dir.normalize() * speed * dt;
+                // Optimization: Avoid duplicate magnitude calculation by computing squared distance,
+                // checking against a squared threshold, and then extracting the square root just once
+                // to multiply it back as a scalar, instead of calling `.magnitude()` and then `.normalize()`.
+                let dist_sq = dir.magnitude2();
+                if dist_sq > 0.01 { // 0.1 squared
+                    let dist = dist_sq.sqrt();
+                    let move_vec = dir * (speed * dt / dist);
                     npc.location += move_vec;
                 } else {
                     npc.target_location = None; // Reached target

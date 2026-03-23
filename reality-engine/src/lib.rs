@@ -885,11 +885,14 @@ impl State {
 
              for z in min_z..max_z {
                  let z_idx = base_idx + ((z - min_z) as usize) * 128 * 128;
+                 let chunk_z_idx = (z as usize) * 32 * 32;
                  for y in min_y..max_y {
                      let y_idx = z_idx + ((y - min_y) as usize) * 128;
+                     let chunk_y_idx = chunk_z_idx + (y as usize) * 32;
                      for x in min_x..max_x {
+                         // Optimization: Hoist chunk index math to outer loops to avoid recalculating Z and Y offsets
                          // i goes 0..32768, so we compute it from x, y, z
-                         let i = (x as usize) + (y as usize) * 32 + (z as usize) * 32 * 32;
+                         let i = chunk_y_idx + (x as usize);
                          let v = chunk.data[i];
 
                          if v.id != 0 {

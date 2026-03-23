@@ -39,3 +39,8 @@
 **Vulnerability:** DoS risk via unbounded WebRTC message string parsing. `network.rs` received arbitrary strings over PeerJS DataConnection and passed them to `serde_json::from_str` without checking their size, potentially allowing a malicious peer to exhaust memory.
 **Learning:** Even P2P client-side connections can be vectors for resource exhaustion DoS if unbounded incoming payloads are parsed blindly.
 **Prevention:** Always enforce reasonable maximum length limits on external string payloads (e.g. 64KB) before passing them to serializers/deserializers or processing pipelines.
+
+## 2026-03-14 - Missing HTTP Security Headers
+**Vulnerability:** The signaling server in `reality-signal-server` served static files and responses without essential HTTP security headers like `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy`. This omission leaves the frontend vulnerable to clickjacking and MIME-type sniffing attacks.
+**Learning:** Even simple signaling servers or local web servers serving a frontend should include defense-in-depth security headers, as browsers rely on them to enforce fundamental security boundaries regardless of the content's origin.
+**Prevention:** Always append standard security headers to HTTP server responses. In `warp`, this is easily accomplished using `.with(warp::reply::with::header("...", "..."))` chained to the main routing filters.

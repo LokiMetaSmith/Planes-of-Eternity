@@ -42,7 +42,10 @@ async fn main() {
     let root_redirect =
         warp::path::end().map(|| warp::redirect(warp::http::Uri::from_static("/index.html")));
 
-    let routes = chat.or(root_redirect).or(static_files);
+    let routes = chat.or(root_redirect).or(static_files)
+        .with(warp::reply::with::header("X-Frame-Options", "DENY"))
+        .with(warp::reply::with::header("X-Content-Type-Options", "nosniff"))
+        .with(warp::reply::with::header("Referrer-Policy", "strict-origin-when-cross-origin"));
 
     println!("Signaling server and static file server running on http://localhost:9000/");
 

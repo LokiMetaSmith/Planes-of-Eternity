@@ -18,6 +18,7 @@ pub enum Action {
     VoxelTimeReverse,
     VoxelDream,
     VoxelDiffuse,
+    DropItem,
     // Add more actions as needed
 }
 
@@ -39,6 +40,7 @@ impl Action {
             "VoxelTimeReverse" => Some(Action::VoxelTimeReverse),
             "VoxelDream" => Some(Action::VoxelDream),
             "VoxelDiffuse" => Some(Action::VoxelDiffuse),
+            "DropItem" => Some(Action::DropItem),
             _ => None,
         }
     }
@@ -63,6 +65,7 @@ impl std::fmt::Display for Action {
             Action::VoxelTimeReverse => "VoxelTimeReverse",
             Action::VoxelDream => "VoxelDream",
             Action::VoxelDiffuse => "VoxelDiffuse",
+            Action::DropItem => "DropItem",
         };
         write!(f, "{}", s)
     }
@@ -96,6 +99,7 @@ impl Default for InputConfig {
         bindings.insert(Action::VoxelTimeReverse, "KeyT".to_string());
         bindings.insert(Action::VoxelDream, "KeyG".to_string());
         bindings.insert(Action::VoxelDiffuse, "KeyH".to_string());
+        bindings.insert(Action::DropItem, "KeyB".to_string());
 
         let mut config = Self {
             bindings,

@@ -126,6 +126,7 @@ pub struct WorldState {
     #[serde(skip, default)]
     pub dirty_chunks: HashSet<ChunkId>,
     pub npcs: Vec<crate::projector::RealityProjector>,
+    pub dropped_items: Vec<crate::reality_types::DroppedItem>,
 }
 
 impl Default for WorldState {
@@ -135,6 +136,7 @@ impl Default for WorldState {
             root_hash: String::new(),
             dirty_chunks: HashSet::new(),
             npcs: Vec::new(),
+            dropped_items: Vec::new(),
         }
     }
 }

@@ -221,6 +221,22 @@ impl Engine {
         }
         // ---------------------
 
+        // --- Dropped Item Physics ---
+        for item in &mut self.world_state.dropped_items {
+            item.velocity.y -= 9.8 * dt; // Gravity
+            item.position += item.velocity * dt;
+
+            // Simple ground collision at y = 0.5 (radius of item approx)
+            if item.position.y <= 0.5 {
+                item.position.y = 0.5;
+                item.velocity.y = -item.velocity.y * 0.5; // Bounce with restitution
+
+                // Apply friction
+                item.velocity.x *= 0.9;
+                item.velocity.z *= 0.9;
+            }
+        }
+
         // Apply Player Archetype Gameplay Effects
         let player_archetype = self.player_projector.reality_signature.active_style.archetype;
         match player_archetype {
@@ -308,6 +324,23 @@ impl Engine {
                  Action::TogglePause => {
                      if pressed {
                          self.lambda_system.paused = !self.lambda_system.paused;
+                     }
+                 },
+                 Action::DropItem => {
+                     if pressed {
+                         use cgmath::InnerSpace;
+                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();
+                         let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
+
+                         let new_item = crate::reality_types::DroppedItem {
+                             id: uuid::Uuid::new_v4().to_string(),
+                             position: self.camera.eye,
+                             velocity: forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
+                             scale: 0.2,
+                             color: [1.0, 0.8, 0.2, 1.0], // Goldish color
+                         };
+                         self.world_state.dropped_items.push(new_item);
+                         log::info!("Dropped item at {:?}", self.camera.eye);
                      }
                  },
                  // Ignore Voxel Actions (Handled by lib.rs / wrapper)

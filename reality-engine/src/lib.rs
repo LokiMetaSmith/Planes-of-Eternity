@@ -317,6 +317,7 @@ pub struct State {
 
     entities_instance_buffer: wgpu::Buffer,
     num_entities: u32,
+    max_entities: u32,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -739,7 +740,7 @@ impl State {
             push_constant_ranges: &[],
         });
 
-        let max_entities = 100; // Player + NPCs
+        let max_entities = 100; // Player + NPCs + Items
         let initial_entities = vec![visual_lambda::LambdaInstance {
             position: [0.0, 0.0, 0.0],
             color: [1.0, 1.0, 1.0, 1.0],
@@ -831,6 +832,7 @@ impl State {
             last_stability_hash: String::new(),
             entities_instance_buffer,
             num_entities: 1,
+            max_entities: max_entities as u32,
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
@@ -1238,7 +1240,30 @@ impl State {
             });
         }
 
+        // 3. Add Dropped Items
+        for item in &self.engine.world_state.dropped_items {
+            entity_instances.push(visual_lambda::LambdaInstance {
+                position: [item.position.x, item.position.y, item.position.z],
+                color: item.color,
+                scale: item.scale,
+            });
+        }
+
         self.num_entities = entity_instances.len() as u32;
+
+        if self.num_entities > self.max_entities {
+            self.max_entities = self.num_entities * 2;
+            let instances = vec![visual_lambda::LambdaInstance {
+                position: [0.0, 0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                scale: 0.0,
+            }; self.max_entities as usize];
+            self.entities_instance_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Entities Instance Buffer Resized"),
+                contents: bytemuck::cast_slice(&instances),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        }
 
         self.queue.write_buffer(
             &self.entities_instance_buffer,

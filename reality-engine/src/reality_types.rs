@@ -85,6 +85,15 @@ pub struct BlendResult {
     pub total_strength: f32,                  // Total signal strength at this point
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DroppedItem {
+    pub id: String,
+    pub position: cgmath::Point3<f32>,
+    pub velocity: cgmath::Vector3<f32>,
+    pub scale: f32,
+    pub color: [f32; 4],
+}
+
 impl Default for BlendResult {
     fn default() -> Self {
         Self {

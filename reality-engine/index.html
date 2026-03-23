@@ -381,7 +381,8 @@
             <div class="cyber-header" style="font-size: 1rem; margin-bottom: 5px;" role="heading" aria-level="2">Network Uplink</div>
             <div style="font-size: 0.8rem; color: #888;">
                 SIGNAL: <span id="status-signal" style="color: #555;">OFFLINE</span><br>
-                PEER ID: <span id="status-peer-id" style="color: #555;">---</span><br>
+                PEER ID: <span id="status-peer-id" style="color: #555;">---</span>
+                <button id="btn-copy-peer" class="keybind-btn" aria-label="Copy Peer ID" title="Copy Peer ID" style="display:none; font-size: 0.7rem; margin-left: 5px; padding: 0px 4px;">COPY</button><br>
                 PEERS: <span id="status-peers-count" style="color: #00f0ff;">0</span>
             </div>
         </div>
@@ -774,12 +775,36 @@
                             }
 
                             elPeerId.innerText = status.peer_id || "---";
+                            const btnCopyPeer = document.getElementById('btn-copy-peer');
+                            if (status.peer_id && status.signaling_state === 1) {
+                                btnCopyPeer.style.display = "inline-block";
+                            } else {
+                                btnCopyPeer.style.display = "none";
+                            }
+
                             elPeers.innerText = status.connected_peers;
                         }
                     } catch (e) {
                         // Ignore parse errors or if status is not ready
                     }
                 }, 1000);
+
+                document.getElementById('btn-copy-peer').addEventListener('click', () => {
+                    const peerId = document.getElementById('status-peer-id').innerText;
+                    navigator.clipboard.writeText(peerId).then(() => {
+                        const btn = document.getElementById('btn-copy-peer');
+                        btn.innerText = "COPIED";
+                        btn.style.background = "#05ffa1";
+                        btn.style.color = "#000";
+                        setTimeout(() => {
+                            btn.innerText = "COPY";
+                            btn.style.background = "";
+                            btn.style.color = "";
+                        }, 2000);
+                    }).catch(err => {
+                        log("> FAILED TO COPY PEER ID: " + err);
+                    });
+                });
 
                 // AR Button Logic
                 // Keybinds UI

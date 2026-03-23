@@ -37,3 +37,7 @@
 ## 2026-03-24 - Disabled State Styling and Decorative Element A11y
 **Learning:** In custom UIs, disabled elements might inherit hover styles, confusing sighted users, while decorative visual elements (like scanlines or crosshairs) clutter the screen reader experience. Additionally, relying solely on `aria-label` for abbreviated buttons leaves mouse users without context.
 **Action:** Always provide explicit disabled styling and exclude disabled items from hover/focus effects (`:not(:disabled)`). Mark purely decorative elements with `aria-hidden="true"`, and duplicate `aria-label` text to `title` attributes on abbreviated buttons to provide mouse tooltips.
+
+## 2026-03-24 - Contextual Copy Actions for Complex IDs
+**Learning:** In dynamically generated text strings (like P2P session IDs) presented in custom UIs, users are heavily inconvenienced when forced to manually select and copy text. Additionally, relying solely on global logs for feedback when a copy action occurs separates the user's focus from the action.
+**Action:** Always provide inline, contextual copy buttons for complex IDs. Ensure they provide immediate, localized visual feedback (like momentarily turning green and changing text to "COPIED") instead of, or in addition to, global logging to keep the user's attention where the action happened.

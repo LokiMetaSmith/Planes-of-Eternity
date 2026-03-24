@@ -434,11 +434,11 @@ impl Engine {
         false
     }
 
-    pub fn get_node_labels(&self) -> Vec<LabelInfo> {
+    // Legacy function preserved for benchmarking against get_node_labels_flat
+    pub fn get_node_labels_json(&self) -> String {
         let view_proj = self.camera.build_view_projection_matrix();
         let mut labels = Vec::new();
 
-        // Status Label
         let status_text = if self.lambda_system.paused {
             "PAUSED".to_string()
         } else if self.lambda_system.auto_reduce {
@@ -463,24 +463,16 @@ impl Engine {
         });
 
         for node in &self.lambda_system.nodes {
-            // Skip invisible nodes (scale near 0)
             if node.scale < 0.01 { continue; }
 
-            // Project Position
-            // Point3 to homogeneous Vector4 (x, y, z, 1.0)
             let p = Point3::new(node.position.x, node.position.y, node.position.z);
             let clip = view_proj * p.to_homogeneous();
 
-            // Check if in front of camera (w > 0)
             if clip.w > 0.0 {
                 let ndc_x = clip.x / clip.w;
                 let ndc_y = clip.y / clip.w;
 
-                // Check if within screen bounds (roughly -1 to 1, add some padding for partial visibility)
                 if (-1.2..=1.2).contains(&ndc_x) && (-1.2..=1.2).contains(&ndc_y) {
-                    // Convert to 0..1 for CSS (Top-Left origin)
-                    // CSS X: (ndc_x + 1) / 2
-                    // CSS Y: (1 - ndc_y) / 2  <-- Flip Y because CSS Y grows downwards
                     let screen_x = (ndc_x + 1.0) * 0.5;
                     let screen_y = (1.0 - ndc_y) * 0.5;
 
@@ -495,10 +487,9 @@ impl Engine {
                                 continue;
                             }
                         }
-                        _ => continue, // Skip App
+                        _ => continue,
                     };
 
-                    // Hex color from node.color [r,g,b,a]
                     let r = (node.color[0] * 255.0) as u8;
                     let g = (node.color[1] * 255.0) as u8;
                     let b = (node.color[2] * 255.0) as u8;
@@ -513,7 +504,7 @@ impl Engine {
                 }
             }
         }
-        labels
+        serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string())
     }
 
     pub fn get_node_labels_flat(&self) -> Vec<u8> {

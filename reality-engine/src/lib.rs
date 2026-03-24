@@ -1438,12 +1438,6 @@ pub struct GameClient {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
-    pub fn get_node_labels(&self) -> String {
-        let state = self.state.borrow();
-        let labels = state.engine.get_node_labels();
-        serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string())
-    }
-
     pub fn get_node_labels_flat(&self) -> js_sys::Uint8Array {
         let state = self.state.borrow();
         let bytes = state.engine.get_node_labels_flat();

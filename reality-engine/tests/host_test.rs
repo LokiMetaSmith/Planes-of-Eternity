@@ -2,6 +2,51 @@ use reality_engine::engine::Engine;
 use reality_engine::input::{Action, InputConfig};
 use cgmath::{Point3, Vector3};
 
+#[derive(Debug, PartialEq)]
+pub struct LabelInfo {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: String,
+}
+
+pub fn parse_flat_labels(bytes: &[u8]) -> Vec<LabelInfo> {
+    let mut labels = Vec::new();
+    if bytes.len() < 4 { return labels; }
+
+    let count = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    let mut offset = 4;
+
+    for _ in 0..count {
+        if offset + 12 > bytes.len() { break; }
+
+        let x = f32::from_le_bytes(bytes[offset..offset+4].try_into().unwrap());
+
+        let y = f32::from_le_bytes(bytes[offset+4..offset+8].try_into().unwrap());
+
+        let r = bytes[offset+8];
+        let g = bytes[offset+9];
+        let b = bytes[offset+10];
+        let _a = bytes[offset+11];
+        let color = format!("#{:02x}{:02x}{:02x}", r, g, b);
+        offset += 12;
+
+        if offset + 2 > bytes.len() { break; }
+        let text_len = u16::from_le_bytes(bytes[offset..offset+2].try_into().unwrap()) as usize;
+        offset += 2;
+
+        if offset + text_len > bytes.len() { break; }
+        let text = String::from_utf8_lossy(&bytes[offset..offset+text_len]).into_owned();
+        offset += text_len;
+
+        labels.push(LabelInfo {
+            text, x, y, color
+        });
+    }
+
+    labels
+}
+
 #[test]
 fn test_engine_initialization() {
     let engine = Engine::new(800, 600, None);
@@ -218,6 +263,48 @@ fn test_merge_conflict_resolution() {
 }
 
 #[test]
+fn test_get_node_labels_benchmark() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // Generate a very large lambda term to stress test labels
+    // e.g., a long sequence of applications
+    let mut term_str = String::from("FIRE");
+    for _ in 0..500 {
+        term_str = format!("(GROWTH {})", term_str);
+    }
+
+    let term = reality_engine::lambda::parse(&term_str).unwrap();
+    engine.lambda_system.set_term(term);
+
+    // Update to calculate node positions
+    engine.update(0.1);
+
+    // Warmup
+    let _ = engine.get_node_labels_json();
+    let _ = engine.get_node_labels_flat();
+
+    // Benchmark JSON
+    let start_json = std::time::Instant::now();
+    for _ in 0..100 {
+        let _json_output = engine.get_node_labels_json();
+    }
+    let duration_json = start_json.elapsed();
+
+    // Benchmark Flat Buffer
+    let start_flat = std::time::Instant::now();
+    for _ in 0..100 {
+        let _flat_output = engine.get_node_labels_flat();
+    }
+    let duration_flat = start_flat.elapsed();
+
+    println!("JSON Label Generation (100 iterations): {:?}", duration_json);
+    println!("Flat Buffer Label Generation (100 iterations): {:?}", duration_flat);
+
+    // Flat buffer approach should be faster than JSON serialization
+    assert!(duration_flat < duration_json, "Flat buffer approach should be faster than JSON serialization");
+}
+
+#[test]
 fn test_get_node_labels() {
     let mut engine = Engine::new(800, 600, None);
 
@@ -236,7 +323,7 @@ fn test_get_node_labels() {
     engine.update(0.1);
 
     // Get labels
-    let labels = engine.get_node_labels();
+    let labels = parse_flat_labels(&engine.get_node_labels_flat());
 
     println!("Labels found: {:?}", labels);
 
@@ -255,7 +342,7 @@ fn test_get_node_labels() {
     engine.camera.target = Point3::new(0.0, 5.0, 30.0);
 
     // Do NOT call update(), so nodes stay at old position
-    let labels_hidden = engine.get_node_labels();
+    let labels_hidden = parse_flat_labels(&engine.get_node_labels_flat());
     // Filter out UI status labels
     let lambda_labels: Vec<_> = labels_hidden.iter()
         .filter(|l| l.text != "STEP MODE" && l.text != "AUTO-RUN" && l.text != "PAUSED")
@@ -324,7 +411,7 @@ fn test_bound_variable_labels() {
     engine.camera.target = Point3::new(0.0, 5.0, 0.0);
     engine.camera.up = Vector3::new(0.0, 1.0, 0.0);
 
-    let labels = engine.get_node_labels();
+    let labels = parse_flat_labels(&engine.get_node_labels_flat());
     println!("Labels: {:?}", labels);
 
     // We expect:

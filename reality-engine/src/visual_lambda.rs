@@ -1182,20 +1182,29 @@ impl LambdaSystem {
         let base_rest_length = 3.0;
 
         // 1. Repulsion
+        // Optimization: Halve the number of distance calculations by iterating over unique pairs
+        // and applying forces symmetrically (Newton's Third Law).
+        // Uses `split_at_mut` to safely borrow two mutable node references simultaneously.
         for i in 0..node_count {
-            if self.nodes[i].scale < 0.001 { continue; } // Skip invisible
-            for j in 0..node_count {
-                if i == j { continue; }
-                if self.nodes[j].scale < 0.001 { continue; } // Skip invisible
+            let (left, right) = self.nodes.split_at_mut(i + 1);
+            let node_i = &mut left[i];
 
-                let dir = self.nodes[i].position - self.nodes[j].position;
+            if node_i.scale < 0.001 { continue; } // Skip invisible
+
+            for node_j in right.iter_mut() {
+                if node_j.scale < 0.001 { continue; } // Skip invisible
+
+                let dir = node_i.position - node_j.position;
                 let dist_sq = dir.magnitude2();
+
                 if dist_sq < 0.0001 {
-                     self.nodes[i].velocity += Vector3::new(0.1, 0.0, 0.0);
+                     let push = Vector3::new(0.1, 0.0, 0.0);
+                     node_i.velocity += push;
+                     node_j.velocity -= push;
                 } else {
                      // Check radii collision
-                     let r1 = self.nodes[i].scale;
-                     let r2 = self.nodes[j].scale;
+                     let r1 = node_i.scale;
+                     let r2 = node_j.scale;
                      let min_dist = (r1 + r2) * 1.1; // Add padding
 
                      if dist_sq < (min_dist * min_dist) {
@@ -1204,12 +1213,16 @@ impl LambdaSystem {
                          // This skips redundant magnitude recalculations (sqrt(x^2 + y^2 + z^2))
                          let dist = dist_sq.sqrt();
                          let scalar_force = (repulsion_strength * 5.0 * dt) / dist;
-                         self.nodes[i].velocity += dir * scalar_force;
+                         let force = dir * scalar_force;
+                         node_i.velocity += force;
+                         node_j.velocity -= force;
                      } else if dist_sq < 150.0 {
                          // Soft push (repulsion)
                          let dist = dist_sq.sqrt();
                          let scalar_force = (repulsion_strength * dt) / (dist_sq * dist);
-                         self.nodes[i].velocity += dir * scalar_force;
+                         let force = dir * scalar_force;
+                         node_i.velocity += force;
+                         node_j.velocity -= force;
                      }
                 }
             }

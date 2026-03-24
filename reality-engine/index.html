@@ -329,10 +329,10 @@
         <div>INITIALIZING REALITY ENGINE...</div>
     </div>
     <div id="crosshair" aria-hidden="true"></div>
-    <video id="ar-feed" autoplay playsinline></video>
+    <video id="ar-feed" autoplay playsinline aria-hidden="true"></video>
     <div class="scanline" aria-hidden="true"></div>
     <canvas id="reality-canvas" role="img" aria-label="Interactive Reality Engine Viewport"></canvas>
-    <div id="labels-layer"></div>
+    <div id="labels-layer" aria-hidden="true"></div>
 
     <div id="ui-layer">
         <div class="cyber-card">
@@ -794,10 +794,14 @@
                     navigator.clipboard.writeText(peerId).then(() => {
                         const btn = document.getElementById('btn-copy-peer');
                         btn.innerText = "COPIED";
+                        btn.setAttribute('aria-label', 'Peer ID Copied');
+                        btn.title = 'Peer ID Copied';
                         btn.style.background = "#05ffa1";
                         btn.style.color = "#000";
                         setTimeout(() => {
                             btn.innerText = "COPY";
+                            btn.setAttribute('aria-label', 'Copy Peer ID');
+                            btn.title = 'Copy Peer ID';
                             btn.style.background = "";
                             btn.style.color = "";
                         }, 2000);

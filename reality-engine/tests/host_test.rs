@@ -263,6 +263,48 @@ fn test_merge_conflict_resolution() {
 }
 
 #[test]
+fn test_get_node_labels_benchmark() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // Generate a very large lambda term to stress test labels
+    // e.g., a long sequence of applications
+    let mut term_str = String::from("FIRE");
+    for _ in 0..500 {
+        term_str = format!("(GROWTH {})", term_str);
+    }
+
+    let term = reality_engine::lambda::parse(&term_str).unwrap();
+    engine.lambda_system.set_term(term);
+
+    // Update to calculate node positions
+    engine.update(0.1);
+
+    // Warmup
+    let _ = engine.get_node_labels_json();
+    let _ = engine.get_node_labels_flat();
+
+    // Benchmark JSON
+    let start_json = std::time::Instant::now();
+    for _ in 0..100 {
+        let _json_output = engine.get_node_labels_json();
+    }
+    let duration_json = start_json.elapsed();
+
+    // Benchmark Flat Buffer
+    let start_flat = std::time::Instant::now();
+    for _ in 0..100 {
+        let _flat_output = engine.get_node_labels_flat();
+    }
+    let duration_flat = start_flat.elapsed();
+
+    println!("JSON Label Generation (100 iterations): {:?}", duration_json);
+    println!("Flat Buffer Label Generation (100 iterations): {:?}", duration_flat);
+
+    // Flat buffer approach should be faster than JSON serialization
+    assert!(duration_flat < duration_json, "Flat buffer approach should be faster than JSON serialization");
+}
+
+#[test]
 fn test_get_node_labels() {
     let mut engine = Engine::new(800, 600, None);
 

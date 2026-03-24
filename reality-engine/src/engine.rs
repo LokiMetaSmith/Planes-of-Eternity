@@ -11,6 +11,14 @@ use crate::visual_lambda::{self, LambdaSystem};
 use crate::world::WorldState;
 use crate::audio::AudioManager;
 
+#[derive(Serialize, Debug, PartialEq)]
+pub struct LabelInfo {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: String,
+}
+
 pub struct Engine {
     pub world_state: WorldState,
     pub player_projector: RealityProjector,
@@ -424,6 +432,79 @@ impl Engine {
              }
         }
         false
+    }
+
+    // Legacy function preserved for benchmarking against get_node_labels_flat
+    pub fn get_node_labels_json(&self) -> String {
+        let view_proj = self.camera.build_view_projection_matrix();
+        let mut labels = Vec::new();
+
+        let status_text = if self.lambda_system.paused {
+            "PAUSED".to_string()
+        } else if self.lambda_system.auto_reduce {
+            "AUTO-RUN".to_string()
+        } else {
+            "STEP MODE".to_string()
+        };
+
+        let status_color = if self.lambda_system.paused {
+            "#FFFF00".to_string() // Yellow
+        } else if self.lambda_system.auto_reduce {
+            "#00FF00".to_string() // Green
+        } else {
+            "#00F0FF".to_string() // Cyan
+        };
+
+        labels.push(LabelInfo {
+            text: status_text,
+            x: 0.05,
+            y: 0.05,
+            color: status_color,
+        });
+
+        for node in &self.lambda_system.nodes {
+            if node.scale < 0.01 { continue; }
+
+            let p = Point3::new(node.position.x, node.position.y, node.position.z);
+            let clip = view_proj * p.to_homogeneous();
+
+            if clip.w > 0.0 {
+                let ndc_x = clip.x / clip.w;
+                let ndc_y = clip.y / clip.w;
+
+                if (-1.2..=1.2).contains(&ndc_x) && (-1.2..=1.2).contains(&ndc_y) {
+                    let screen_x = (ndc_x + 1.0) * 0.5;
+                    let screen_y = (1.0 - ndc_y) * 0.5;
+
+                    let text = match &node.node_type {
+                        visual_lambda::NodeType::Var(s) => s.clone(),
+                        visual_lambda::NodeType::Abs(s) => format!("λ{}", s),
+                        visual_lambda::NodeType::Prim(p) => format!("{:?}", p).to_uppercase(),
+                        visual_lambda::NodeType::Port => {
+                            if let crate::lambda::Term::Var(name) = &*node.term {
+                                name.clone()
+                            } else {
+                                continue;
+                            }
+                        }
+                        _ => continue,
+                    };
+
+                    let r = (node.color[0] * 255.0) as u8;
+                    let g = (node.color[1] * 255.0) as u8;
+                    let b = (node.color[2] * 255.0) as u8;
+                    let color = format!("#{:02x}{:02x}{:02x}", r, g, b);
+
+                    labels.push(LabelInfo {
+                        text,
+                        x: screen_x,
+                        y: screen_y,
+                        color,
+                    });
+                }
+            }
+        }
+        serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string())
     }
 
     pub fn get_node_labels_flat(&self) -> Vec<u8> {

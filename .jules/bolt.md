@@ -36,3 +36,7 @@
 ## 2025-03-24 - Beware the Bitwise OR Bounds Check Trap
 **Learning:** While using `(x | y | z) >= size` can combine multiple branch checks into a single check, it is fundamentally mathematically flawed for arbitrary dynamic grid bounds. If `size` is not a strictly guaranteed power of two, bitwise overlapping non-power-of-2 numbers can spuriously produce values that falsely trip the `>= size` condition, even when `x, y, z` are all individually within valid boundaries.
 **Action:** Do not use `(x | y | z) >= size` or `(x as u32 | y as u32 | z as u32) >= size` to optimize bounds checking unless `size` is mathematically constrained to only ever be a strict power of two in all use cases. Fall back to `(x as u32) >= size || (y as u32) >= size || ...` to keep branches clean while still avoiding signed-negative underflow checks.
+
+## 2024-03-24 - Halving O(N^2) Physics with `split_at_mut`
+**Learning:** When calculating symmetric pairwise interactions (like Newton's Third Law forces) across a single array in Rust, a naive nested `for j in 0..N` loop duplicates work and is hard to optimize because borrowing two elements from a mutable slice fails the borrow checker.
+**Action:** By splitting the array at the current index `let (left, right) = slice.split_at_mut(i + 1)` and iterating the inner loop over `right.iter_mut()`, we safely borrow `slice[i]` and `slice[j]` simultaneously without allocations, perfectly halving the number of `magnitude2()`/distance calculations in O(N^2) loops.

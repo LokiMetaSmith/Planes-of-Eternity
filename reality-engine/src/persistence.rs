@@ -105,6 +105,14 @@ pub fn load_from_local_storage(key: &str) -> Option<GameState> {
     if let Ok(Some(storage)) = get_local_storage() {
         match storage.get_item(key) {
             Ok(Some(json)) => {
+                // Security Enhancement: Prevent DoS by limiting save file length
+                // A maliciously large string in localStorage could cause memory exhaustion during parsing
+                const MAX_SAVE_LEN: usize = 10 * 1024 * 1024; // 10MB
+                if json.len() > MAX_SAVE_LEN {
+                    error!("Security Warning: Save file '{}' exceeded maximum length limit ({} bytes). Rejecting.", key, MAX_SAVE_LEN);
+                    return None;
+                }
+
                 match serde_json::from_str::<GameState>(&json) {
                     Ok(state) => {
                         if state.version != SAVE_VERSION {

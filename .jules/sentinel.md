@@ -44,3 +44,7 @@
 **Vulnerability:** The signaling server in `reality-signal-server` served static files and responses without essential HTTP security headers like `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy`. This omission leaves the frontend vulnerable to clickjacking and MIME-type sniffing attacks.
 **Learning:** Even simple signaling servers or local web servers serving a frontend should include defense-in-depth security headers, as browsers rely on them to enforce fundamental security boundaries regardless of the content's origin.
 **Prevention:** Always append standard security headers to HTTP server responses. In `warp`, this is easily accomplished using `.with(warp::reply::with::header("...", "..."))` chained to the main routing filters.
+## 2026-03-14 - Sentinel: Add JSON parsing length limits
+**Vulnerability:** DoS risk via unbounded JSON string parsing. `persistence.rs` (`load_from_local_storage`) and `lib.rs` (`execute_npc_action_json`) took external JSON input and parsed it directly using `serde_json::from_str` without checking lengths, potentially allowing a malicious actor or external service to cause memory exhaustion.
+**Learning:** Even local storage saves and JS -> WASM strings can be vectors for resource exhaustion DoS if unbounded.
+**Prevention:** Always enforce reasonable maximum length limits (e.g. 10MB for save states, 1KB for JS payloads) before passing them to expensive serializers/deserializers.

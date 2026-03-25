@@ -2213,6 +2213,15 @@ impl GameClient {
 
     pub fn execute_npc_action_json(&self, uuid: &str, action_json: &str) -> bool {
         let mut state = self.state.borrow_mut();
+
+        // Security Enhancement: Prevent DoS by limiting JSON payload length
+        // An excessively large JSON string could cause memory exhaustion during deserialization.
+        const MAX_ACTION_JSON_LEN: usize = 1024; // 1KB limit for simple actions
+        if action_json.len() > MAX_ACTION_JSON_LEN {
+            log::warn!("Security Warning: NPC action JSON exceeded length limit ({} bytes). Dropping payload.", action_json.len());
+            return false;
+        }
+
         if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(action_json) {
             if let Some(npc) = state.engine.world_state.npcs.iter_mut().find(|n| n.uuid == uuid) {
                 if let (Some(tx), Some(ty), Some(tz)) = (action.target_x, action.target_y, action.target_z) {

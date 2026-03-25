@@ -71,6 +71,15 @@ impl NetworkManager {
         let onmessage_callback = Closure::wrap(Box::new(move |e: MessageEvent| {
             if let Some(manager) = m_msg.upgrade() {
                 if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
+                    // Security Enhancement: Prevent DoS by limiting WebSocket message length
+                    // A malicious peer could send a massive JSON payload causing memory exhaustion.
+                    // Check length *before* converting to Rust String to prevent OOM allocation attacks.
+                    const MAX_WS_MSG_LEN: u32 = 8192; // 8KB
+                    if txt.length() > MAX_WS_MSG_LEN {
+                        warn!("Security Warning: WebSocket message exceeded length limit ({} chars). Dropping message.", txt.length());
+                        return;
+                    }
+
                     let txt_string: String = txt.into();
 
                     if let Ok(packet) = serde_json::from_str::<PollenPacket>(&txt_string) {

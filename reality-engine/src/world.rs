@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use crate::projector::RealityProjector;
-use sha2::{Sha256, Digest};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 pub const ANOMALY_GRID_SIZE: f32 = 10.0;
@@ -43,7 +43,10 @@ impl ChunkId {
     pub fn from_world_pos(x: f32, z: f32, chunk_size: f32) -> Self {
         let chunk_x = (x / chunk_size).floor() as i32;
         let chunk_z = (z / chunk_size).floor() as i32;
-        Self { x: chunk_x, z: chunk_z }
+        Self {
+            x: chunk_x,
+            z: chunk_z,
+        }
     }
 }
 
@@ -91,13 +94,17 @@ impl Chunk {
 
         for other_anomaly in &other.anomalies {
             // Find if we have an anomaly with same UUID
-            if let Some(existing_idx) = self.anomalies.iter().position(|a| a.uuid == other_anomaly.uuid) {
-                 // Check timestamp
-                 let existing = &mut self.anomalies[existing_idx];
-                 if other_anomaly.last_updated > existing.last_updated {
-                     *existing = other_anomaly.clone();
-                     changed = true;
-                 }
+            if let Some(existing_idx) = self
+                .anomalies
+                .iter()
+                .position(|a| a.uuid == other_anomaly.uuid)
+            {
+                // Check timestamp
+                let existing = &mut self.anomalies[existing_idx];
+                if other_anomaly.last_updated > existing.last_updated {
+                    *existing = other_anomaly.clone();
+                    changed = true;
+                }
             } else {
                 // New anomaly (or tombstone)
                 self.anomalies.push(other_anomaly.clone());
@@ -147,7 +154,11 @@ impl WorldState {
     }
 
     pub fn apply_player_influence(&mut self, projector: &RealityProjector, dt: f32) {
-        let id = ChunkId::from_world_pos(projector.location.x, projector.location.z, ANOMALY_GRID_SIZE);
+        let id = ChunkId::from_world_pos(
+            projector.location.x,
+            projector.location.z,
+            ANOMALY_GRID_SIZE,
+        );
         let chunk = self.get_or_create_chunk(id);
 
         use crate::reality_types::RealityArchetype;
@@ -173,7 +184,11 @@ impl WorldState {
     }
 
     pub fn add_anomaly(&mut self, projector: RealityProjector) {
-        let id = ChunkId::from_world_pos(projector.location.x, projector.location.z, ANOMALY_GRID_SIZE);
+        let id = ChunkId::from_world_pos(
+            projector.location.x,
+            projector.location.z,
+            ANOMALY_GRID_SIZE,
+        );
         let chunk = self.get_or_create_chunk(id);
 
         // Apply stability impact based on archetype
@@ -222,7 +237,8 @@ impl WorldState {
     pub fn calculate_root_hash(&mut self) {
         let mut hasher = Sha256::new();
         // To ensure deterministic order, we must sort keys
-        let mut keys_and_hashes: Vec<(&ChunkId, &String)> = self.chunks.iter().map(|(k, c)| (k, &c.hash)).collect();
+        let mut keys_and_hashes: Vec<(&ChunkId, &String)> =
+            self.chunks.iter().map(|(k, c)| (k, &c.hash)).collect();
         keys_and_hashes.sort_unstable_by(|(a, _), (b, _)| {
             if a.z != b.z {
                 a.z.cmp(&b.z)
@@ -296,7 +312,7 @@ pub struct WorldCommit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reality_types::{RealitySignature, RealityArchetype};
+    use crate::reality_types::{RealityArchetype, RealitySignature};
     use cgmath::Point3;
 
     #[test]
@@ -416,6 +432,9 @@ mod tests {
         chunk2.anomalies.push(proj1.clone());
         chunk2.calculate_hash();
 
-        assert_eq!(chunk1.hash, chunk2.hash, "Hashes should be identical regardless of insertion order");
+        assert_eq!(
+            chunk1.hash, chunk2.hash,
+            "Hashes should be identical regardless of insertion order"
+        );
     }
 }

@@ -1,5 +1,5 @@
-use crate::voxel::{Chunk, Voxel, CHUNK_SIZE, ChunkKey};
-use cgmath::{Point3, Vector3, InnerSpace};
+use crate::voxel::{Chunk, ChunkKey, Voxel, CHUNK_SIZE};
+use cgmath::{InnerSpace, Point3, Vector3};
 
 pub struct Voxelizer;
 
@@ -61,7 +61,13 @@ impl Voxelizer {
 }
 
 // AABB-Triangle intersection (Akenine-Möller algorithm)
-fn tri_box_overlap(box_center: Point3<f32>, box_half_size: Vector3<f32>, tv0: Point3<f32>, tv1: Point3<f32>, tv2: Point3<f32>) -> bool {
+fn tri_box_overlap(
+    box_center: Point3<f32>,
+    box_half_size: Vector3<f32>,
+    tv0: Point3<f32>,
+    tv1: Point3<f32>,
+    tv2: Point3<f32>,
+) -> bool {
     let v0 = tv0 - box_center;
     let v1 = tv1 - box_center;
     let v2 = tv2 - box_center;
@@ -81,29 +87,64 @@ fn tri_box_overlap(box_center: Point3<f32>, box_half_size: Vector3<f32>, tv0: Po
     let a21 = Vector3::new(-f1.y, f1.x, 0.0);
     let a22 = Vector3::new(-f2.y, f2.x, 0.0);
 
-    if !axis_test(a00, v0, v1, v2, box_half_size) { return false; }
-    if !axis_test(a01, v0, v1, v2, box_half_size) { return false; }
-    if !axis_test(a02, v0, v1, v2, box_half_size) { return false; }
-    if !axis_test(a10, v0, v1, v2, box_half_size) { return false; }
-    if !axis_test(a11, v0, v1, v2, box_half_size) { return false; }
-    if !axis_test(a12, v0, v1, v2, box_half_size) { return false; }
-    if !axis_test(a20, v0, v1, v2, box_half_size) { return false; }
-    if !axis_test(a21, v0, v1, v2, box_half_size) { return false; }
-    if !axis_test(a22, v0, v1, v2, box_half_size) { return false; }
+    if !axis_test(a00, v0, v1, v2, box_half_size) {
+        return false;
+    }
+    if !axis_test(a01, v0, v1, v2, box_half_size) {
+        return false;
+    }
+    if !axis_test(a02, v0, v1, v2, box_half_size) {
+        return false;
+    }
+    if !axis_test(a10, v0, v1, v2, box_half_size) {
+        return false;
+    }
+    if !axis_test(a11, v0, v1, v2, box_half_size) {
+        return false;
+    }
+    if !axis_test(a12, v0, v1, v2, box_half_size) {
+        return false;
+    }
+    if !axis_test(a20, v0, v1, v2, box_half_size) {
+        return false;
+    }
+    if !axis_test(a21, v0, v1, v2, box_half_size) {
+        return false;
+    }
+    if !axis_test(a22, v0, v1, v2, box_half_size) {
+        return false;
+    }
 
     // Test the three axes corresponding to the face normals of AABB
-    if find_min(v0.x, v1.x, v2.x) > box_half_size.x || find_max(v0.x, v1.x, v2.x) < -box_half_size.x { return false; }
-    if find_min(v0.y, v1.y, v2.y) > box_half_size.y || find_max(v0.y, v1.y, v2.y) < -box_half_size.y { return false; }
-    if find_min(v0.z, v1.z, v2.z) > box_half_size.z || find_max(v0.z, v1.z, v2.z) < -box_half_size.z { return false; }
+    if find_min(v0.x, v1.x, v2.x) > box_half_size.x || find_max(v0.x, v1.x, v2.x) < -box_half_size.x
+    {
+        return false;
+    }
+    if find_min(v0.y, v1.y, v2.y) > box_half_size.y || find_max(v0.y, v1.y, v2.y) < -box_half_size.y
+    {
+        return false;
+    }
+    if find_min(v0.z, v1.z, v2.z) > box_half_size.z || find_max(v0.z, v1.z, v2.z) < -box_half_size.z
+    {
+        return false;
+    }
 
     // Test separating axis corresponding to triangle face normal
     let normal = f0.cross(f1);
-    if !plane_box_overlap(normal, v0, box_half_size) { return false; }
+    if !plane_box_overlap(normal, v0, box_half_size) {
+        return false;
+    }
 
     true
 }
 
-fn axis_test(a: Vector3<f32>, v0: Vector3<f32>, v1: Vector3<f32>, v2: Vector3<f32>, box_half_size: Vector3<f32>) -> bool {
+fn axis_test(
+    a: Vector3<f32>,
+    v0: Vector3<f32>,
+    v1: Vector3<f32>,
+    v2: Vector3<f32>,
+    box_half_size: Vector3<f32>,
+) -> bool {
     let p0 = a.dot(v0);
     let p1 = a.dot(v1);
     let p2 = a.dot(v2);
@@ -113,7 +154,9 @@ fn axis_test(a: Vector3<f32>, v0: Vector3<f32>, v1: Vector3<f32>, v2: Vector3<f3
 
     let r = box_half_size.x * a.x.abs() + box_half_size.y * a.y.abs() + box_half_size.z * a.z.abs();
 
-    if min > r || max < -r { return false; }
+    if min > r || max < -r {
+        return false;
+    }
     true
 }
 
@@ -121,16 +164,38 @@ fn plane_box_overlap(normal: Vector3<f32>, vert: Vector3<f32>, maxbox: Vector3<f
     let mut vmin = Vector3::new(0.0, 0.0, 0.0);
     let mut vmax = Vector3::new(0.0, 0.0, 0.0);
 
-    if normal.x > 0.0 { vmin.x = -maxbox.x; vmax.x = maxbox.x; } else { vmin.x = maxbox.x; vmax.x = -maxbox.x; }
-    if normal.y > 0.0 { vmin.y = -maxbox.y; vmax.y = maxbox.y; } else { vmin.y = maxbox.y; vmax.y = -maxbox.y; }
-    if normal.z > 0.0 { vmin.z = -maxbox.z; vmax.z = maxbox.z; } else { vmin.z = maxbox.z; vmax.z = -maxbox.z; }
+    if normal.x > 0.0 {
+        vmin.x = -maxbox.x;
+        vmax.x = maxbox.x;
+    } else {
+        vmin.x = maxbox.x;
+        vmax.x = -maxbox.x;
+    }
+    if normal.y > 0.0 {
+        vmin.y = -maxbox.y;
+        vmax.y = maxbox.y;
+    } else {
+        vmin.y = maxbox.y;
+        vmax.y = -maxbox.y;
+    }
+    if normal.z > 0.0 {
+        vmin.z = -maxbox.z;
+        vmax.z = maxbox.z;
+    } else {
+        vmin.z = maxbox.z;
+        vmax.z = -maxbox.z;
+    }
 
     let min_dot = normal.dot(vmin);
     let max_dot = normal.dot(vmax);
     let d = -normal.dot(vert);
 
-    if min_dot + d > 0.0 { return false; }
-    if max_dot + d >= 0.0 { return true; }
+    if min_dot + d > 0.0 {
+        return false;
+    }
+    if max_dot + d >= 0.0 {
+        return true;
+    }
 
     false
 }

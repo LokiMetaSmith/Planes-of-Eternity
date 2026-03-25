@@ -1,9 +1,9 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
 pub enum RealityArchetype {
     #[default]
-    Void,        // Default/Empty
+    Void, // Default/Empty
     Fantasy,     // High Fantasy
     SciFi,       // Cyber Punk
     Horror,      // Eldritch Horror
@@ -26,9 +26,9 @@ pub struct RealityStyle {
     pub seed: i32,         // The deterministic random number for WFC generation
 
     // Generative Parameters (Stable Diffusion-like control)
-    pub roughness: f32,    // High frequency noise intensity
-    pub scale: f32,        // Frequency of the noise (Feature size)
-    pub distortion: f32,   // Domain warping intensity
+    pub roughness: f32,  // High frequency noise intensity
+    pub scale: f32,      // Frequency of the noise (Feature size)
+    pub distortion: f32, // Domain warping intensity
 }
 
 impl Default for RealityStyle {
@@ -81,8 +81,8 @@ impl Default for RealitySignature {
 pub struct BlendResult {
     pub dominant_archetype: RealityArchetype, // Who won?
     pub blend_alpha: f32,                     // 0.0 to 1.0 (How much "Bleed" is happening?)
-    pub is_conflict: bool,                    // True if genres are opposites (e.g., SciFi vs Fantasy)
-    pub total_strength: f32,                  // Total signal strength at this point
+    pub is_conflict: bool, // True if genres are opposites (e.g., SciFi vs Fantasy)
+    pub total_strength: f32, // Total signal strength at this point
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

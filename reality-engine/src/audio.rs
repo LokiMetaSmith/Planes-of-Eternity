@@ -52,8 +52,8 @@ impl AudioManager {
     }
 
     pub fn play_reduce(&self) {
-         #[cfg(target_arch = "wasm32")]
-         self.play_tone(220.0, 0.1, "triangle", 0.1);
+        #[cfg(target_arch = "wasm32")]
+        self.play_tone(220.0, 0.1, "triangle", 0.1);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -67,7 +67,7 @@ impl AudioManager {
 
     #[cfg(target_arch = "wasm32")]
     fn play_tone(&self, freq: f32, duration: f64, type_: &str, volume: f32) {
-         self.play_tone_at(freq, duration, type_, volume, self.current_time());
+        self.play_tone_at(freq, duration, type_, volume, self.current_time());
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -90,9 +90,13 @@ impl AudioManager {
                     // Envelope
                     // Attack
                     let _ = gain.gain().set_value_at_time(0.0, start_time);
-                    let _ = gain.gain().linear_ramp_to_value_at_time(volume, start_time + 0.01);
+                    let _ = gain
+                        .gain()
+                        .linear_ramp_to_value_at_time(volume, start_time + 0.01);
                     // Decay/Release
-                    let _ = gain.gain().exponential_ramp_to_value_at_time(0.001, start_time + duration);
+                    let _ = gain
+                        .gain()
+                        .exponential_ramp_to_value_at_time(0.001, start_time + duration);
 
                     let _ = osc.start_with_when(start_time);
                     let _ = osc.stop_with_when(start_time + duration);

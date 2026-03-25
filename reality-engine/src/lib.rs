@@ -1,5 +1,8 @@
+use cgmath::{InnerSpace, Rotation, SquareMatrix};
+use serde::Serialize;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
+use std::collections::HashMap;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
@@ -7,27 +10,27 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
-use web_sys::{HtmlCanvasElement, XrSession, XrWebGlLayer, XrRenderStateInit, XrReferenceSpace, XrReferenceSpaceType, XrFrame, XrViewerPose, XrView, XrEye};
+use web_sys::{
+    HtmlCanvasElement, XrEye, XrFrame, XrReferenceSpace, XrReferenceSpaceType, XrRenderStateInit,
+    XrSession, XrView, XrViewerPose, XrWebGlLayer,
+};
 use wgpu::util::DeviceExt;
-use cgmath::{InnerSpace, SquareMatrix, Rotation};
-use serde::Serialize;
-use std::collections::HashMap;
 
+pub mod audio;
 pub mod camera;
-mod texture;
-pub mod reality_types;
-pub mod projector;
+pub mod engine;
+pub mod genie_bridge;
+pub mod input;
+pub mod lambda;
+pub mod network;
 pub mod persistence;
-pub mod world;
+pub mod projector;
+pub mod reality_types;
+mod texture;
+pub mod visual_lambda;
 pub mod voxel;
 pub mod voxelizer;
-pub mod genie_bridge;
-pub mod network;
-pub mod lambda;
-pub mod visual_lambda;
-pub mod input;
-pub mod engine;
-pub mod audio;
+pub mod world;
 #[cfg(target_arch = "wasm32")]
 pub mod xr;
 
@@ -136,7 +139,11 @@ fn extract_frustum_planes(m: &cgmath::Matrix4<f32>) -> [cgmath::Vector4<f32>; 6]
     planes
 }
 
-fn is_aabb_visible(min: cgmath::Point3<f32>, max: cgmath::Point3<f32>, planes: &[cgmath::Vector4<f32>; 6]) -> bool {
+fn is_aabb_visible(
+    min: cgmath::Point3<f32>,
+    max: cgmath::Point3<f32>,
+    planes: &[cgmath::Vector4<f32>; 6],
+) -> bool {
     for plane in planes {
         // Find the corner of the AABB furthest along the plane's normal
         let px = if plane.x > 0.0 { max.x } else { min.x };
@@ -295,7 +302,6 @@ pub struct State {
     // lambda_system moved to engine
     // pending_full_sync moved to engine
     // time moved to engine
-
     pub engine: engine::Engine,
 
     pub depth_texture: texture::Texture,
@@ -365,7 +371,9 @@ impl State {
             .unwrap_or(surface_caps.formats[0]);
 
         // Enable transparent background for AR overlay
-        let alpha_mode = surface_caps.alpha_modes.iter()
+        let alpha_mode = surface_caps
+            .alpha_modes
+            .iter()
             .find(|&&m| m == wgpu::CompositeAlphaMode::PreMultiplied)
             .cloned()
             .unwrap_or(surface_caps.alpha_modes[0]);
@@ -384,13 +392,14 @@ impl State {
         surface.configure(&device, &config);
 
         let diffuse_bytes = include_bytes!("happy-tree.png");
-        let diffuse_texture = match texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png") {
-            Ok(tex) => tex,
-            Err(e) => {
-                log::warn!("Failed to load happy-tree.png: {:?}. Using fallback.", e);
-                texture::Texture::create_fallback(&device, &queue, "happy-tree-fallback")
-            }
-        };
+        let diffuse_texture =
+            match texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png") {
+                Ok(tex) => tex,
+                Err(e) => {
+                    log::warn!("Failed to load happy-tree.png: {:?}. Using fallback.", e);
+                    texture::Texture::create_fallback(&device, &queue, "happy-tree-fallback")
+                }
+            };
 
         let voxel_density_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Voxel Density Texture"),
@@ -406,7 +415,8 @@ impl State {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        let voxel_density_view = voxel_density_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let voxel_density_view =
+            voxel_density_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -460,11 +470,14 @@ impl State {
             label: Some("diffuse_bind_group"),
         });
 
-        let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+        let depth_texture =
+            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader.wgsl"
+            ))),
         });
 
         // Init Engine Logic
@@ -472,9 +485,9 @@ impl State {
 
         // Extract voxel_world if present
         let loaded_voxel_world = if let Some(ref mut state) = loaded_state {
-             state.voxel_world.take()
+            state.voxel_world.take()
         } else {
-             None
+            None
         };
 
         let engine = engine::Engine::new(width, height, loaded_state);
@@ -482,17 +495,15 @@ impl State {
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&engine.camera);
 
-        let camera_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Camera Buffer"),
-                contents: bytemuck::cast_slice(&[camera_uniform]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }
-        );
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
-        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
@@ -501,35 +512,30 @@ impl State {
                         min_binding_size: None,
                     },
                     count: None,
-                }
-            ],
-            label: Some("camera_bind_group_layout"),
-        });
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                }
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
             label: Some("camera_bind_group"),
         });
 
         // Reality System Setup
         let reality_uniform = RealityUniform::new();
-        let reality_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Reality Buffer"),
-                contents: bytemuck::cast_slice(&[reality_uniform]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }
-        );
+        let reality_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Reality Buffer"),
+            contents: bytemuck::cast_slice(&[reality_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
-        let reality_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let reality_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
@@ -538,19 +544,16 @@ impl State {
                         min_binding_size: None,
                     },
                     count: None,
-                }
-            ],
-            label: Some("reality_bind_group_layout"),
-        });
+                }],
+                label: Some("reality_bind_group_layout"),
+            });
 
         let reality_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &reality_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: reality_buffer.as_entire_binding(),
-                }
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: reality_buffer.as_entire_binding(),
+            }],
             label: Some("reality_bind_group"),
         });
 
@@ -604,7 +607,14 @@ impl State {
         }
 
         // Initial Instance Buffer
-        let instances = vec![Instance { model: cgmath::Matrix4::identity().into(), stability: 1.0, padding: [0.0; 3] }; chunk_data.len()];
+        let instances = vec![
+            Instance {
+                model: cgmath::Matrix4::identity().into(),
+                stability: 1.0,
+                padding: [0.0; 3]
+            };
+            chunk_data.len()
+        ];
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
             contents: bytemuck::cast_slice(&instances),
@@ -655,11 +665,8 @@ impl State {
             multiview: None,
         });
 
-        let lambda_renderer = visual_lambda::LambdaRenderer::new(
-            &device,
-            config.format,
-            &camera_bind_group_layout,
-        );
+        let lambda_renderer =
+            visual_lambda::LambdaRenderer::new(&device, config.format, &camera_bind_group_layout);
 
         // --- Voxel Initialization ---
         let voxel_world = if let Some(vw) = loaded_voxel_world {
@@ -674,37 +681,38 @@ impl State {
         // Voxel Texture Atlas
         let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
 
-        let voxel_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+        let voxel_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D3,
-                        sample_type: wgpu::TextureSampleType::Uint,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-            label: Some("voxel_bind_group_layout"),
-        });
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D3,
+                            sample_type: wgpu::TextureSampleType::Uint,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("voxel_bind_group_layout"),
+            });
 
         let voxel_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &voxel_bind_group_layout,
@@ -727,30 +735,37 @@ impl State {
 
         let voxel_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Voxel Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader_voxel.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader_voxel.wgsl"
+            ))),
         });
 
-        let voxel_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Voxel Pipeline Layout"),
-            bind_group_layouts: &[
-                &camera_bind_group_layout, // Group 0
-                &voxel_bind_group_layout,  // Group 1
-                &reality_bind_group_layout, // Group 2
-            ],
-            push_constant_ranges: &[],
-        });
+        let voxel_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Voxel Pipeline Layout"),
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,  // Group 0
+                    &voxel_bind_group_layout,   // Group 1
+                    &reality_bind_group_layout, // Group 2
+                ],
+                push_constant_ranges: &[],
+            });
 
         let max_entities = 100; // Player + NPCs + Items
-        let initial_entities = vec![visual_lambda::LambdaInstance {
-            position: [0.0, 0.0, 0.0],
-            color: [1.0, 1.0, 1.0, 1.0],
-            scale: 0.0,
-        }; max_entities];
-        let entities_instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Entities Instance Buffer"),
-            contents: bytemuck::cast_slice(&initial_entities),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        let initial_entities = vec![
+            visual_lambda::LambdaInstance {
+                position: [0.0, 0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                scale: 0.0,
+            };
+            max_entities
+        ];
+        let entities_instance_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Entities Instance Buffer"),
+                contents: bytemuck::cast_slice(&initial_entities),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
 
         let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Voxel Render Pipeline"),
@@ -852,55 +867,55 @@ impl State {
 
         // Iterate over active chunks and stamp them into the buffer
         for chunk in self.voxel_world.chunks.values() {
-             let cx = chunk.key.x; // e.g. -2, -1, 0, 1
-             let cy = chunk.key.y; // e.g. -1, 0, 1
-             let cz = chunk.key.z; // e.g. -2, -1, 0, 1
+            let cx = chunk.key.x; // e.g. -2, -1, 0, 1
+            let cy = chunk.key.y; // e.g. -1, 0, 1
+            let cz = chunk.key.z; // e.g. -2, -1, 0, 1
 
-             let base_x = cx * 32 + 64;
-             let base_y = cy * 32 + 32;
-             let base_z = cz * 32 + 64;
+            let base_x = cx * 32 + 64;
+            let base_y = cy * 32 + 32;
+            let base_z = cz * 32 + 64;
 
-             // Optimization: Hoist 3D-to-1D index math and remove redundant inner bounds checks.
-             // Calculate precise bounds for the loops so we correctly handle partial chunks
-             // overlapping the 0..128 texture boundaries, eliminating branching in the hot loop.
-             let min_x = std::cmp::max(0, -base_x);
-             let min_y = std::cmp::max(0, -base_y);
-             let min_z = std::cmp::max(0, -base_z);
+            // Optimization: Hoist 3D-to-1D index math and remove redundant inner bounds checks.
+            // Calculate precise bounds for the loops so we correctly handle partial chunks
+            // overlapping the 0..128 texture boundaries, eliminating branching in the hot loop.
+            let min_x = std::cmp::max(0, -base_x);
+            let min_y = std::cmp::max(0, -base_y);
+            let min_z = std::cmp::max(0, -base_z);
 
-             let max_x = std::cmp::min(32, 128 - base_x);
-             let max_y = std::cmp::min(32, 128 - base_y);
-             let max_z = std::cmp::min(32, 128 - base_z);
+            let max_x = std::cmp::min(32, 128 - base_x);
+            let max_y = std::cmp::min(32, 128 - base_y);
+            let max_z = std::cmp::min(32, 128 - base_z);
 
-             // If the chunk is entirely outside the bounds, skip it.
-             if min_x >= max_x || min_y >= max_y || min_z >= max_z {
-                 continue;
-             }
+            // If the chunk is entirely outside the bounds, skip it.
+            if min_x >= max_x || min_y >= max_y || min_z >= max_z {
+                continue;
+            }
 
-             // Base offset is guaranteed >= 0 since we skipped out of bounds above and min >= -base
-             let safe_base_x = (base_x + min_x) as usize;
-             let safe_base_y = (base_y + min_y) as usize;
-             let safe_base_z = (base_z + min_z) as usize;
+            // Base offset is guaranteed >= 0 since we skipped out of bounds above and min >= -base
+            let safe_base_x = (base_x + min_x) as usize;
+            let safe_base_y = (base_y + min_y) as usize;
+            let safe_base_z = (base_z + min_z) as usize;
 
-             let base_idx = safe_base_x + safe_base_y * 128 + safe_base_z * 128 * 128;
+            let base_idx = safe_base_x + safe_base_y * 128 + safe_base_z * 128 * 128;
 
-             for z in min_z..max_z {
-                 let z_idx = base_idx + ((z - min_z) as usize) * 128 * 128;
-                 let chunk_z_idx = (z as usize) * 32 * 32;
-                 for y in min_y..max_y {
-                     let y_idx = z_idx + ((y - min_y) as usize) * 128;
-                     let chunk_y_idx = chunk_z_idx + (y as usize) * 32;
-                     for x in min_x..max_x {
-                         // Optimization: Hoist chunk index math to outer loops to avoid recalculating Z and Y offsets
-                         // i goes 0..32768, so we compute it from x, y, z
-                         let i = chunk_y_idx + (x as usize);
-                         let v = chunk.data[i];
+            for z in min_z..max_z {
+                let z_idx = base_idx + ((z - min_z) as usize) * 128 * 128;
+                let chunk_z_idx = (z as usize) * 32 * 32;
+                for y in min_y..max_y {
+                    let y_idx = z_idx + ((y - min_y) as usize) * 128;
+                    let chunk_y_idx = chunk_z_idx + (y as usize) * 32;
+                    for x in min_x..max_x {
+                        // Optimization: Hoist chunk index math to outer loops to avoid recalculating Z and Y offsets
+                        // i goes 0..32768, so we compute it from x, y, z
+                        let i = chunk_y_idx + (x as usize);
+                        let v = chunk.data[i];
 
-                         if v.id != 0 {
-                             data[y_idx + ((x - min_x) as usize)] = 1; // Solid
-                         }
-                     }
-                 }
-             }
+                        if v.id != 0 {
+                            data[y_idx + ((x - min_x) as usize)] = 1; // Solid
+                        }
+                    }
+                }
+            }
         }
 
         let density_size = wgpu::Extent3d {
@@ -937,7 +952,8 @@ impl State {
             self.config.width = new_width;
             self.config.height = new_height;
             self.surface.configure(&self.device, &self.config);
-            self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+            self.depth_texture =
+                texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
             self.engine.resize(new_width, new_height);
         }
     }
@@ -945,28 +961,28 @@ impl State {
     pub fn process_keyboard(&mut self, key_code: &str) {
         // Voxel Inputs via Config
         if let Some(action) = self.engine.input_config.map_key(key_code) {
-             match action {
-                 input::Action::VoxelDiffusion => {
-                     self.voxel_world.update_dynamics();
-                     self.voxel_world.save_all_states();
-                     self.voxel_dirty = true;
-                 },
-                 input::Action::VoxelTimeReverse => {
-                     self.voxel_world.revert_all_states();
-                     self.voxel_dirty = true;
-                 },
-                 input::Action::VoxelDream => {
-                     self.voxel_world.dream();
-                     self.voxel_world.save_all_states();
-                     self.voxel_dirty = true;
-                 },
-                 input::Action::VoxelDiffuse => {
-                     self.voxel_world.diffuse_chunk();
-                     self.voxel_world.save_all_states();
-                     self.voxel_dirty = true;
-                 },
-                 _ => {}
-             }
+            match action {
+                input::Action::VoxelDiffusion => {
+                    self.voxel_world.update_dynamics();
+                    self.voxel_world.save_all_states();
+                    self.voxel_dirty = true;
+                }
+                input::Action::VoxelTimeReverse => {
+                    self.voxel_world.revert_all_states();
+                    self.voxel_dirty = true;
+                }
+                input::Action::VoxelDream => {
+                    self.voxel_world.dream();
+                    self.voxel_world.save_all_states();
+                    self.voxel_dirty = true;
+                }
+                input::Action::VoxelDiffuse => {
+                    self.voxel_world.diffuse_chunk();
+                    self.voxel_world.save_all_states();
+                    self.voxel_dirty = true;
+                }
+                _ => {}
+            }
         }
 
         self.engine.process_keyboard(key_code, true);
@@ -993,7 +1009,9 @@ impl State {
         // Handle Voxel Interaction (Shift + Click = Dig)
         if is_shift {
             let (ray_origin, ray_dir) = self.engine.get_ray(x, y);
-            if let Some((key, lx, ly, lz, _normal)) = self.voxel_world.ray_cast(ray_origin, ray_dir, 10.0) {
+            if let Some((key, lx, ly, lz, _normal)) =
+                self.voxel_world.ray_cast(ray_origin, ray_dir, 10.0)
+            {
                 // Dig: Set to 0 (Air)
                 if let Some(chunk) = self.voxel_world.get_chunk_mut(key) {
                     chunk.set(lx, ly, lz, voxel::Voxel { id: 0 });
@@ -1024,14 +1042,14 @@ impl State {
         }
 
         if self.engine.process_click(x, y) {
-             // State changed, save
-             let lambda_source = if let Some(term) = &self.engine.lambda_system.root_term {
-                 term.to_string()
-             } else {
-                 "".to_string()
-             };
+            // State changed, save
+            let lambda_source = if let Some(term) = &self.engine.lambda_system.root_term {
+                term.to_string()
+            } else {
+                "".to_string()
+            };
 
-             let game_state = persistence::GameState {
+            let game_state = persistence::GameState {
                 player: persistence::PlayerState {
                     projector: self.engine.player_projector.clone(),
                 },
@@ -1053,13 +1071,17 @@ impl State {
         let mut to_update = Vec::new();
 
         for (key, chunk) in &self.voxel_world.chunks {
-            let chunk_world_x = chunk.key.x as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
-            let chunk_world_y = chunk.key.y as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
-            let chunk_world_z = chunk.key.z as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
+            let chunk_world_x =
+                chunk.key.x as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
+            let chunk_world_y =
+                chunk.key.y as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
+            let chunk_world_z =
+                chunk.key.z as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
 
-            let dist_sq = (cam_pos.x - chunk_world_x).powi(2) +
-                          (cam_pos.y - chunk_world_y).powi(2) +
-                          (cam_pos.z - chunk_world_z).powi(2);
+            let dx = cam_pos.x - chunk_world_x;
+            let dy = cam_pos.y - chunk_world_y;
+            let dz = cam_pos.z - chunk_world_z;
+            let dist_sq = dx * dx + dy * dy + dz * dz;
 
             // Optimization: Avoid expensive sqrt calculation in chunk iteration loop
             // Compare squared distance against squared thresholds (128^2 = 16384, 64^2 = 4096)
@@ -1071,10 +1093,11 @@ impl State {
                 1
             };
 
-            let needs_update = force || match self.voxel_meshes.get(key) {
-                Some(mesh) => mesh.lod_level != desired_lod,
-                None => true,
-            };
+            let needs_update = force
+                || match self.voxel_meshes.get(key) {
+                    Some(mesh) => mesh.lod_level != desired_lod,
+                    None => true,
+                };
 
             if needs_update {
                 to_update.push((*key, desired_lod));
@@ -1083,7 +1106,8 @@ impl State {
 
         // Remove meshes for chunks that no longer exist
         // Optimization: Use O(1) hash map lookup instead of O(N) vector scan to make retain O(M) instead of O(N*M)
-        self.voxel_meshes.retain(|k, _| self.voxel_world.chunks.contains_key(k));
+        self.voxel_meshes
+            .retain(|k, _| self.voxel_world.chunks.contains_key(k));
 
         for (key, lod) in to_update {
             if let Some(chunk) = self.voxel_world.chunks.get(&key) {
@@ -1091,16 +1115,20 @@ impl State {
                 let (v, i) = mesh_chunk.generate_mesh();
 
                 if !i.is_empty() {
-                    let v_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Voxel Chunk Vertex"),
-                        contents: bytemuck::cast_slice(&v),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
-                    let i_buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Voxel Chunk Index"),
-                        contents: bytemuck::cast_slice(&i),
-                        usage: wgpu::BufferUsages::INDEX,
-                    });
+                    let v_buf = self
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Voxel Chunk Vertex"),
+                            contents: bytemuck::cast_slice(&v),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                    let i_buf = self
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Voxel Chunk Index"),
+                            contents: bytemuck::cast_slice(&i),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
 
                     let size = voxel::CHUNK_SIZE as f32;
                     let min_x = key.x as f32 * size;
@@ -1110,14 +1138,17 @@ impl State {
                     let aabb_min = cgmath::Point3::new(min_x, min_y, min_z);
                     let aabb_max = cgmath::Point3::new(min_x + size, min_y + size, min_z + size);
 
-                    self.voxel_meshes.insert(key, ChunkMesh {
-                        vertex_buffer: v_buf,
-                        index_buffer: i_buf,
-                        index_count: i.len() as u32,
-                        lod_level: lod,
-                        aabb_min,
-                        aabb_max,
-                    });
+                    self.voxel_meshes.insert(
+                        key,
+                        ChunkMesh {
+                            vertex_buffer: v_buf,
+                            index_buffer: i_buf,
+                            index_count: i.len() as u32,
+                            lod_level: lod,
+                            aabb_min,
+                            aabb_max,
+                        },
+                    );
                 } else {
                     self.voxel_meshes.remove(&key);
                 }
@@ -1133,9 +1164,10 @@ impl State {
 
         // Rebuild meshes if dirty or if camera moved significantly (LOD update trigger)
         let cam_pos = self.engine.camera.eye;
-        let dist_sq = (cam_pos.x - self.last_lod_update_pos.x).powi(2) +
-                      (cam_pos.y - self.last_lod_update_pos.y).powi(2) +
-                      (cam_pos.z - self.last_lod_update_pos.z).powi(2);
+        let dx = cam_pos.x - self.last_lod_update_pos.x;
+        let dy = cam_pos.y - self.last_lod_update_pos.y;
+        let dz = cam_pos.z - self.last_lod_update_pos.z;
+        let dist_sq = dx * dx + dy * dy + dz * dz;
 
         if self.voxel_dirty || dist_sq > 256.0 {
             self.update_lods(self.voxel_dirty);
@@ -1154,50 +1186,70 @@ impl State {
 
         // Helper to map archetype to ID and Color
         fn get_archetype_data(archetype: reality_types::RealityArchetype) -> (f32, [f32; 4]) {
-             match archetype {
-                reality_types::RealityArchetype::Void => ( -1.0, [0.0, 0.0, 0.0, 0.0] ),
-                reality_types::RealityArchetype::Fantasy => ( 0.0, [0.0, 1.0, 0.0, 1.0] ),
-                reality_types::RealityArchetype::SciFi => ( 1.0, [0.0, 0.0, 1.0, 1.0] ),
-                reality_types::RealityArchetype::Horror => ( 2.0, [1.0, 0.0, 0.0, 1.0] ),
-                reality_types::RealityArchetype::Toon => ( 3.0, [1.0, 1.0, 0.0, 1.0] ),
-                reality_types::RealityArchetype::HyperNature => ( 4.0, [0.2, 0.8, 0.2, 1.0] ),
-                reality_types::RealityArchetype::Genie => ( 5.0, [1.0, 0.8, 0.0, 1.0] ), // Gold
-                reality_types::RealityArchetype::Glitch => ( 6.0, [1.0, 0.0, 1.0, 1.0] ), // Magenta
-                reality_types::RealityArchetype::Steampunk => ( 7.0, [0.8, 0.5, 0.2, 1.0] ), // Bronze/Brass
-                reality_types::RealityArchetype::Vaporwave => ( 8.0, [0.0, 1.0, 1.0, 1.0] ), // Cyan
-                reality_types::RealityArchetype::Noir => ( 9.0, [0.1, 0.1, 0.1, 1.0] ), // Dark Gray
-                reality_types::RealityArchetype::CyberSpace => ( 10.0, [0.0, 1.0, 0.0, 1.0] ), // Matrix Green
-                reality_types::RealityArchetype::Dream => ( 11.0, [0.8, 0.6, 1.0, 1.0] ), // Pastel Purple
-                reality_types::RealityArchetype::ObraDinn => ( 12.0, [0.9, 0.9, 0.8, 1.0] ), // Pale yellow
+            match archetype {
+                reality_types::RealityArchetype::Void => (-1.0, [0.0, 0.0, 0.0, 0.0]),
+                reality_types::RealityArchetype::Fantasy => (0.0, [0.0, 1.0, 0.0, 1.0]),
+                reality_types::RealityArchetype::SciFi => (1.0, [0.0, 0.0, 1.0, 1.0]),
+                reality_types::RealityArchetype::Horror => (2.0, [1.0, 0.0, 0.0, 1.0]),
+                reality_types::RealityArchetype::Toon => (3.0, [1.0, 1.0, 0.0, 1.0]),
+                reality_types::RealityArchetype::HyperNature => (4.0, [0.2, 0.8, 0.2, 1.0]),
+                reality_types::RealityArchetype::Genie => (5.0, [1.0, 0.8, 0.0, 1.0]), // Gold
+                reality_types::RealityArchetype::Glitch => (6.0, [1.0, 0.0, 1.0, 1.0]), // Magenta
+                reality_types::RealityArchetype::Steampunk => (7.0, [0.8, 0.5, 0.2, 1.0]), // Bronze/Brass
+                reality_types::RealityArchetype::Vaporwave => (8.0, [0.0, 1.0, 1.0, 1.0]), // Cyan
+                reality_types::RealityArchetype::Noir => (9.0, [0.1, 0.1, 0.1, 1.0]), // Dark Gray
+                reality_types::RealityArchetype::CyberSpace => (10.0, [0.0, 1.0, 0.0, 1.0]), // Matrix Green
+                reality_types::RealityArchetype::Dream => (11.0, [0.8, 0.6, 1.0, 1.0]), // Pastel Purple
+                reality_types::RealityArchetype::ObraDinn => (12.0, [0.9, 0.9, 0.8, 1.0]), // Pale yellow
             }
         }
 
         let p1 = &self.engine.player_projector;
-        let p1_archetype = *self.engine.input_config.archetype_filters.get(&p1.reality_signature.active_style.archetype).unwrap_or(&p1.reality_signature.active_style.archetype);
+        let p1_archetype = *self
+            .engine
+            .input_config
+            .archetype_filters
+            .get(&p1.reality_signature.active_style.archetype)
+            .unwrap_or(&p1.reality_signature.active_style.archetype);
         let (id1, color1) = get_archetype_data(p1_archetype);
-        self.reality_uniform.proj1_pos_fid = [p1.location.x, p1.location.y, p1.location.z, p1.reality_signature.fidelity];
+        self.reality_uniform.proj1_pos_fid = [
+            p1.location.x,
+            p1.location.y,
+            p1.location.z,
+            p1.reality_signature.fidelity,
+        ];
         self.reality_uniform.proj1_params = [
             p1.reality_signature.active_style.roughness,
             p1.reality_signature.active_style.scale,
             p1.reality_signature.active_style.distortion,
-            id1
+            id1,
         ];
         self.reality_uniform.proj1_color = color1;
 
         let p2 = if let Some(ref anomaly) = self.engine.active_anomaly {
-             anomaly
+            anomaly
         } else {
-             &self.engine.player_projector
+            &self.engine.player_projector
         };
 
-        let p2_archetype = *self.engine.input_config.archetype_filters.get(&p2.reality_signature.active_style.archetype).unwrap_or(&p2.reality_signature.active_style.archetype);
+        let p2_archetype = *self
+            .engine
+            .input_config
+            .archetype_filters
+            .get(&p2.reality_signature.active_style.archetype)
+            .unwrap_or(&p2.reality_signature.active_style.archetype);
         let (id2, color2) = get_archetype_data(p2_archetype);
-        self.reality_uniform.proj2_pos_fid = [p2.location.x, p2.location.y, p2.location.z, p2.reality_signature.fidelity];
+        self.reality_uniform.proj2_pos_fid = [
+            p2.location.x,
+            p2.location.y,
+            p2.location.z,
+            p2.reality_signature.fidelity,
+        ];
         self.reality_uniform.proj2_params = [
             p2.reality_signature.active_style.roughness,
             p2.reality_signature.active_style.scale,
             p2.reality_signature.active_style.distortion,
-            id2
+            id2,
         ];
         self.reality_uniform.proj2_color = color2;
         self.reality_uniform.global_offset = self.engine.global_offset;
@@ -1256,16 +1308,21 @@ impl State {
 
         if self.num_entities > self.max_entities {
             self.max_entities = self.num_entities * 2;
-            let instances = vec![visual_lambda::LambdaInstance {
-                position: [0.0, 0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-                scale: 0.0,
-            }; self.max_entities as usize];
-            self.entities_instance_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Entities Instance Buffer Resized"),
-                contents: bytemuck::cast_slice(&instances),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
+            let instances = vec![
+                visual_lambda::LambdaInstance {
+                    position: [0.0, 0.0, 0.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    scale: 0.0,
+                };
+                self.max_entities as usize
+            ];
+            self.entities_instance_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Entities Instance Buffer Resized"),
+                        contents: bytemuck::cast_slice(&instances),
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    });
         }
 
         self.queue.write_buffer(
@@ -1293,7 +1350,11 @@ impl State {
 
                     // Get Stability from World State
                     let chunk_size = 10.0;
-                    let id = world::ChunkId::from_world_pos(chunk_data.position.x, chunk_data.position.z, chunk_size);
+                    let id = world::ChunkId::from_world_pos(
+                        chunk_data.position.x,
+                        chunk_data.position.z,
+                        chunk_size,
+                    );
                     let stability = if let Some(chunk) = self.engine.world_state.chunks.get(&id) {
                         chunk.stability
                     } else {
@@ -1328,7 +1389,7 @@ impl State {
             &self.engine.lambda_system.nodes,
             &self.engine.lambda_system.edges,
             self.engine.lambda_system.hovered_node,
-            self.engine.lambda_system.hovered_edge
+            self.engine.lambda_system.hovered_edge,
         );
     }
 
@@ -1348,9 +1409,19 @@ impl State {
 
         {
             let clear_color = if self.in_xr {
-                wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
+                wgpu::Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.0,
+                }
             } else {
-                wgpu::Color { r: 0.1, g: 0.1, b: 0.2, a: 1.0 }
+                wgpu::Color {
+                    r: 0.1,
+                    g: 0.1,
+                    b: 0.2,
+                    a: 1.0,
+                }
             };
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1384,7 +1455,8 @@ impl State {
             if self.num_instances > 0 {
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
             }
 
@@ -1401,15 +1473,25 @@ impl State {
                     continue;
                 }
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass
+                    .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {
-                 self.lambda_renderer.render(&mut render_pass, &self.camera_bind_group, self.engine.lambda_system.nodes.len() as u32);
+                self.lambda_renderer.render(
+                    &mut render_pass,
+                    &self.camera_bind_group,
+                    self.engine.lambda_system.nodes.len() as u32,
+                );
             }
 
-            self.lambda_renderer.render_entities(&mut render_pass, &self.camera_bind_group, &self.entities_instance_buffer, self.num_entities);
+            self.lambda_renderer.render_entities(
+                &mut render_pass,
+                &self.camera_bind_group,
+                &self.entities_instance_buffer,
+                self.num_entities,
+            );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -1522,7 +1604,11 @@ impl GameClient {
             _ => reality_types::RealityArchetype::Void,
         };
 
-        state.engine.input_config.archetype_filters.insert(blacklisted, replacement);
+        state
+            .engine
+            .input_config
+            .archetype_filters
+            .insert(blacklisted, replacement);
         self.save_state(&state);
     }
 
@@ -1544,7 +1630,12 @@ impl GameClient {
             _ => reality_types::RealityArchetype::Void,
         };
 
-        if let Some(replacement) = state.engine.input_config.archetype_filters.get(&blacklisted) {
+        if let Some(replacement) = state
+            .engine
+            .input_config
+            .archetype_filters
+            .get(&blacklisted)
+        {
             match replacement {
                 reality_types::RealityArchetype::Fantasy => 0,
                 reality_types::RealityArchetype::SciFi => 1,
@@ -1569,9 +1660,9 @@ impl GameClient {
     pub fn get_key_binding(&self, action_name: String) -> String {
         let state = self.state.borrow();
         if let Some(action) = input::Action::from_string(&action_name) {
-             if let Some(key) = state.engine.input_config.get_binding(action) {
-                 return key.clone();
-             }
+            if let Some(key) = state.engine.input_config.get_binding(action) {
+                return key.clone();
+            }
         }
         "".to_string()
     }
@@ -1579,17 +1670,17 @@ impl GameClient {
     pub fn set_key_binding(&self, action_name: String, key_code: String) {
         let mut state = self.state.borrow_mut();
         if let Some(action) = input::Action::from_string(&action_name) {
-             state.engine.input_config.set_binding(action, key_code);
-             self.save_state(&state);
+            state.engine.input_config.set_binding(action, key_code);
+            self.save_state(&state);
         }
     }
 
     pub fn get_network_status(&self) -> String {
         if let Some(network_manager) = &self.network {
-             let status = network_manager.borrow().get_status();
-             serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string())
+            let status = network_manager.borrow().get_status();
+            serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string())
         } else {
-             "{}".to_string()
+            "{}".to_string()
         }
     }
 
@@ -1618,7 +1709,7 @@ impl GameClient {
             anomaly_sig.fidelity = 100.0;
             state.engine.active_anomaly = Some(projector::RealityProjector::new(
                 Point3::new(0.0, 0.0, 0.0),
-                anomaly_sig
+                anomaly_sig,
             ));
 
             state.engine.lambda_system = visual_lambda::LambdaSystem::new();
@@ -1633,16 +1724,23 @@ impl GameClient {
             }
 
             // Restore Lambda State
-            let source = if loaded_state.lambda_source.is_empty() { "FIRE".to_string() } else { loaded_state.lambda_source };
+            let source = if loaded_state.lambda_source.is_empty() {
+                "FIRE".to_string()
+            } else {
+                loaded_state.lambda_source
+            };
             if let Some(term) = lambda::parse(&source) {
                 state.engine.lambda_system.set_term(term);
                 if !loaded_state.lambda_layout.is_empty() {
-                    state.engine.lambda_system.apply_layout(loaded_state.lambda_layout);
+                    state
+                        .engine
+                        .lambda_system
+                        .apply_layout(loaded_state.lambda_layout);
                 }
             } else {
-                 // Fallback
-                 let term = lambda::parse("FIRE").unwrap();
-                 state.engine.lambda_system.set_term(term);
+                // Fallback
+                let term = lambda::parse("FIRE").unwrap();
+                state.engine.lambda_system.set_term(term);
             }
 
             log::info!("Game Loaded from slot: {}", slot_name);
@@ -1692,7 +1790,7 @@ impl GameClient {
 
     pub async fn enter_ar_session(&self) -> Result<(), JsValue> {
         if !xr::is_ar_supported().await? {
-             return Err(JsValue::from_str("AR not supported"));
+            return Err(JsValue::from_str("AR not supported"));
         }
 
         let session: XrSession = xr::request_ar_session().await?;
@@ -1705,7 +1803,8 @@ impl GameClient {
         };
 
         // 2. Get Context (No Borrow)
-        let gl_context = canvas.get_context("webgl2")?
+        let gl_context = canvas
+            .get_context("webgl2")?
             .ok_or_else(|| JsValue::from_str("No WebGL2 context found"))?
             .dyn_into::<web_sys::WebGl2RenderingContext>()?;
 
@@ -1718,14 +1817,17 @@ impl GameClient {
 
         // 4. Request Reference Space (Async - Must not hold borrow)
         let reference_space = wasm_bindgen_futures::JsFuture::from(
-            session.request_reference_space(XrReferenceSpaceType::Local)
-        ).await?.unchecked_into::<XrReferenceSpace>();
+            session.request_reference_space(XrReferenceSpaceType::Local),
+        )
+        .await?
+        .unchecked_into::<XrReferenceSpace>();
 
         let state_xr = self.state.clone();
         let session_clone = session.clone();
         let reference_space_clone = reference_space.clone();
 
-        let f_xr: Rc<RefCell<Option<Closure<dyn FnMut(f64, XrFrame)>>>> = Rc::new(RefCell::new(None));
+        let f_xr: Rc<RefCell<Option<Closure<dyn FnMut(f64, XrFrame)>>>> =
+            Rc::new(RefCell::new(None));
         let g_xr = f_xr.clone();
 
         *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
@@ -1734,46 +1836,72 @@ impl GameClient {
             let pose = frame.get_viewer_pose(&reference_space_clone);
             let viewer_pose = pose.map(|p| p.unchecked_into::<XrViewerPose>());
             if let Some(pose) = viewer_pose {
-                 let views = pose.views();
-                 if views.length() > 0 {
-                      let view = views.get(0).unchecked_into::<XrView>();
-                      let _eye: XrEye = view.eye();
+                let views = pose.views();
+                if views.length() > 0 {
+                    let view = views.get(0).unchecked_into::<XrView>();
+                    let _eye: XrEye = view.eye();
 
-                      // Tracking
-                      let transform = view.transform();
-                      let pos = transform.position();
-                      let orient = transform.orientation();
+                    // Tracking
+                    let transform = view.transform();
+                    let pos = transform.position();
+                    let orient = transform.orientation();
 
-                      let q = cgmath::Quaternion::new(orient.w() as f32, orient.x() as f32, orient.y() as f32, orient.z() as f32);
-                      let forward = q.rotate_vector(cgmath::Vector3::new(0.0, 0.0, -1.0));
-                      let up = q.rotate_vector(cgmath::Vector3::new(0.0, 1.0, 0.0));
+                    let q = cgmath::Quaternion::new(
+                        orient.w() as f32,
+                        orient.x() as f32,
+                        orient.y() as f32,
+                        orient.z() as f32,
+                    );
+                    let forward = q.rotate_vector(cgmath::Vector3::new(0.0, 0.0, -1.0));
+                    let up = q.rotate_vector(cgmath::Vector3::new(0.0, 1.0, 0.0));
 
-                      state.engine.camera.eye = cgmath::Point3::new(pos.x() as f32, pos.y() as f32, pos.z() as f32);
-                      state.engine.camera.target = state.engine.camera.eye + forward;
-                      state.engine.camera.up = up;
+                    state.engine.camera.eye =
+                        cgmath::Point3::new(pos.x() as f32, pos.y() as f32, pos.z() as f32);
+                    state.engine.camera.target = state.engine.camera.eye + forward;
+                    state.engine.camera.up = up;
 
-                      // Projection
-                      let proj_data = view.projection_matrix();
+                    // Projection
+                    let proj_data = view.projection_matrix();
 
-                      if proj_data.len() >= 16 {
-                          state.engine.camera.projection_override = Some(cgmath::Matrix4::from_cols(
-                              cgmath::Vector4::new(proj_data[0], proj_data[1], proj_data[2], proj_data[3]),
-                              cgmath::Vector4::new(proj_data[4], proj_data[5], proj_data[6], proj_data[7]),
-                              cgmath::Vector4::new(proj_data[8], proj_data[9], proj_data[10], proj_data[11]),
-                              cgmath::Vector4::new(proj_data[12], proj_data[13], proj_data[14], proj_data[15]),
-                          ));
-                      }
+                    if proj_data.len() >= 16 {
+                        state.engine.camera.projection_override = Some(cgmath::Matrix4::from_cols(
+                            cgmath::Vector4::new(
+                                proj_data[0],
+                                proj_data[1],
+                                proj_data[2],
+                                proj_data[3],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[4],
+                                proj_data[5],
+                                proj_data[6],
+                                proj_data[7],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[8],
+                                proj_data[9],
+                                proj_data[10],
+                                proj_data[11],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[12],
+                                proj_data[13],
+                                proj_data[14],
+                                proj_data[15],
+                            ),
+                        ));
+                    }
 
-                      if let Some(viewport) = layer.get_viewport(&view) {
-                           let vp_width = viewport.width() as u32;
-                           let vp_height = viewport.height() as u32;
-                           if vp_width != state.width || vp_height != state.height {
-                                state.resize(vp_width, vp_height);
-                                state.canvas.set_width(vp_width);
-                                state.canvas.set_height(vp_height);
-                           }
-                      }
-                 }
+                    if let Some(viewport) = layer.get_viewport(&view) {
+                        let vp_width = viewport.width() as u32;
+                        let vp_height = viewport.height() as u32;
+                        if vp_width != state.width || vp_height != state.height {
+                            state.resize(vp_width, vp_height);
+                            state.canvas.set_width(vp_width);
+                            state.canvas.set_height(vp_height);
+                        }
+                    }
+                }
             }
 
             state.update();
@@ -1787,16 +1915,26 @@ impl GameClient {
             let framebuffer = layer.framebuffer();
 
             gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::READ_FRAMEBUFFER, None);
-            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::DRAW_FRAMEBUFFER, framebuffer.as_ref());
-
-            gl_context.blit_framebuffer(
-                0, 0, width, height,
-                0, 0, width, height,
-                web_sys::WebGl2RenderingContext::COLOR_BUFFER_BIT,
-                web_sys::WebGl2RenderingContext::NEAREST
+            gl_context.bind_framebuffer(
+                web_sys::WebGl2RenderingContext::DRAW_FRAMEBUFFER,
+                framebuffer.as_ref(),
             );
 
-            session_clone.request_animation_frame(f_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+            gl_context.blit_framebuffer(
+                0,
+                0,
+                width,
+                height,
+                0,
+                0,
+                width,
+                height,
+                web_sys::WebGl2RenderingContext::COLOR_BUFFER_BIT,
+                web_sys::WebGl2RenderingContext::NEAREST,
+            );
+
+            session_clone
+                .request_animation_frame(f_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
         }));
 
         session.request_animation_frame(g_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
@@ -1818,7 +1956,10 @@ impl GameClient {
 #[wasm_bindgen]
 pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     std::panic::set_hook(Box::new(|info| {
-        web_sys::console::error_1(&wasm_bindgen::JsValue::from_str(&format!("Panic: {}", info)));
+        web_sys::console::error_1(&wasm_bindgen::JsValue::from_str(&format!(
+            "Panic: {}",
+            info
+        )));
     }));
     console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
 
@@ -1861,25 +2002,30 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
         // Check for Inscribe Key
         let is_inscribe = {
-             let state = state_keydown.borrow();
-             state.engine.input_config.get_binding(input::Action::Inscribe) == Some(&code)
+            let state = state_keydown.borrow();
+            state
+                .engine
+                .input_config
+                .get_binding(input::Action::Inscribe)
+                == Some(&code)
         };
 
         if is_inscribe {
-             // Pause/Unlock pointer if needed?
-             // web_sys::window().unwrap().document().unwrap().exit_pointer_lock();
+            // Pause/Unlock pointer if needed?
+            // web_sys::window().unwrap().document().unwrap().exit_pointer_lock();
 
-             if let Ok(Some(text)) = web_sys::window().unwrap().prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):") {
-                 if !text.is_empty() {
+            if let Ok(Some(text)) = web_sys::window()
+                .unwrap()
+                .prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):")
+            {
+                if !text.is_empty() {
                     state_keydown.borrow_mut().engine.process_inscription(&text);
-                 }
-             }
-             return;
+                }
+            }
+            return;
         }
 
-        state_keydown
-            .borrow_mut()
-            .process_keyboard(&code);
+        state_keydown.borrow_mut().process_keyboard(&code);
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -1889,9 +2035,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     let state_keyup = state.clone();
     let keyup_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
-        state_keyup
-            .borrow_mut()
-            .process_keyup(&event.code());
+        state_keyup.borrow_mut().process_keyup(&event.code());
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -1906,7 +2050,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     // Context menu / right click handler
     let context_menu_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
         event.prevent_default(); // Prevent the browser's context menu from showing
-        // Use the cloned state and canvas, e.g., to process a special interaction
+                                 // Use the cloned state and canvas, e.g., to process a special interaction
         let rect = canvas_mouse.get_bounding_client_rect();
         let x = event.client_x() as f32 - rect.left() as f32;
         let y = event.client_y() as f32 - rect.top() as f32;
@@ -1919,7 +2063,12 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         state_mouse.borrow_mut().process_click(ndc_x, ndc_y, true);
     }) as Box<dyn FnMut(_)>);
 
-    canvas.add_event_listener_with_callback("contextmenu", context_menu_closure.as_ref().unchecked_ref()).unwrap();
+    canvas
+        .add_event_listener_with_callback(
+            "contextmenu",
+            context_menu_closure.as_ref().unchecked_ref(),
+        )
+        .unwrap();
     context_menu_closure.forget();
 
     // MouseState tracking for click detection
@@ -1927,7 +2076,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         down_pos: Option<(f32, f32)>,
         down_time: f64,
     }
-    let mouse_state = Rc::new(RefCell::new(MouseState { down_pos: None, down_time: 0.0 }));
+    let mouse_state = Rc::new(RefCell::new(MouseState {
+        down_pos: None,
+        down_time: 0.0,
+    }));
 
     let state_down = state.clone();
     let canvas_down = canvas.clone();
@@ -1937,7 +2089,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let locked = document.pointer_lock_element().is_some();
 
         if !locked {
-             canvas_down.request_pointer_lock();
+            canvas_down.request_pointer_lock();
         }
 
         let (ndc_x, ndc_y) = if locked {
@@ -1952,13 +2104,17 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         };
 
         let button = event.button();
-        state_down.borrow_mut().process_mouse_down(ndc_x, ndc_y, button);
+        state_down
+            .borrow_mut()
+            .process_mouse_down(ndc_x, ndc_y, button);
 
         mouse_state_down.borrow_mut().down_pos = Some((ndc_x, ndc_y));
         mouse_state_down.borrow_mut().down_time = js_sys::Date::now();
     }) as Box<dyn FnMut(_)>);
 
-    canvas.add_event_listener_with_callback("mousedown", mousedown_closure.as_ref().unchecked_ref()).unwrap();
+    canvas
+        .add_event_listener_with_callback("mousedown", mousedown_closure.as_ref().unchecked_ref())
+        .unwrap();
     mousedown_closure.forget();
 
     let state_move = state.clone();
@@ -1968,10 +2124,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let locked = document.pointer_lock_element().is_some();
 
         if locked {
-            state_move.borrow_mut().engine.process_mouse_look(
-                event.movement_x() as f32,
-                event.movement_y() as f32
-            );
+            state_move
+                .borrow_mut()
+                .engine
+                .process_mouse_look(event.movement_x() as f32, event.movement_y() as f32);
             // Also update drag with center ray to allow carrying items
             state_move.borrow_mut().process_mouse_move(0.0, 0.0);
         } else {
@@ -1988,7 +2144,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     }) as Box<dyn FnMut(_)>);
 
     // Mousemove on window
-    window.add_event_listener_with_callback("mousemove", mousemove_closure.as_ref().unchecked_ref()).unwrap();
+    window
+        .add_event_listener_with_callback("mousemove", mousemove_closure.as_ref().unchecked_ref())
+        .unwrap();
     mousemove_closure.forget();
 
     let state_up = state.clone();
@@ -2008,23 +2166,32 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         // Check for click
         let mut ms = mouse_state_up.borrow_mut();
         if let Some((sx, sy)) = ms.down_pos {
-             let dist = ((ndc_x - sx).powi(2) + (ndc_y - sy).powi(2)).sqrt();
-             let elapsed = js_sys::Date::now() - ms.down_time;
+            let dx = ndc_x - sx;
+            let dy = ndc_y - sy;
+            let dist_sq = dx * dx + dy * dy;
+            let elapsed = js_sys::Date::now() - ms.down_time;
 
-             if dist < 0.05 && elapsed < 300.0 {
-                 state_up.borrow_mut().process_click(ndc_x, ndc_y, event.shift_key());
-             }
+            // dist < 0.05 is equivalent to dist_sq < 0.0025
+            if dist_sq < 0.0025 && elapsed < 300.0 {
+                state_up
+                    .borrow_mut()
+                    .process_click(ndc_x, ndc_y, event.shift_key());
+            }
         }
         ms.down_pos = None;
     }) as Box<dyn FnMut(_)>);
 
-    window.add_event_listener_with_callback("mouseup", mouseup_closure.as_ref().unchecked_ref()).unwrap();
+    window
+        .add_event_listener_with_callback("mouseup", mouseup_closure.as_ref().unchecked_ref())
+        .unwrap();
     mouseup_closure.forget();
 
     // Device Orientation Handler
     let state_orient = state.clone();
     let orient_closure = Closure::wrap(Box::new(move |event: web_sys::DeviceOrientationEvent| {
-        if let (Some(alpha), Some(beta), Some(_gamma)) = (event.alpha(), event.beta(), event.gamma()) {
+        if let (Some(alpha), Some(beta), Some(_gamma)) =
+            (event.alpha(), event.beta(), event.gamma())
+        {
             let yaw = -alpha.to_radians() as f32;
             let pitch = (beta - 90.0).to_radians() as f32;
 
@@ -2034,7 +2201,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     }) as Box<dyn FnMut(_)>);
 
     window
-        .add_event_listener_with_callback("deviceorientation", orient_closure.as_ref().unchecked_ref())
+        .add_event_listener_with_callback(
+            "deviceorientation",
+            orient_closure.as_ref().unchecked_ref(),
+        )
         .expect("Failed to add deviceorientation listener");
     orient_closure.forget();
 
@@ -2043,26 +2213,28 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     if let Ok(navigator) = window.navigator().dyn_into::<web_sys::Navigator>() {
         if let Ok(geolocation) = navigator.geolocation() {
             let success_callback = Closure::wrap(Box::new(move |position: web_sys::Position| {
-                 let coords = position.coords();
-                 let lat = coords.latitude() as f32;
-                 let lon = coords.longitude() as f32;
+                let coords = position.coords();
+                let lat = coords.latitude() as f32;
+                let lon = coords.longitude() as f32;
 
-                 let scale = 111000.0;
-                 let x = lon * scale * 0.1;
-                 let z = lat * scale * 0.1;
+                let scale = 111000.0;
+                let x = lon * scale * 0.1;
+                let z = lat * scale * 0.1;
 
-                 state_geo.borrow_mut().engine.set_global_offset(x, z);
-                 log::info!("Geolocation Acquired: {}, {}", lat, lon);
+                state_geo.borrow_mut().engine.set_global_offset(x, z);
+                log::info!("Geolocation Acquired: {}, {}", lat, lon);
             }) as Box<dyn FnMut(_)>);
 
             let error_callback = Closure::wrap(Box::new(move |_error: web_sys::PositionError| {
                 log::warn!("Geolocation failed or denied.");
             }) as Box<dyn FnMut(_)>);
 
-            geolocation.get_current_position_with_error_callback(
-                success_callback.as_ref().unchecked_ref(),
-                Some(error_callback.as_ref().unchecked_ref())
-            ).ok();
+            geolocation
+                .get_current_position_with_error_callback(
+                    success_callback.as_ref().unchecked_ref(),
+                    Some(error_callback.as_ref().unchecked_ref()),
+                )
+                .ok();
 
             success_callback.forget();
             error_callback.forget();
@@ -2090,29 +2262,27 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         Ok(m) => {
             // Setup Sync Callback
             let state_sync = state.clone();
-            m.borrow_mut().set_sync_callback(move |msg| {
-                match msg {
-                    network::SyncMessage::WorldUpdate(remote_world) => {
-                        let mut state = state_sync.borrow_mut();
-                        if state.engine.world_state.merge(remote_world) {
-                            log::info!("Anomaly Conflict Resolved! World merged.");
-                        }
+            m.borrow_mut().set_sync_callback(move |msg| match msg {
+                network::SyncMessage::WorldUpdate(remote_world) => {
+                    let mut state = state_sync.borrow_mut();
+                    if state.engine.world_state.merge(remote_world) {
+                        log::info!("Anomaly Conflict Resolved! World merged.");
                     }
-                    network::SyncMessage::ChunkUpdate(chunks) => {
-                        let mut state = state_sync.borrow_mut();
-                        if state.engine.world_state.merge_chunks(chunks) {
-                            log::info!("Chunk Update Merged.");
-                        }
+                }
+                network::SyncMessage::ChunkUpdate(chunks) => {
+                    let mut state = state_sync.borrow_mut();
+                    if state.engine.world_state.merge_chunks(chunks) {
+                        log::info!("Chunk Update Merged.");
                     }
-                    network::SyncMessage::RequestSync => {
-                        let mut state = state_sync.borrow_mut();
-                        state.engine.pending_full_sync = true;
-                        log::info!("Received Sync Request. Scheduled Full Broadcast.");
-                    }
+                }
+                network::SyncMessage::RequestSync => {
+                    let mut state = state_sync.borrow_mut();
+                    state.engine.pending_full_sync = true;
+                    log::info!("Received Sync Request. Scheduled Full Broadcast.");
                 }
             });
             Some(m)
-        },
+        }
         Err(e) => {
             log::warn!("Failed to connect to signaling server: {:?}", e);
             None
@@ -2127,9 +2297,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let autosave_closure = Closure::wrap(Box::new(move || {
         let mut state = state_autosave.borrow_mut();
         let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
-             term.to_string()
+            term.to_string()
         } else {
-             "".to_string()
+            "".to_string()
         };
 
         let game_state = persistence::GameState {
@@ -2150,37 +2320,43 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
         // Pollinate (Broadcast Presence)
         if let Some(net) = &network_autosave {
-             let loc = state.engine.player_projector.location;
-             let net = net.borrow();
+            let loc = state.engine.player_projector.location;
+            let net = net.borrow();
 
-             net.pollinate(&state.engine.world_state.root_hash, [loc.x, loc.y, loc.z]);
+            net.pollinate(&state.engine.world_state.root_hash, [loc.x, loc.y, loc.z]);
 
-             // Check pending full sync
-             if state.engine.pending_full_sync {
-                 net.broadcast_world_state(&state.engine.world_state);
-                 state.engine.pending_full_sync = false;
-             }
-             // Check if world empty (Request Sync)
-             else if state.engine.world_state.chunks.is_empty() {
-                 net.broadcast_request_sync();
-             }
-             // Check dirty chunks (Delta Sync)
-             else {
-                 let dirty = state.engine.world_state.extract_dirty_chunks();
-                 if !dirty.is_empty() {
-                     net.broadcast_chunk_update(dirty);
-                 }
-             }
+            // Check pending full sync
+            if state.engine.pending_full_sync {
+                net.broadcast_world_state(&state.engine.world_state);
+                state.engine.pending_full_sync = false;
+            }
+            // Check if world empty (Request Sync)
+            else if state.engine.world_state.chunks.is_empty() {
+                net.broadcast_request_sync();
+            }
+            // Check dirty chunks (Delta Sync)
+            else {
+                let dirty = state.engine.world_state.extract_dirty_chunks();
+                if !dirty.is_empty() {
+                    net.broadcast_chunk_update(dirty);
+                }
+            }
         }
     }) as Box<dyn FnMut()>);
 
-    window.set_interval_with_callback_and_timeout_and_arguments_0(
-        autosave_closure.as_ref().unchecked_ref(),
-        5000, // 5 seconds
-    ).expect("Failed to set autosave interval");
+    window
+        .set_interval_with_callback_and_timeout_and_arguments_0(
+            autosave_closure.as_ref().unchecked_ref(),
+            5000, // 5 seconds
+        )
+        .expect("Failed to set autosave interval");
     autosave_closure.forget();
 
-    Ok(GameClient { state, network: network_manager, current_save_slot })
+    Ok(GameClient {
+        state,
+        network: network_manager,
+        current_save_slot,
+    })
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2190,7 +2366,13 @@ impl GameClient {
         let state = self.state.borrow();
 
         let player_loc = state.engine.player_projector.location;
-        if let Some(npc) = state.engine.world_state.npcs.iter().find(|n| n.uuid == uuid) {
+        if let Some(npc) = state
+            .engine
+            .world_state
+            .npcs
+            .iter()
+            .find(|n| n.uuid == uuid)
+        {
             use cgmath::MetricSpace;
             let npc_state = crate::genie_bridge::NpcStateView {
                 uuid: npc.uuid.clone(),
@@ -2207,7 +2389,13 @@ impl GameClient {
 
     pub fn get_all_npcs_json(&self) -> String {
         let state = self.state.borrow();
-        let uuids: Vec<String> = state.engine.world_state.npcs.iter().map(|n| n.uuid.clone()).collect();
+        let uuids: Vec<String> = state
+            .engine
+            .world_state
+            .npcs
+            .iter()
+            .map(|n| n.uuid.clone())
+            .collect();
         serde_json::to_string(&uuids).unwrap_or_else(|_| "[]".to_string())
     }
 
@@ -2223,8 +2411,16 @@ impl GameClient {
         }
 
         if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(action_json) {
-            if let Some(npc) = state.engine.world_state.npcs.iter_mut().find(|n| n.uuid == uuid) {
-                if let (Some(tx), Some(ty), Some(tz)) = (action.target_x, action.target_y, action.target_z) {
+            if let Some(npc) = state
+                .engine
+                .world_state
+                .npcs
+                .iter_mut()
+                .find(|n| n.uuid == uuid)
+            {
+                if let (Some(tx), Some(ty), Some(tz)) =
+                    (action.target_x, action.target_y, action.target_z)
+                {
                     npc.target_location = Some(cgmath::Point3::new(tx, ty, tz));
                 }
                 if let Some(msg) = action.chat_message {
@@ -2236,7 +2432,8 @@ impl GameClient {
                     }
 
                     // Basic escaping for HTML and removing control characters
-                    let sanitized: String = msg.chars()
+                    let sanitized: String = msg
+                        .chars()
                         .take(MAX_MSG_CHARS)
                         .filter(|c| !c.is_control())
                         .map(|c| match c {

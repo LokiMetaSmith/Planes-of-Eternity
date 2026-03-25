@@ -1,5 +1,5 @@
-use cgmath::*;
 use crate::input::Action;
+use cgmath::*;
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
@@ -38,7 +38,10 @@ impl Camera {
         self.pitch += dy;
 
         // Clamp pitch to avoid flipping
-        self.pitch = self.pitch.clamp(-std::f32::consts::FRAC_PI_2 + 0.1, std::f32::consts::FRAC_PI_2 - 0.1);
+        self.pitch = self.pitch.clamp(
+            -std::f32::consts::FRAC_PI_2 + 0.1,
+            std::f32::consts::FRAC_PI_2 - 0.1,
+        );
 
         self.update_target();
     }
@@ -57,11 +60,7 @@ impl Camera {
         // Y-up system
         // Optimization: Vector is derived from spherical coordinates so it's guaranteed to be unit length
         // magnitude = sqrt(cos_p^2*sin_y^2 + sin_p^2 + cos_p^2*cos_y^2) = sqrt(cos_p^2(sin_y^2 + cos_y^2) + sin_p^2) = sqrt(cos_p^2 + sin_p^2) = 1
-        let front = Vector3::new(
-            cos_p * sin_y,
-            sin_p,
-            cos_p * cos_y
-        );
+        let front = Vector3::new(cos_p * sin_y, sin_p, cos_p * cos_y);
 
         // Keep distance to target constant (arbitrary, just needs to be non-zero for look_at)
         // We use a fixed distance or keep previous magnitude?

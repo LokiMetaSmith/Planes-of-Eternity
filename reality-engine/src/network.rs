@@ -1,12 +1,12 @@
-use serde::{Serialize, Deserialize};
+use crate::world::{Chunk, WorldState};
+use log::{error, info, warn};
+use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
-use std::cell::RefCell;
-use std::rc::{Rc, Weak};
-use std::collections::HashMap;
-use log::{info, error, warn};
-use crate::world::{WorldState, Chunk};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SyncMessage {
@@ -74,14 +74,21 @@ impl NetworkManager {
                     let txt_string: String = txt.into();
 
                     if let Ok(packet) = serde_json::from_str::<PollenPacket>(&txt_string) {
-                         let mut inner = manager.borrow_mut();
-                         if packet.peer_id != inner.peer_id && !inner.connections.contains_key(&packet.peer_id) {
-                             info!("Discovered new peer: {}. Connecting via WebRTC...", packet.peer_id);
-                             let conn = inner.peer.connect(&packet.peer_id);
-                             inner.connections.insert(packet.peer_id.clone(), conn.clone().unchecked_into());
-                             drop(inner);
-                             NetworkManager::handle_connection(manager.clone(), conn);
-                         }
+                        let mut inner = manager.borrow_mut();
+                        if packet.peer_id != inner.peer_id
+                            && !inner.connections.contains_key(&packet.peer_id)
+                        {
+                            info!(
+                                "Discovered new peer: {}. Connecting via WebRTC...",
+                                packet.peer_id
+                            );
+                            let conn = inner.peer.connect(&packet.peer_id);
+                            inner
+                                .connections
+                                .insert(packet.peer_id.clone(), conn.clone().unchecked_into());
+                            drop(inner);
+                            NetworkManager::handle_connection(manager.clone(), conn);
+                        }
                     }
                 }
             }
@@ -119,12 +126,14 @@ impl NetworkManager {
                 }
             }) as Box<dyn FnMut()>);
 
-            web_sys::window().unwrap().set_timeout_with_callback_and_timeout_and_arguments_0(
-                closure.as_ref().unchecked_ref(),
-                5000,
-            ).unwrap();
+            web_sys::window()
+                .unwrap()
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    closure.as_ref().unchecked_ref(),
+                    5000,
+                )
+                .unwrap();
             closure.forget();
-
         }) as Box<dyn FnMut(JsValue)>);
         ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
         onclose_callback.forget();
@@ -155,7 +164,7 @@ impl NetworkManager {
             let _m = manager.clone();
             let on_open = Closure::wrap(Box::new(move |id: JsValue| {
                 if let Some(id_str) = id.as_string() {
-                     info!("PeerJS Open: ID confirmed as {}", id_str);
+                    info!("PeerJS Open: ID confirmed as {}", id_str);
                 }
             }) as Box<dyn FnMut(JsValue)>);
             peer.on("open", &on_open);
@@ -171,7 +180,7 @@ impl NetworkManager {
             on_connection.forget();
 
             let on_peer_error = Closure::wrap(Box::new(move |err: JsValue| {
-                 warn!("PeerJS Error: {:?}", err);
+                warn!("PeerJS Error: {:?}", err);
             }) as Box<dyn FnMut(JsValue)>);
             peer.on("error", &on_peer_error);
             on_peer_error.forget();
@@ -184,73 +193,75 @@ impl NetworkManager {
     }
 
     fn handle_connection(manager: Rc<RefCell<Self>>, conn: DataConnection) {
-         let peer_id = conn.peer();
-         info!("Handling connection with {}", peer_id);
+        let peer_id = conn.peer();
+        info!("Handling connection with {}", peer_id);
 
-         // Store connection if not already stored (for incoming)
-         {
-             let mut inner = manager.borrow_mut();
-             if !inner.connections.contains_key(&peer_id) {
-                 inner.connections.insert(peer_id.clone(), conn.clone().unchecked_into());
-             }
-         }
+        // Store connection if not already stored (for incoming)
+        {
+            let mut inner = manager.borrow_mut();
+            if !inner.connections.contains_key(&peer_id) {
+                inner
+                    .connections
+                    .insert(peer_id.clone(), conn.clone().unchecked_into());
+            }
+        }
 
-         let m_data = manager.clone();
-         let pid_data = peer_id.clone();
-         let on_data = Closure::wrap(Box::new(move |data: JsValue| {
-             // Handle data sync
-             if let Some(txt) = data.as_string() {
-                 // Security Enhancement: Prevent DoS by limiting WebRTC message length
-                 // A malicious peer could send a massive JSON payload causing memory exhaustion
-                 const MAX_WEBRTC_MSG_LEN: usize = 65536; // 64KB
-                 if txt.len() > MAX_WEBRTC_MSG_LEN {
-                     warn!("Security Warning: WebRTC message from {} exceeded length limit ({} bytes). Dropping message.", pid_data, txt.len());
-                     return;
-                 }
+        let m_data = manager.clone();
+        let pid_data = peer_id.clone();
+        let on_data = Closure::wrap(Box::new(move |data: JsValue| {
+            // Handle data sync
+            if let Some(txt) = data.as_string() {
+                // Security Enhancement: Prevent DoS by limiting WebRTC message length
+                // A malicious peer could send a massive JSON payload causing memory exhaustion
+                const MAX_WEBRTC_MSG_LEN: usize = 65536; // 64KB
+                if txt.len() > MAX_WEBRTC_MSG_LEN {
+                    warn!("Security Warning: WebRTC message from {} exceeded length limit ({} bytes). Dropping message.", pid_data, txt.len());
+                    return;
+                }
 
-                 info!("Received WebRTC Data from {}: {}", pid_data, txt);
+                info!("Received WebRTC Data from {}: {}", pid_data, txt);
 
-                 // Try to parse SyncMessage
-                 if let Ok(msg) = serde_json::from_str::<SyncMessage>(&txt) {
-                     let mut inner = m_data.borrow_mut();
-                     if let Some(ref mut callback) = inner.sync_callback {
-                         callback(msg);
-                     }
-                 }
-             }
-         }) as Box<dyn FnMut(JsValue)>);
-         conn.on("data", &on_data);
-         on_data.forget();
+                // Try to parse SyncMessage
+                if let Ok(msg) = serde_json::from_str::<SyncMessage>(&txt) {
+                    let mut inner = m_data.borrow_mut();
+                    if let Some(ref mut callback) = inner.sync_callback {
+                        callback(msg);
+                    }
+                }
+            }
+        }) as Box<dyn FnMut(JsValue)>);
+        conn.on("data", &on_data);
+        on_data.forget();
 
-         let pid_open = peer_id.clone();
-         let c_open: DataConnection = conn.clone().unchecked_into();
-         let on_open = Closure::wrap(Box::new(move |_| {
-             info!("WebRTC Connection established with {}", pid_open);
-             // Send Hello
-             c_open.send(&JsValue::from_str("HELLO_FROM_RUST"));
-         }) as Box<dyn FnMut(JsValue)>);
-         conn.on("open", &on_open);
-         on_open.forget();
+        let pid_open = peer_id.clone();
+        let c_open: DataConnection = conn.clone().unchecked_into();
+        let on_open = Closure::wrap(Box::new(move |_| {
+            info!("WebRTC Connection established with {}", pid_open);
+            // Send Hello
+            c_open.send(&JsValue::from_str("HELLO_FROM_RUST"));
+        }) as Box<dyn FnMut(JsValue)>);
+        conn.on("open", &on_open);
+        on_open.forget();
 
-         let pid_close = peer_id.clone();
-         let m_close = manager.clone();
-         let on_close = Closure::wrap(Box::new(move |_| {
-             info!("WebRTC Connection closed with {}", pid_close);
-             let mut inner = m_close.borrow_mut();
-             inner.connections.remove(&pid_close);
-         }) as Box<dyn FnMut(JsValue)>);
-         conn.on("close", &on_close);
-         on_close.forget();
+        let pid_close = peer_id.clone();
+        let m_close = manager.clone();
+        let on_close = Closure::wrap(Box::new(move |_| {
+            info!("WebRTC Connection closed with {}", pid_close);
+            let mut inner = m_close.borrow_mut();
+            inner.connections.remove(&pid_close);
+        }) as Box<dyn FnMut(JsValue)>);
+        conn.on("close", &on_close);
+        on_close.forget();
 
-         let pid_error = peer_id.clone();
-         let m_error = manager.clone();
-         let on_error = Closure::wrap(Box::new(move |err: JsValue| {
-             error!("WebRTC Connection error with {}: {:?}", pid_error, err);
-             let mut inner = m_error.borrow_mut();
-             inner.connections.remove(&pid_error);
-         }) as Box<dyn FnMut(JsValue)>);
-         conn.on("error", &on_error);
-         on_error.forget();
+        let pid_error = peer_id.clone();
+        let m_error = manager.clone();
+        let on_error = Closure::wrap(Box::new(move |err: JsValue| {
+            error!("WebRTC Connection error with {}: {:?}", pid_error, err);
+            let mut inner = m_error.borrow_mut();
+            inner.connections.remove(&pid_error);
+        }) as Box<dyn FnMut(JsValue)>);
+        conn.on("error", &on_error);
+        on_error.forget();
     }
 
     pub fn pollinate(&self, world_hash: &str, location: [f32; 3]) {

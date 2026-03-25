@@ -41,3 +41,7 @@
 ## 2026-03-24 - Contextual Copy Actions for Complex IDs
 **Learning:** In dynamically generated text strings (like P2P session IDs) presented in custom UIs, users are heavily inconvenienced when forced to manually select and copy text. Additionally, relying solely on global logs for feedback when a copy action occurs separates the user's focus from the action.
 **Action:** Always provide inline, contextual copy buttons for complex IDs. Ensure they provide immediate, localized visual feedback (like momentarily turning green and changing text to "COPIED") instead of, or in addition to, global logging to keep the user's attention where the action happened.
+
+## 2026-03-25 - Contextual State Mutation Actions for Action Buttons
+**Learning:** In dynamically generated state mutations (like Save and Load functions) presented in custom UIs, users are heavily inconvenienced when forced to check the global log area to ensure the action succeeded. Relying solely on global logs for feedback when a state mutation action occurs separates the user's focus from the action.
+**Action:** Always provide inline, contextual success buttons for state mutation actions. Ensure they provide immediate, localized visual feedback (like momentarily turning green and changing text to "SAVED") instead of, or in addition to, global logging to keep the user's attention where the action happened.

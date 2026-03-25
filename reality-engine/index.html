@@ -713,18 +713,52 @@
                 });
 
                 btnSave.addEventListener('click', () => {
+                    if (btnSave.disabled) return;
+
                     const name = inputSaveName.value.trim() || "default";
                     log(`> SAVING GAME TO SLOT: ${name}`);
                     gameClient.save_game(name);
                     updateSaveList();
+
+                    const originalText = btnSave.innerText;
+                    btnSave.innerText = "SAVED";
+                    btnSave.style.background = "#05ffa1";
+                    btnSave.style.color = "#000";
+                    btnSave.disabled = true;
+                    btnSave.setAttribute("aria-live", "polite");
+
+                    setTimeout(() => {
+                        btnSave.innerText = originalText;
+                        btnSave.style.background = "";
+                        btnSave.style.color = "";
+                        btnSave.disabled = false;
+                        btnSave.removeAttribute("aria-live");
+                    }, 2000);
                 });
 
                 btnLoad.addEventListener('click', () => {
+                     if (btnLoad.disabled) return;
+
                      const name = inputSaveName.value.trim() || selectSaveSlot.value || "default";
                      log(`> LOADING GAME FROM SLOT: ${name}`);
                      gameClient.load_game(name);
                      // Also update input to match
                      inputSaveName.value = name;
+
+                     const originalText = btnLoad.innerText;
+                     btnLoad.innerText = "LOADED";
+                     btnLoad.style.background = "#05ffa1";
+                     btnLoad.style.color = "#000";
+                     btnLoad.disabled = true;
+                     btnLoad.setAttribute("aria-live", "polite");
+
+                     setTimeout(() => {
+                         btnLoad.innerText = originalText;
+                         btnLoad.style.background = "";
+                         btnLoad.style.color = "";
+                         btnLoad.disabled = false;
+                         btnLoad.removeAttribute("aria-live");
+                     }, 2000);
                 });
 
                 btnDelete.addEventListener('click', () => {

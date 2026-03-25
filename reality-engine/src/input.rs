@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
@@ -44,7 +44,6 @@ impl Action {
             _ => None,
         }
     }
-
 }
 
 impl std::fmt::Display for Action {
@@ -126,7 +125,7 @@ impl InputConfig {
 
         // If key is used by another action, remove that binding
         if let Some(existing_action) = self.reverse_bindings.get(&key_code) {
-             self.bindings.remove(existing_action);
+            self.bindings.remove(existing_action);
         }
 
         self.bindings.insert(action, key_code);

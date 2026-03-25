@@ -1,7 +1,7 @@
-use cgmath::{Point3, Vector3, InnerSpace, MetricSpace, EuclideanSpace};
-use std::rc::Rc;
+use crate::lambda::{Primitive, Term};
+use cgmath::{EuclideanSpace, InnerSpace, MetricSpace, Point3, Vector3};
 use std::collections::HashMap;
-use crate::lambda::{Term, Primitive};
+use std::rc::Rc;
 use wgpu::util::DeviceExt;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -122,10 +122,16 @@ pub struct LambdaRenderer {
 }
 
 impl LambdaRenderer {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, camera_bind_group_layout: &wgpu::BindGroupLayout) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        camera_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Lambda Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader_lambda.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader_lambda.wgsl"
+            ))),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -268,7 +274,14 @@ impl LambdaRenderer {
 
         // Initial empty instance buffer (size for 100 nodes for now)
         let capacity = 100;
-        let instances = vec![LambdaInstance { position: [0.0; 3], color: [0.0; 4], scale: 0.0 }; capacity];
+        let instances = vec![
+            LambdaInstance {
+                position: [0.0; 3],
+                color: [0.0; 4],
+                scale: 0.0
+            };
+            capacity
+        ];
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Lambda Instance Buffer"),
             contents: bytemuck::cast_slice(&instances),
@@ -277,7 +290,13 @@ impl LambdaRenderer {
 
         // Initial Line Buffer
         let line_capacity = 200; // 100 edges = 200 vertices
-        let line_vertices = vec![LambdaLineVertex { position: [0.0; 3], color: [0.0; 4] }; line_capacity];
+        let line_vertices = vec![
+            LambdaLineVertex {
+                position: [0.0; 3],
+                color: [0.0; 4]
+            };
+            line_capacity
+        ];
         let line_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Lambda Line Vertex Buffer"),
             contents: bytemuck::cast_slice(&line_vertices),
@@ -315,11 +334,26 @@ impl LambdaRenderer {
         }
     }
 
-    pub fn update_buffers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, nodes: &[VisualNode], edges: &[(usize, usize)], hovered_node: Option<usize>, hovered_edge: Option<usize>) {
+    pub fn update_buffers(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        nodes: &[VisualNode],
+        edges: &[(usize, usize)],
+        hovered_node: Option<usize>,
+        hovered_edge: Option<usize>,
+    ) {
         // Update Instances
         if nodes.len() > self.capacity {
             self.capacity = (nodes.len() * 2).max(self.capacity * 2);
-            let instances = vec![LambdaInstance { position: [0.0; 3], color: [0.0; 4], scale: 0.0 }; self.capacity];
+            let instances = vec![
+                LambdaInstance {
+                    position: [0.0; 3],
+                    color: [0.0; 4],
+                    scale: 0.0
+                };
+                self.capacity
+            ];
             self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Lambda Instance Buffer Resized"),
                 contents: bytemuck::cast_slice(&instances),
@@ -366,37 +400,41 @@ impl LambdaRenderer {
         }
 
         // Sort Nodes: Opaque first, then Transparent
-        let mut instances: Vec<LambdaInstance> = nodes.iter().enumerate().map(|(i, n)| {
-            let mut color = n.color;
+        let mut instances: Vec<LambdaInstance> = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let mut color = n.color;
 
-            // Apply Highlight
-            if let Some(hover_idx) = hovered_node {
-                if i == hover_idx {
-                    // Direct Hover: Brighten significantly
-                    color[0] = (color[0] + 0.5).min(1.0);
-                    color[1] = (color[1] + 0.5).min(1.0);
-                    color[2] = (color[2] + 0.5).min(1.0);
-                    color[3] = (color[3] + 0.2).min(1.0);
-                } else if highlighted_nodes.contains(&i) {
-                    // Subtree/Related: Slight brighten
-                    color[0] = (color[0] + 0.2).min(1.0);
-                    color[1] = (color[1] + 0.2).min(1.0);
-                    color[2] = (color[2] + 0.2).min(1.0);
-                } else {
-                    // Unrelated: Dim slightly
-                    color[0] *= 0.5;
-                    color[1] *= 0.5;
-                    color[2] *= 0.5;
-                    color[3] *= 0.8; // Make bubbles ghostlier
+                // Apply Highlight
+                if let Some(hover_idx) = hovered_node {
+                    if i == hover_idx {
+                        // Direct Hover: Brighten significantly
+                        color[0] = (color[0] + 0.5).min(1.0);
+                        color[1] = (color[1] + 0.5).min(1.0);
+                        color[2] = (color[2] + 0.5).min(1.0);
+                        color[3] = (color[3] + 0.2).min(1.0);
+                    } else if highlighted_nodes.contains(&i) {
+                        // Subtree/Related: Slight brighten
+                        color[0] = (color[0] + 0.2).min(1.0);
+                        color[1] = (color[1] + 0.2).min(1.0);
+                        color[2] = (color[2] + 0.2).min(1.0);
+                    } else {
+                        // Unrelated: Dim slightly
+                        color[0] *= 0.5;
+                        color[1] *= 0.5;
+                        color[2] *= 0.5;
+                        color[3] *= 0.8; // Make bubbles ghostlier
+                    }
                 }
-            }
 
-            LambdaInstance {
-                position: [n.position.x, n.position.y, n.position.z],
-                color,
-                scale: n.scale,
-            }
-        }).collect();
+                LambdaInstance {
+                    position: [n.position.x, n.position.y, n.position.z],
+                    color,
+                    scale: n.scale,
+                }
+            })
+            .collect();
 
         // Sort: Opaque (Alpha >= 0.95) first
         instances.sort_by(|a, b| {
@@ -408,7 +446,7 @@ impl LambdaRenderer {
         self.opaque_count = instances.iter().take_while(|i| i.color[3] >= 0.95).count() as u32;
 
         if !instances.is_empty() {
-             queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
+            queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
         }
 
         // Update Lines
@@ -418,12 +456,19 @@ impl LambdaRenderer {
 
         if required_line_vertices > self.line_capacity {
             self.line_capacity = (required_line_vertices * 2).max(self.line_capacity * 2);
-             let line_vertices = vec![LambdaLineVertex { position: [0.0; 3], color: [0.0; 4] }; self.line_capacity];
-            self.line_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Lambda Line Vertex Buffer Resized"),
-                contents: bytemuck::cast_slice(&line_vertices),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
+            let line_vertices = vec![
+                LambdaLineVertex {
+                    position: [0.0; 3],
+                    color: [0.0; 4]
+                };
+                self.line_capacity
+            ];
+            self.line_vertex_buffer =
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Lambda Line Vertex Buffer Resized"),
+                    contents: bytemuck::cast_slice(&line_vertices),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                });
         }
 
         let mut line_data = Vec::with_capacity(required_line_vertices);
@@ -477,11 +522,20 @@ impl LambdaRenderer {
         self.line_vertex_count = line_data.len() as u32;
 
         if !line_data.is_empty() {
-             queue.write_buffer(&self.line_vertex_buffer, 0, bytemuck::cast_slice(&line_data));
+            queue.write_buffer(
+                &self.line_vertex_buffer,
+                0,
+                bytemuck::cast_slice(&line_data),
+            );
         }
     }
 
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup, num_instances: u32) {
+    pub fn render<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        camera_bind_group: &'a wgpu::BindGroup,
+        num_instances: u32,
+    ) {
         // Draw Lines
         if self.line_vertex_count > 0 {
             render_pass.set_pipeline(&self.line_pipeline);
@@ -511,12 +565,21 @@ impl LambdaRenderer {
         }
     }
 
-    pub fn render_entities<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup, entities_instance_buffer: &'a wgpu::Buffer, num_instances: u32) {
+    pub fn render_entities<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        camera_bind_group: &'a wgpu::BindGroup,
+        entities_instance_buffer: &'a wgpu::Buffer,
+        num_instances: u32,
+    ) {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.player_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, entities_instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.player_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_index_buffer(
+            self.player_index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
         render_pass.draw_indexed(0..self.player_num_indices, 0, 0..num_instances);
     }
 }
@@ -732,7 +795,10 @@ impl LambdaSystem {
     }
 
     pub fn get_layout(&self) -> Vec<[f32; 3]> {
-        self.nodes.iter().map(|n| [n.position.x, n.position.y, n.position.z]).collect()
+        self.nodes
+            .iter()
+            .map(|n| [n.position.x, n.position.y, n.position.z])
+            .collect()
     }
 
     pub fn apply_layout(&mut self, layout: Vec<[f32; 3]>) {
@@ -767,10 +833,14 @@ impl LambdaSystem {
             let radius = node.scale; // Use node scale as radius!
             let l = node.position - ray_origin;
             let tca = l.dot(ray_dir);
-            if tca < 0.0 { continue; }
+            if tca < 0.0 {
+                continue;
+            }
 
             let d2 = l.dot(l) - tca * tca;
-            if d2 > radius * radius { continue; }
+            if d2 > radius * radius {
+                continue;
+            }
 
             let thc = (radius * radius - d2).sqrt();
             let t0 = tca - thc;
@@ -793,8 +863,12 @@ impl LambdaSystem {
         let threshold = 0.2; // Hit radius
 
         for (edge_idx, &(start, end)) in self.edges.iter().enumerate() {
-            if start >= self.nodes.len() || end >= self.nodes.len() { continue; }
-            if self.nodes[start].scale < 0.001 || self.nodes[end].scale < 0.001 { continue; }
+            if start >= self.nodes.len() || end >= self.nodes.len() {
+                continue;
+            }
+            if self.nodes[start].scale < 0.001 || self.nodes[end].scale < 0.001 {
+                continue;
+            }
 
             let p0 = self.nodes[start].position;
             let p2 = self.nodes[end].position;
@@ -811,7 +885,10 @@ impl LambdaSystem {
 
                 let seg_dir = pos - prev_pos;
                 let seg_len = seg_dir.magnitude();
-                if seg_len < 0.0001 { prev_pos = pos; continue; }
+                if seg_len < 0.0001 {
+                    prev_pos = pos;
+                    continue;
+                }
                 let seg_dir_norm = seg_dir / seg_len;
 
                 let w0 = ray_origin - prev_pos;
@@ -839,8 +916,8 @@ impl LambdaSystem {
                 }
 
                 if sc < 0.0 {
-                     prev_pos = pos;
-                     continue;
+                    prev_pos = pos;
+                    continue;
                 }
 
                 let p_ray = ray_origin + ray_dir * sc;
@@ -891,21 +968,27 @@ impl LambdaSystem {
     }
 
     pub fn handle_drop(&mut self, dragged_idx: usize, dropped_on_idx: usize) {
-        if dragged_idx == dropped_on_idx { return; }
-        if dragged_idx >= self.nodes.len() || dropped_on_idx >= self.nodes.len() { return; }
+        if dragged_idx == dropped_on_idx {
+            return;
+        }
+        if dragged_idx >= self.nodes.len() || dropped_on_idx >= self.nodes.len() {
+            return;
+        }
 
         let dragged_node = &self.nodes[dragged_idx];
         let dropped_node = &self.nodes[dropped_on_idx];
 
         // Check for Rewiring: Port -> Abs
-        if let (NodeType::Port, NodeType::Abs(param_name)) = (&dragged_node.node_type, &dropped_node.node_type) {
-             let new_var = Term::var(param_name);
-             if let Some(root) = &self.root_term {
-                 // Replace the specific Port instance with a new Var referencing the Abs binder
-                 let new_root = Term::replace(root, &dragged_node.term, new_var);
-                 self.set_term(new_root);
-             }
-             return;
+        if let (NodeType::Port, NodeType::Abs(param_name)) =
+            (&dragged_node.node_type, &dropped_node.node_type)
+        {
+            let new_var = Term::var(param_name);
+            if let Some(root) = &self.root_term {
+                // Replace the specific Port instance with a new Var referencing the Abs binder
+                let new_root = Term::replace(root, &dragged_node.term, new_var);
+                self.set_term(new_root);
+            }
+            return;
         }
 
         let dragged_term = dragged_node.term.clone();
@@ -916,8 +999,8 @@ impl LambdaSystem {
         let new_sub_term = Term::app(dropped_on_term.clone(), dragged_term);
 
         if let Some(root) = &self.root_term {
-             let new_root = Term::replace(root, &dropped_on_term, new_sub_term);
-             self.set_term(new_root);
+            let new_root = Term::replace(root, &dropped_on_term, new_sub_term);
+            self.set_term(new_root);
         }
     }
 
@@ -925,11 +1008,17 @@ impl LambdaSystem {
         if let Some(dragged_idx) = self.dragged_node {
             // Check for overlap with other nodes
             for i in 0..self.nodes.len() {
-                if i == dragged_idx { continue; }
+                if i == dragged_idx {
+                    continue;
+                }
                 // Skip invisible nodes
-                if self.nodes[i].scale < 0.001 { continue; }
+                if self.nodes[i].scale < 0.001 {
+                    continue;
+                }
 
-                let dist = self.nodes[i].position.distance(self.nodes[dragged_idx].position);
+                let dist = self.nodes[i]
+                    .position
+                    .distance(self.nodes[dragged_idx].position);
                 let combined_radius = self.nodes[i].scale + self.nodes[dragged_idx].scale;
 
                 // If overlapping significantly
@@ -948,7 +1037,11 @@ impl LambdaSystem {
             let is_collapsed = self.nodes[idx].collapsed;
             self.set_subtree_visibility(idx, !is_collapsed);
             // Ensure the node itself remains visible
-            self.nodes[idx].scale = if matches!(self.nodes[idx].node_type, NodeType::Abs(_)) { 3.0 } else { 1.0 };
+            self.nodes[idx].scale = if matches!(self.nodes[idx].node_type, NodeType::Abs(_)) {
+                3.0
+            } else {
+                1.0
+            };
         }
     }
 
@@ -963,12 +1056,12 @@ impl LambdaSystem {
                         self.nodes[c].scale = 0.0;
                     } else {
                         // Restore default scale
-                         self.nodes[c].scale = match self.nodes[c].node_type {
+                        self.nodes[c].scale = match self.nodes[c].node_type {
                             NodeType::Abs(_) => 3.0,
                             NodeType::Port => 0.2,
                             NodeType::App => 0.5,
                             _ => 1.0,
-                         };
+                        };
                     }
                     stack.push(c);
                 }
@@ -983,81 +1076,83 @@ impl LambdaSystem {
         }
 
         if let Some(root) = &self.root_term {
-             let (new_root, reduced) = root.reduce();
-             if reduced {
-                 // Detect Reduction Type for Animation
-                 // We want to animate Beta Reduction: (\x.M) N
-                 // Check if root is App(Abs(x, M), N)
-                 if let Term::App(func, _arg) = &**root {
-                     if let Term::Abs(_param, _body) = &**func {
-                         // Found a Beta Reduction!
-                         // Need to find visual nodes corresponding to Abs and Arg
-                         // This is tricky because `nodes` is flat.
-                         // But we built the graph. The root is node 0.
-                         // App is node 0.
-                         // Func (Abs) is the left child of 0.
-                         // Arg is the right child of 0.
+            let (new_root, reduced) = root.reduce();
+            if reduced {
+                // Detect Reduction Type for Animation
+                // We want to animate Beta Reduction: (\x.M) N
+                // Check if root is App(Abs(x, M), N)
+                if let Term::App(func, _arg) = &**root {
+                    if let Term::Abs(_param, _body) = &**func {
+                        // Found a Beta Reduction!
+                        // Need to find visual nodes corresponding to Abs and Arg
+                        // This is tricky because `nodes` is flat.
+                        // But we built the graph. The root is node 0.
+                        // App is node 0.
+                        // Func (Abs) is the left child of 0.
+                        // Arg is the right child of 0.
 
-                         // Find children of 0
-                         let mut left_child = None;
-                         let mut right_child = None;
-                         for &(p, c) in &self.edges {
-                             if p == 0 {
-                                 // How to distinguish left/right?
-                                 // In build_subtree, we pushed left then right.
-                                 // So left_child < right_child usually?
-                                 // Or check node type/term?
-                                 // We know Func is Abs.
-                                 // Edges were pushed in order: Left then Right in build_subtree.
-                                 // But we can't rely on edge order in self.edges (it's a vec but iterate might be unstable if we used map? No, it's vec).
-                                 // But build_subtree pushes (node_index, left_idx) then (node_index, right_idx).
-                                 // So left child has smaller index usually? No, recursive.
-                                 // Left child is built first. So left_idx < right_idx (usually).
+                        // Find children of 0
+                        let mut left_child = None;
+                        let mut right_child = None;
+                        for &(p, c) in &self.edges {
+                            if p == 0 {
+                                // How to distinguish left/right?
+                                // In build_subtree, we pushed left then right.
+                                // So left_child < right_child usually?
+                                // Or check node type/term?
+                                // We know Func is Abs.
+                                // Edges were pushed in order: Left then Right in build_subtree.
+                                // But we can't rely on edge order in self.edges (it's a vec but iterate might be unstable if we used map? No, it's vec).
+                                // But build_subtree pushes (node_index, left_idx) then (node_index, right_idx).
+                                // So left child has smaller index usually? No, recursive.
+                                // Left child is built first. So left_idx < right_idx (usually).
 
-                                 // Better heuristic: Check if we already found left_child.
-                                 if matches!(self.nodes[c].node_type, NodeType::Abs(_)) && left_child.is_none() {
-                                     left_child = Some(c);
-                                 } else {
-                                     right_child = Some(c);
-                                 }
-                             }
-                         }
+                                // Better heuristic: Check if we already found left_child.
+                                if matches!(self.nodes[c].node_type, NodeType::Abs(_))
+                                    && left_child.is_none()
+                                {
+                                    left_child = Some(c);
+                                } else {
+                                    right_child = Some(c);
+                                }
+                            }
+                        }
 
-                         if let (Some(abs_idx), Some(arg_idx)) = (left_child, right_child) {
-                             // Find Ports for 'param' inside Abs
-                             // We need to scan nodes for NodeType::Port that link to abs_idx
-                             // In build_subtree, Port -> Binder edge is created.
-                             // Wait, Edge direction is (Port, Binder)?
-                             // Yes: `self.edges.push((node_index, binder_idx));`
+                        if let (Some(abs_idx), Some(arg_idx)) = (left_child, right_child) {
+                            // Find Ports for 'param' inside Abs
+                            // We need to scan nodes for NodeType::Port that link to abs_idx
+                            // In build_subtree, Port -> Binder edge is created.
+                            // Wait, Edge direction is (Port, Binder)?
+                            // Yes: `self.edges.push((node_index, binder_idx));`
 
-                             let mut ports = Vec::new();
-                             for i in 0..self.nodes.len() {
-                                 if matches!(self.nodes[i].node_type, NodeType::Port) {
-                                     // Check if this port connects to abs_idx
-                                     for &(src, dst) in &self.edges {
-                                         if src == i && dst == abs_idx {
-                                             ports.push(i);
-                                         }
-                                     }
-                                 }
-                             }
+                            let mut ports = Vec::new();
+                            for i in 0..self.nodes.len() {
+                                if matches!(self.nodes[i].node_type, NodeType::Port) {
+                                    // Check if this port connects to abs_idx
+                                    for &(src, dst) in &self.edges {
+                                        if src == i && dst == abs_idx {
+                                            ports.push(i);
+                                        }
+                                    }
+                                }
+                            }
 
-                             self.animation_state = AnimationState::Reducing {
-                                 abs_idx,
-                                 arg_idx,
-                                 ports,
-                                 progress: 0.0,
-                                 new_term: new_root,
-                             };
-                             return true;
-                         }
-                     }
-                 }
+                            self.animation_state = AnimationState::Reducing {
+                                abs_idx,
+                                arg_idx,
+                                ports,
+                                progress: 0.0,
+                                new_term: new_root,
+                            };
+                            return true;
+                        }
+                    }
+                }
 
-                 // Fallback for other reductions (e.g. inner)
-                 self.set_term(new_root);
-                 return true;
-             }
+                // Fallback for other reductions (e.g. inner)
+                self.set_term(new_root);
+                return true;
+            }
         }
         false
     }
@@ -1066,7 +1161,8 @@ impl LambdaSystem {
         let mut events = Vec::new();
 
         // Auto-Reduce Logic
-        if self.auto_reduce && !self.paused && matches!(self.animation_state, AnimationState::Idle) {
+        if self.auto_reduce && !self.paused && matches!(self.animation_state, AnimationState::Idle)
+        {
             self.auto_reduce_timer += dt;
             if self.auto_reduce_timer > 0.5 {
                 self.auto_reduce_timer = 0.0;
@@ -1077,7 +1173,14 @@ impl LambdaSystem {
         }
 
         // Animation Logic
-        if let AnimationState::Reducing { ref abs_idx, ref arg_idx, ref ports, ref mut progress, ref new_term } = self.animation_state {
+        if let AnimationState::Reducing {
+            ref abs_idx,
+            ref arg_idx,
+            ref ports,
+            ref mut progress,
+            ref new_term,
+        } = self.animation_state
+        {
             if !self.paused {
                 *progress += dt * 2.0; // 0.5s duration
             }
@@ -1118,7 +1221,9 @@ impl LambdaSystem {
             let mut stack = vec![*arg_idx];
             let mut visited = std::collections::HashSet::new();
             while let Some(idx) = stack.pop() {
-                if visited.contains(&idx) { continue; }
+                if visited.contains(&idx) {
+                    continue;
+                }
                 visited.insert(idx);
 
                 self.nodes[idx].position += delta;
@@ -1130,10 +1235,10 @@ impl LambdaSystem {
                 // Let's shrink it as it gets closer.
                 let shrink_factor = 1.0 - (*progress * 0.9);
                 if matches!(self.nodes[idx].node_type, NodeType::Abs(_)) {
-                     // Keep bubbles somewhat visible
-                     self.nodes[idx].scale = 3.0 * shrink_factor;
+                    // Keep bubbles somewhat visible
+                    self.nodes[idx].scale = 3.0 * shrink_factor;
                 } else {
-                     self.nodes[idx].scale = shrink_factor;
+                    self.nodes[idx].scale = shrink_factor;
                 }
 
                 // Find children
@@ -1156,25 +1261,22 @@ impl LambdaSystem {
                 1.0,
                 1.0 - (pulse * 0.5),
                 1.0 - (pulse * 0.5),
-                0.3 + (pulse * 0.2)
+                0.3 + (pulse * 0.2),
             ];
 
             // Glow effect on Ports?
             // We can pulse their scale
             for &port_idx in ports {
                 self.nodes[port_idx].scale = 0.2 + (pulse * 0.3);
-                 // Also highlight color
-                 self.nodes[port_idx].color = [
-                     0.2 + (pulse * 0.8),
-                     0.2,
-                     0.2,
-                     1.0
-                 ];
+                // Also highlight color
+                self.nodes[port_idx].color = [0.2 + (pulse * 0.8), 0.2, 0.2, 1.0];
             }
         }
 
         let node_count = self.nodes.len();
-        if node_count == 0 { return events; }
+        if node_count == 0 {
+            return events;
+        }
 
         let repulsion_strength = 50.0; // Increased for bubbles
         let centering_strength = 0.5;
@@ -1189,70 +1291,79 @@ impl LambdaSystem {
             let (left, right) = self.nodes.split_at_mut(i + 1);
             let node_i = &mut left[i];
 
-            if node_i.scale < 0.001 { continue; } // Skip invisible
+            if node_i.scale < 0.001 {
+                continue;
+            } // Skip invisible
 
             for node_j in right.iter_mut() {
-                if node_j.scale < 0.001 { continue; } // Skip invisible
+                if node_j.scale < 0.001 {
+                    continue;
+                } // Skip invisible
 
                 let dir = node_i.position - node_j.position;
                 let dist_sq = dir.magnitude2();
 
                 if dist_sq < 0.0001 {
-                     let push = Vector3::new(0.1, 0.0, 0.0);
-                     node_i.velocity += push;
-                     node_j.velocity -= push;
+                    let push = Vector3::new(0.1, 0.0, 0.0);
+                    node_i.velocity += push;
+                    node_j.velocity -= push;
                 } else {
-                     // Check radii collision
-                     let r1 = node_i.scale;
-                     let r2 = node_j.scale;
-                     let min_dist = (r1 + r2) * 1.1; // Add padding
+                    // Check radii collision
+                    let r1 = node_i.scale;
+                    let r2 = node_j.scale;
+                    let min_dist = (r1 + r2) * 1.1; // Add padding
 
-                     if dist_sq < (min_dist * min_dist) {
-                         // Hard push (collision)
-                         // Optimization: Avoid expensive .normalize() by dividing the precomputed squared distance's square root.
-                         // This skips redundant magnitude recalculations (sqrt(x^2 + y^2 + z^2))
-                         let dist = dist_sq.sqrt();
-                         let scalar_force = (repulsion_strength * 5.0 * dt) / dist;
-                         let force = dir * scalar_force;
-                         node_i.velocity += force;
-                         node_j.velocity -= force;
-                     } else if dist_sq < 150.0 {
-                         // Soft push (repulsion)
-                         let dist = dist_sq.sqrt();
-                         let scalar_force = (repulsion_strength * dt) / (dist_sq * dist);
-                         let force = dir * scalar_force;
-                         node_i.velocity += force;
-                         node_j.velocity -= force;
-                     }
+                    if dist_sq < (min_dist * min_dist) {
+                        // Hard push (collision)
+                        // Optimization: Avoid expensive .normalize() by dividing the precomputed squared distance's square root.
+                        // This skips redundant magnitude recalculations (sqrt(x^2 + y^2 + z^2))
+                        let dist = dist_sq.sqrt();
+                        let scalar_force = (repulsion_strength * 5.0 * dt) / dist;
+                        let force = dir * scalar_force;
+                        node_i.velocity += force;
+                        node_j.velocity -= force;
+                    } else if dist_sq < 150.0 {
+                        // Soft push (repulsion)
+                        let dist = dist_sq.sqrt();
+                        let scalar_force = (repulsion_strength * dt) / (dist_sq * dist);
+                        let force = dir * scalar_force;
+                        node_i.velocity += force;
+                        node_j.velocity -= force;
+                    }
                 }
             }
         }
 
         // 2. Spring Forces (Edges)
         for &(start, end) in &self.edges {
-             if start >= node_count || end >= node_count { continue; }
-             if self.nodes[start].scale < 0.001 || self.nodes[end].scale < 0.001 { continue; }
+            if start >= node_count || end >= node_count {
+                continue;
+            }
+            if self.nodes[start].scale < 0.001 || self.nodes[end].scale < 0.001 {
+                continue;
+            }
 
-             let dir = self.nodes[end].position - self.nodes[start].position;
-             let dist = dir.magnitude();
+            let dir = self.nodes[end].position - self.nodes[start].position;
+            let dist_sq = dir.magnitude2();
 
-             // Dynamic Spring Params based on Edge Type
-             let is_wire = matches!(self.nodes[start].node_type, NodeType::Port);
+            // Dynamic Spring Params based on Edge Type
+            let is_wire = matches!(self.nodes[start].node_type, NodeType::Port);
 
-             let (stiffness, rest_len) = if is_wire {
-                 (0.5, base_rest_length * 2.0) // Loose, long wires
-             } else {
-                 (5.0, base_rest_length) // Stiff structure
-             };
+            let (stiffness, rest_len) = if is_wire {
+                (0.5, base_rest_length * 2.0) // Loose, long wires
+            } else {
+                (5.0, base_rest_length) // Stiff structure
+            };
 
-             if dist > 0.0001 {
-                 let force = (dist - rest_len) * stiffness;
-                 // Optimization: Avoid .normalize() by dividing the scalar force by the pre-calculated distance
-                 let scalar_force = (force * dt) / dist;
-                 let force_vec = dir * scalar_force;
-                 self.nodes[start].velocity += force_vec;
-                 self.nodes[end].velocity -= force_vec;
-             }
+            if dist_sq > 0.00000001 {
+                let dist = dist_sq.sqrt();
+                let force = (dist - rest_len) * stiffness;
+                // Optimization: Avoid .normalize() by dividing the scalar force by the pre-calculated distance
+                let scalar_force = (force * dt) / dist;
+                let force_vec = dir * scalar_force;
+                self.nodes[start].velocity += force_vec;
+                self.nodes[end].velocity -= force_vec;
+            }
         }
 
         // 3. Centering / Target Force & Integration
@@ -1292,7 +1403,13 @@ impl LambdaSystem {
     }
 
     // Returns the index of the node representing this term
-    fn build_subtree(&mut self, term: Rc<Term>, pos: Point3<f32>, depth: i32, scope: &HashMap<String, usize>) -> usize {
+    fn build_subtree(
+        &mut self,
+        term: Rc<Term>,
+        pos: Point3<f32>,
+        depth: i32,
+        scope: &HashMap<String, usize>,
+    ) -> usize {
         let id = self.next_id;
         self.next_id += 1;
 
@@ -1327,7 +1444,7 @@ impl LambdaSystem {
                 self.edges.push((node_index, child_idx));
 
                 node_index
-            },
+            }
             Term::Var(name) => {
                 // Check if Bound
                 if let Some(&binder_idx) = scope.get(name) {
@@ -1373,7 +1490,7 @@ impl LambdaSystem {
 
                     node_index
                 }
-            },
+            }
             Term::App(func, arg) => {
                 // Application Node
                 let color = [0.5, 0.5, 0.5, 0.8];
@@ -1404,13 +1521,13 @@ impl LambdaSystem {
                 self.edges.push((node_index, right_idx));
 
                 node_index
-            },
+            }
             Term::Prim(p) => {
-                 let color = self.get_primitive_color(*p);
-                 let scale = 1.0;
-                 let node_index = self.nodes.len();
+                let color = self.get_primitive_color(*p);
+                let scale = 1.0;
+                let node_index = self.nodes.len();
 
-                 self.nodes.push(VisualNode {
+                self.nodes.push(VisualNode {
                     id,
                     term: term.clone(),
                     position: pos,
@@ -1456,7 +1573,12 @@ impl LambdaSystem {
     }
 }
 
-fn get_quadratic_bezier_point(t: f32, p0: Point3<f32>, p1: Point3<f32>, p2: Point3<f32>) -> Point3<f32> {
+fn get_quadratic_bezier_point(
+    t: f32,
+    p0: Point3<f32>,
+    p1: Point3<f32>,
+    p2: Point3<f32>,
+) -> Point3<f32> {
     let it = 1.0 - t;
     let v0 = p0.to_vec();
     let v1 = p1.to_vec();
@@ -1470,17 +1592,17 @@ fn get_control_point(p0: Point3<f32>, p2: Point3<f32>, is_wire: bool) -> Point3<
         let mid = p0 + (p2 - p0) * 0.5;
         let dir = p2 - p0;
         let right = if dir.magnitude2() > 0.0001 {
-             let r = Vector3::new(-dir.z, 0.0, dir.x);
-             let r_mag_sq = r.magnitude2();
-             if r_mag_sq < 0.0001 {
-                 Vector3::unit_x() // fallback
-             } else {
-                 // Optimization: Avoid implicit `.magnitude()` calculation inside `.normalize()`
-                 // by using the previously computed squared magnitude and doing the scalar multiplication manually.
-                 r * (1.0 / r_mag_sq.sqrt())
-             }
+            let r = Vector3::new(-dir.z, 0.0, dir.x);
+            let r_mag_sq = r.magnitude2();
+            if r_mag_sq < 0.0001 {
+                Vector3::unit_x() // fallback
+            } else {
+                // Optimization: Avoid implicit `.magnitude()` calculation inside `.normalize()`
+                // by using the previously computed squared magnitude and doing the scalar multiplication manually.
+                r * (1.0 / r_mag_sq.sqrt())
+            }
         } else {
-             Vector3::unit_x()
+            Vector3::unit_x()
         };
 
         if dir.x.abs() < 0.1 && dir.z.abs() < 0.1 {
@@ -1521,7 +1643,7 @@ mod tests {
         // Should have triggered reduction.
         // In (\x.x) y, it IS a beta reduction, so it should enter AnimationState::Reducing.
         match sys.animation_state {
-            AnimationState::Reducing { .. } => {},
+            AnimationState::Reducing { .. } => {}
             _ => panic!("Should be reducing"),
         }
     }
@@ -1539,7 +1661,7 @@ mod tests {
 
         // Should NOT be reducing
         match sys.animation_state {
-            AnimationState::Idle => {},
+            AnimationState::Idle => {}
             _ => panic!("Should stay idle when paused"),
         }
     }
@@ -1578,11 +1700,11 @@ mod tests {
 
         // Result should be (\x.\y.y)
         if let Some(root) = &sys.root_term {
-             // Remove spaces for comparison
-             let s = root.to_string().replace(" ", "");
-             assert_eq!(s, "(λx.(λy.y))");
+            // Remove spaces for comparison
+            let s = root.to_string().replace(" ", "");
+            assert_eq!(s, "(λx.(λy.y))");
         } else {
-             panic!("Root term is None");
+            panic!("Root term is None");
         }
     }
 
@@ -1606,10 +1728,10 @@ mod tests {
                 NodeType::Port => {
                     // Check if it's 'x' (via term string since Port doesn't have name field)
                     if node.term.to_string() == "x" {
-                         if x_count == 0 {
-                             first_x_idx = Some(i);
-                         }
-                         x_count += 1;
+                        if x_count == 0 {
+                            first_x_idx = Some(i);
+                        }
+                        x_count += 1;
                     }
                 }
                 NodeType::Abs(name) => {
@@ -1628,11 +1750,11 @@ mod tests {
         sys.handle_drop(first_x_idx.unwrap(), y_abs_idx.unwrap());
 
         if let Some(root) = &sys.root_term {
-             let s = root.to_string().replace(" ", "");
-             // (x x) -> (y x)
-             assert_eq!(s, "(λx.(λy.(yx)))");
+            let s = root.to_string().replace(" ", "");
+            // (x x) -> (y x)
+            assert_eq!(s, "(λx.(λy.(yx)))");
         } else {
-             panic!("Root term is None");
+            panic!("Root term is None");
         }
     }
 

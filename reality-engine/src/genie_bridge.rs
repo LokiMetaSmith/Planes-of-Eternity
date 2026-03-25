@@ -10,8 +10,7 @@ pub struct GenieBridge {
 
 impl std::fmt::Debug for GenieBridge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GenieBridge")
-         .finish()
+        f.debug_struct("GenieBridge").finish()
     }
 }
 
@@ -32,21 +31,22 @@ impl GenieBridge {
         let size = CHUNK_SIZE;
         let mut changes = Vec::new();
 
-        for z in 1..size-1 {
-            for y in 1..size-1 {
-                for x in 1..size-1 {
+        for z in 1..size - 1 {
+            for y in 1..size - 1 {
+                for x in 1..size - 1 {
                     let idx = chunk.index(x, y, z);
                     let id = chunk.data[idx].id;
 
-                    if id == 3 { // Fire -> Obsidian
+                    if id == 3 {
+                        // Fire -> Obsidian
                         if (x + y + z) % 2 == 0 {
                             changes.push((idx, 1));
                         }
-                    }
-                    else if id == 0 { // Air -> Bridge
-                        let below = chunk.data[chunk.index(x, y-1, z)].id;
-                        if below == 1 && (x+z)%5 == 0 {
-                             changes.push((idx, 1));
+                    } else if id == 0 {
+                        // Air -> Bridge
+                        let below = chunk.data[chunk.index(x, y - 1, z)].id;
+                        if below == 1 && (x + z) % 5 == 0 {
+                            changes.push((idx, 1));
                         }
                     }
                 }
@@ -77,9 +77,13 @@ impl GenieBridge {
             let z = pos[2];
 
             // Validate bounds to prevent out-of-bounds access on Chunk
-            if x >= 0 && x < CHUNK_SIZE as i32 &&
-               y >= 0 && y < CHUNK_SIZE as i32 &&
-               z >= 0 && z < CHUNK_SIZE as i32 {
+            if x >= 0
+                && x < CHUNK_SIZE as i32
+                && y >= 0
+                && y < CHUNK_SIZE as i32
+                && z >= 0
+                && z < CHUNK_SIZE as i32
+            {
                 let idx = chunk.index(x as usize, y as usize, z as usize);
                 chunk.data[idx] = Voxel { id: voxel_id };
             }
@@ -89,7 +93,7 @@ impl GenieBridge {
     }
 }
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NpcStateView {

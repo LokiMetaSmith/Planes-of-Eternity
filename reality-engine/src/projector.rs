@@ -1,6 +1,6 @@
-use cgmath::{MetricSpace, Point3};
-use serde::{Serialize, Deserialize};
 use crate::reality_types::{BlendResult, RealitySignature};
+use cgmath::{MetricSpace, Point3};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -33,7 +33,10 @@ pub fn get_current_timestamp() -> u64 {
     #[cfg(not(target_arch = "wasm32"))]
     {
         use std::time::SystemTime;
-        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
     }
 }
 
@@ -49,7 +52,11 @@ impl RealityProjector {
         }
     }
 
-    pub fn get_blend_weight_at_location(&self, location: Point3<f32>, rival: Option<&RealityProjector>) -> f32 {
+    pub fn get_blend_weight_at_location(
+        &self,
+        location: Point3<f32>,
+        rival: Option<&RealityProjector>,
+    ) -> f32 {
         let rival_ref = match rival {
             Some(r) => r,
             None => return 1.0,
@@ -73,7 +80,11 @@ impl RealityProjector {
         strength_a / (strength_a + strength_b)
     }
 
-    pub fn calculate_reality_at_point(&self, point: Point3<f32>, rival: Option<&RealityProjector>) -> BlendResult {
+    pub fn calculate_reality_at_point(
+        &self,
+        point: Point3<f32>,
+        rival: Option<&RealityProjector>,
+    ) -> BlendResult {
         let mut result = BlendResult::default();
 
         let rival_ref = match rival {
@@ -113,7 +124,9 @@ impl RealityProjector {
             }
         }
 
-        if self.reality_signature.active_style.archetype != rival_ref.reality_signature.active_style.archetype {
+        if self.reality_signature.active_style.archetype
+            != rival_ref.reality_signature.active_style.archetype
+        {
             result.is_conflict = true;
         }
 
@@ -153,10 +166,10 @@ mod tests {
         let result = proj_a.calculate_reality_at_point(Point3::new(5.0, 0.0, 0.0), Some(&proj_b));
         // Equal strength, code says StrengthA >= StrengthB -> A wins
         assert_eq!(result.dominant_archetype, RealityArchetype::Fantasy);
-        assert!( (result.blend_alpha - 0.5).abs() < 1e-4 ); // Blend should be 0.5 at equal strength
+        assert!((result.blend_alpha - 0.5).abs() < 1e-4); // Blend should be 0.5 at equal strength
 
         // Strength A = 100/5 = 20. Strength B = 100/5 = 20. Total = 40.
-        assert!( (result.total_strength - 40.0).abs() < 1e-4 );
+        assert!((result.total_strength - 40.0).abs() < 1e-4);
     }
 
     #[test]

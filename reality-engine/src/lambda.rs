@@ -52,7 +52,7 @@ impl std::str::FromStr for Primitive {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Term {
     Var(String),
-    Abs(String, Rc<Term>), // \x. Body
+    Abs(String, Rc<Term>),   // \x. Body
     App(Rc<Term>, Rc<Term>), // (Function Argument)
     Prim(Primitive),
 }
@@ -95,12 +95,10 @@ impl Term {
                     Rc::new(Term::Var(name.clone()))
                 }
             }
-            Term::App(func, arg) => {
-                Rc::new(Term::App(
-                    func.substitute(var_name, val),
-                    arg.substitute(var_name, val)
-                ))
-            }
+            Term::App(func, arg) => Rc::new(Term::App(
+                func.substitute(var_name, val),
+                arg.substitute(var_name, val),
+            )),
             Term::Abs(param, body) => {
                 if param == var_name {
                     // Variable shadowed, stop substitution
@@ -111,13 +109,10 @@ impl Term {
                     let new_body = body.substitute(param, &Term::var(&new_param));
                     Rc::new(Term::Abs(
                         new_param.clone(),
-                        new_body.substitute(var_name, val)
+                        new_body.substitute(var_name, val),
                     ))
                 } else {
-                    Rc::new(Term::Abs(
-                        param.clone(),
-                        body.substitute(var_name, val)
-                    ))
+                    Rc::new(Term::Abs(param.clone(), body.substitute(var_name, val)))
                 }
             }
             Term::Prim(p) => Rc::new(Term::Prim(*p)),
@@ -159,7 +154,7 @@ impl Term {
                 } else {
                     Term::app(new_func, new_arg)
                 }
-            },
+            }
             Term::Abs(param, body) => {
                 let new_body = Term::replace(body, target, replacement);
                 if Rc::ptr_eq(&new_body, body) {
@@ -167,8 +162,8 @@ impl Term {
                 } else {
                     Term::abs(param, new_body)
                 }
-            },
-            _ => root.clone()
+            }
+            _ => root.clone(),
         }
     }
 
@@ -181,8 +176,8 @@ impl Term {
 
                 // If func is an abstraction, we BETA REDUCE!
                 if let Term::Abs(param, body) = &**func {
-                     // (\x.M) N -> M[N/x]
-                     return (body.substitute(param, arg), true);
+                    // (\x.M) N -> M[N/x]
+                    return (body.substitute(param, arg), true);
                 }
 
                 // If func is NOT an abstraction yet, try to reduce it.
@@ -267,14 +262,18 @@ fn tokenize(input: &str) -> Vec<Token> {
                 }
                 tokens.push(Token::Ident(ident));
             }
-            _ => { chars.next(); } // Skip unknown
+            _ => {
+                chars.next();
+            } // Skip unknown
         }
     }
     tokens
 }
 
 fn parse_tokens(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
-    if tokens.is_empty() { return None; }
+    if tokens.is_empty() {
+        return None;
+    }
 
     // Parse one term (atom or parenthesized or lambda)
     let (mut left, mut rest) = parse_atom(tokens)?;
@@ -289,7 +288,9 @@ fn parse_tokens(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
 }
 
 fn parse_atom(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
-    if tokens.is_empty() { return None; }
+    if tokens.is_empty() {
+        return None;
+    }
 
     match &tokens[0] {
         Token::LParen => {
@@ -333,7 +334,7 @@ mod tests {
     fn test_primitive_parse() {
         let term = parse("FIRE").unwrap();
         match *term {
-            Term::Prim(Primitive::Fire) => {},
+            Term::Prim(Primitive::Fire) => {}
             _ => panic!("Expected Prim(Fire)"),
         }
     }
@@ -341,7 +342,7 @@ mod tests {
     #[test]
     fn test_primitive_app() {
         let term = parse("GROWTH TREE").unwrap(); // TREE is var, GROWTH is prim
-        // "TREE" is not a known prim, so it's a Var("TREE")
+                                                  // "TREE" is not a known prim, so it's a Var("TREE")
         println!("{}", term);
         assert_eq!(term.to_string(), "(GROWTH TREE)");
     }

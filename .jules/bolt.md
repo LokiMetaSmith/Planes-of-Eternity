@@ -40,3 +40,7 @@
 ## 2024-03-24 - Halving O(N^2) Physics with `split_at_mut`
 **Learning:** When calculating symmetric pairwise interactions (like Newton's Third Law forces) across a single array in Rust, a naive nested `for j in 0..N` loop duplicates work and is hard to optimize because borrowing two elements from a mutable slice fails the borrow checker.
 **Action:** By splitting the array at the current index `let (left, right) = slice.split_at_mut(i + 1)` and iterating the inner loop over `right.iter_mut()`, we safely borrow `slice[i]` and `slice[j]` simultaneously without allocations, perfectly halving the number of `magnitude2()`/distance calculations in O(N^2) loops.
+
+## 2025-03-25 - Eliminating float function overhead in hot loop distances
+**Learning:** In hot loops like physics iterations (`visual_lambda.rs`) or LOD updates over many chunks (`lib.rs`), float functions like `.powi(2)` or `.sqrt()` incur measurable overhead. A direct call to `vector.magnitude()` or `(ndc_x - sx).powi(2)` might be mathematically sound, but is unnecessary if we only need to verify if the distance exceeds a certain threshold.
+**Action:** When calculating squared distance, prefer `dx * dx + dy * dy + dz * dz` over `.powi(2)`. Additionally, calculate `.magnitude2()` instead of `.magnitude()` and compare it against the *squared* threshold (e.g., `dist_sq > 0.00000001` instead of `dist > 0.0001`). Only extract the `sqrt()` if the threshold is passed and the scalar distance is explicitly needed for further math.

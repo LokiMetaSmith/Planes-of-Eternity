@@ -1,10 +1,10 @@
-use serde::{Serialize, Deserialize};
 use crate::input::InputConfig;
 use crate::projector::RealityProjector;
 use crate::world::WorldState;
+use log::{error, info};
+use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use web_sys::Storage;
-use log::{info, error};
 
 pub const SAVE_VERSION: u32 = 2;
 
@@ -89,7 +89,7 @@ pub fn save_to_local_storage(key: &str, state: &GameState) {
                 if let Err(e) = storage.set_item(key, &json) {
                     error!("Failed to save to local storage: {:?}", e);
                 }
-            },
+            }
             Err(e) => error!("Failed to serialize game state: {:?}", e),
         }
     }
@@ -119,22 +119,26 @@ pub fn load_from_local_storage(key: &str) -> Option<GameState> {
                             if state.version == 0 {
                                 info!("Migrating legacy save (v0) to v{}", SAVE_VERSION);
                             } else {
-                                log::warn!("Version mismatch: save is v{}, current is v{}", state.version, SAVE_VERSION);
+                                log::warn!(
+                                    "Version mismatch: save is v{}, current is v{}",
+                                    state.version,
+                                    SAVE_VERSION
+                                );
                             }
                         }
                         info!("Loaded game state from local storage.");
                         Some(state)
-                    },
+                    }
                     Err(e) => {
                         error!("Failed to deserialize game state: {:?}", e);
                         None
                     }
                 }
-            },
+            }
             Ok(None) => {
                 info!("No save found for key: {}", key);
                 None
-            },
+            }
             Err(e) => {
                 error!("Failed to read from local storage: {:?}", e);
                 None

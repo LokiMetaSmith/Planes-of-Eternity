@@ -1815,6 +1815,39 @@ impl GameClient {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn main() -> Result<(), JsValue> {
+    let window = web_sys::window().unwrap();
+    let obj = js_sys::Object::new();
+    let start_func = Closure::wrap(Box::new(|canvas_id: String| {
+        wasm_bindgen_futures::future_to_promise(async move {
+            match start(canvas_id).await {
+                Ok(client) => Ok(JsValue::from(client)),
+                Err(e) => Err(e),
+            }
+        })
+    }) as Box<dyn FnMut(String) -> js_sys::Promise>);
+
+    let is_ar_supported_func = Closure::wrap(Box::new(|| {
+        wasm_bindgen_futures::future_to_promise(async {
+            match xr::is_ar_supported().await {
+                Ok(supported) => Ok(JsValue::from_bool(supported)),
+                Err(e) => Err(e),
+            }
+        })
+    }) as Box<dyn FnMut() -> js_sys::Promise>);
+
+    js_sys::Reflect::set(&obj, &JsValue::from_str("start"), start_func.as_ref().unchecked_ref())?;
+    js_sys::Reflect::set(&obj, &JsValue::from_str("is_ar_supported"), is_ar_supported_func.as_ref().unchecked_ref())?;
+    start_func.forget();
+    is_ar_supported_func.forget();
+
+    js_sys::Reflect::set(&window, &JsValue::from_str("wasmBindings"), &obj)?;
+
+    Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     std::panic::set_hook(Box::new(|info| {

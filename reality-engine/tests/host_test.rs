@@ -355,6 +355,78 @@ fn test_merge_conflict_resolution() {
 }
 
 #[test]
+fn test_npc_evolution_and_movement() {
+    use reality_engine::projector::RealityProjector;
+    use reality_engine::reality_types::{RealityArchetype, RealitySignature};
+    use cgmath::Point3;
+
+    let mut engine = Engine::new(800, 600, None);
+
+    // Clear out any default spawned NPCs and anomalies
+    engine.world_state.npcs.clear();
+    engine.world_state.chunks.clear();
+
+    // Spawn an NPC preferring SciFi
+    let mut sig_npc = RealitySignature::default();
+    sig_npc.active_style.archetype = RealityArchetype::SciFi;
+    sig_npc.fidelity = 100.0;
+
+    let npc_start_pos = Point3::new(0.0, 1.0, 0.0);
+    let mut npc = RealityProjector::new(npc_start_pos, sig_npc.clone());
+    npc.behavior = Some(reality_engine::projector::NpcBehavior {
+        preferred_archetype: RealityArchetype::SciFi,
+        energy: 100.0,
+        mutation_progress: 0.0,
+    });
+    engine.world_state.npcs.push(npc);
+
+    // Add a strong Horror anomaly at the NPC's location to force mutation
+    let mut sig_anomaly = RealitySignature::default();
+    sig_anomaly.active_style.archetype = RealityArchetype::Horror;
+    sig_anomaly.fidelity = 500.0; // Very strong
+    let anomaly = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig_anomaly);
+    engine.world_state.add_anomaly(anomaly);
+
+    // Ensure the anomaly chunk hash is updated
+    engine.world_state.calculate_root_hash();
+
+    // The dominant archetype at (0,0,0) should now be Horror
+    let current_arch = engine.world_state.get_dominant_archetype_at(npc_start_pos).unwrap();
+    assert_eq!(current_arch, RealityArchetype::Horror, "Dominant archetype should be Horror");
+
+    // We need to run enough update ticks so mutation_progress hits 100.
+    // 15.0 mutation per second. We need 100 / 15.0 = 6.66 seconds minimum.
+    // We update with dt=1.0 ten times (10 seconds total).
+    for _ in 0..10 {
+        engine.update(1.0);
+        // Force them back to center so they don't leave the anomaly chunk during their agitated wandering
+        engine.world_state.npcs[0].location = npc_start_pos;
+    }
+
+    // Now verify the state
+    let updated_npc = &engine.world_state.npcs[0];
+    let behavior = updated_npc.behavior.as_ref().expect("NPC should have behavior");
+
+    // Verify evolution
+    assert_eq!(
+        behavior.preferred_archetype,
+        RealityArchetype::Horror,
+        "NPC should have evolved to prefer Horror"
+    );
+    assert_eq!(
+        updated_npc.reality_signature.active_style.archetype,
+        RealityArchetype::Horror,
+        "NPC reality projection should have changed to Horror"
+    );
+
+    // Verify energy and mutation reset
+    assert!(behavior.mutation_progress < 15.0, "Mutation progress should be very low after reset");
+    // After evolution, energy is set to 50.0, but on subsequent ticks of thriving it increases by 5.0 per tick.
+    // So it might be 50.0 + 5.0 * remaining_ticks. We just assert it is >= 50.0
+    assert!(behavior.energy >= 50.0, "Energy should have reset to at least 50.0 after evolution");
+}
+
+#[test]
 fn test_get_node_labels_benchmark() {
     let mut engine = Engine::new(800, 600, None);
 

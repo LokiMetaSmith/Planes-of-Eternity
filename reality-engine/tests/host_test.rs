@@ -449,7 +449,7 @@ fn test_get_node_labels_benchmark() {
     // Generate a very large lambda term to stress test labels
     // e.g., a long sequence of applications
     let mut term_str = String::from("FIRE");
-    for _ in 0..500 {
+    for _ in 0..50 {
         term_str = format!("(GROWTH {})", term_str);
     }
 

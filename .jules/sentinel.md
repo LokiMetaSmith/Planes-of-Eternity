@@ -53,3 +53,8 @@
 **Vulnerability:** DoS risk via unbounded WebSocket message string parsing. `network.rs` received arbitrary strings from the signaling server and passed them to `serde_json::from_str` without checking their size, potentially allowing a malicious actor to exhaust memory.
 **Learning:** Even WebSocket client-side connections can be vectors for resource exhaustion DoS if unbounded incoming payloads are parsed blindly.
 **Prevention:** Always enforce reasonable maximum length limits on external string payloads (e.g. 8KB) before passing them to serializers/deserializers or processing pipelines.
+
+## 2026-03-26 - Recursive Descent Parser Stack Overflow
+**Vulnerability:** The recursive descent parser in `lambda::parse` (`reality-engine/src/lambda.rs`) lacked a recursion depth limit, making it vulnerable to stack overflow Denial of Service (DoS) attacks when processing deeply nested parenthetical expressions (e.g., `((((...FIRE...))))`).
+**Learning:** Even if an initial input string is constrained in length (e.g., the 256-byte limit in `process_inscription`), 256 bytes is more than enough to encode extremely deep nesting, which could exceed the constrained WebAssembly (WASM) call stack limits or crash host environments.
+**Prevention:** Always enforce a strict `depth` limit (e.g., 64) when implementing recursive descent parsers or processing nested structures, returning early or throwing an error if the depth exceeds the safe threshold.

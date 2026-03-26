@@ -212,7 +212,7 @@ impl Term {
 // Simple Parser
 pub fn parse(input: &str) -> Option<Rc<Term>> {
     let tokens = tokenize(input);
-    let (term, _) = parse_tokens(&tokens)?;
+    let (term, _) = parse_tokens(&tokens, 0)?;
     Some(term)
 }
 
@@ -270,16 +270,26 @@ fn tokenize(input: &str) -> Vec<Token> {
     tokens
 }
 
-fn parse_tokens(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
+fn parse_tokens(tokens: &[Token], depth: usize) -> Option<(Rc<Term>, &[Token])> {
     if tokens.is_empty() {
         return None;
     }
 
+    // Security Enhancement: Prevent Stack Overflow DoS from deeply nested expressions
+    const MAX_PARSE_DEPTH: usize = 64;
+    if depth > MAX_PARSE_DEPTH {
+        log::warn!(
+            "Security Warning: Lambda parse depth exceeded limit of {}. Aborting parse.",
+            MAX_PARSE_DEPTH
+        );
+        return None;
+    }
+
     // Parse one term (atom or parenthesized or lambda)
-    let (mut left, mut rest) = parse_atom(tokens)?;
+    let (mut left, mut rest) = parse_atom(tokens, depth)?;
 
     // Handle application: Term Term ...
-    while let Some((right, next_rest)) = parse_atom(rest) {
+    while let Some((right, next_rest)) = parse_atom(rest, depth) {
         left = Term::app(left, right);
         rest = next_rest;
     }
@@ -287,14 +297,14 @@ fn parse_tokens(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
     Some((left, rest))
 }
 
-fn parse_atom(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
+fn parse_atom(tokens: &[Token], depth: usize) -> Option<(Rc<Term>, &[Token])> {
     if tokens.is_empty() {
         return None;
     }
 
     match &tokens[0] {
         Token::LParen => {
-            let (term, rest) = parse_tokens(&tokens[1..])?;
+            let (term, rest) = parse_tokens(&tokens[1..], depth + 1)?;
             if rest.first() == Some(&Token::RParen) {
                 Some((term, &rest[1..]))
             } else {
@@ -305,7 +315,7 @@ fn parse_atom(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
             // \x. Body
             if let Some(Token::Ident(param)) = tokens.get(1) {
                 if tokens.get(2) == Some(&Token::Dot) {
-                    let (body, rest) = parse_tokens(&tokens[3..])?;
+                    let (body, rest) = parse_tokens(&tokens[3..], depth + 1)?;
                     Some((Term::abs(param, body), rest))
                 } else {
                     None

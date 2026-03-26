@@ -356,9 +356,9 @@ fn test_merge_conflict_resolution() {
 
 #[test]
 fn test_npc_evolution_and_movement() {
+    use cgmath::Point3;
     use reality_engine::projector::RealityProjector;
     use reality_engine::reality_types::{RealityArchetype, RealitySignature};
-    use cgmath::Point3;
 
     let mut engine = Engine::new(800, 600, None);
 
@@ -391,8 +391,15 @@ fn test_npc_evolution_and_movement() {
     engine.world_state.calculate_root_hash();
 
     // The dominant archetype at (0,0,0) should now be Horror
-    let current_arch = engine.world_state.get_dominant_archetype_at(npc_start_pos).unwrap();
-    assert_eq!(current_arch, RealityArchetype::Horror, "Dominant archetype should be Horror");
+    let current_arch = engine
+        .world_state
+        .get_dominant_archetype_at(npc_start_pos)
+        .unwrap();
+    assert_eq!(
+        current_arch,
+        RealityArchetype::Horror,
+        "Dominant archetype should be Horror"
+    );
 
     // We need to run enough update ticks so mutation_progress hits 100.
     // 15.0 mutation per second. We need 100 / 15.0 = 6.66 seconds minimum.
@@ -405,7 +412,10 @@ fn test_npc_evolution_and_movement() {
 
     // Now verify the state
     let updated_npc = &engine.world_state.npcs[0];
-    let behavior = updated_npc.behavior.as_ref().expect("NPC should have behavior");
+    let behavior = updated_npc
+        .behavior
+        .as_ref()
+        .expect("NPC should have behavior");
 
     // Verify evolution
     assert_eq!(
@@ -420,10 +430,16 @@ fn test_npc_evolution_and_movement() {
     );
 
     // Verify energy and mutation reset
-    assert!(behavior.mutation_progress < 15.0, "Mutation progress should be very low after reset");
+    assert!(
+        behavior.mutation_progress < 15.0,
+        "Mutation progress should be very low after reset"
+    );
     // After evolution, energy is set to 50.0, but on subsequent ticks of thriving it increases by 5.0 per tick.
     // So it might be 50.0 + 5.0 * remaining_ticks. We just assert it is >= 50.0
-    assert!(behavior.energy >= 50.0, "Energy should have reset to at least 50.0 after evolution");
+    assert!(
+        behavior.energy >= 50.0,
+        "Energy should have reset to at least 50.0 after evolution"
+    );
 }
 
 #[test]

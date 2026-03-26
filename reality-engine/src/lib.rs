@@ -1975,8 +1975,16 @@ pub fn main() -> Result<(), JsValue> {
         })
     }) as Box<dyn FnMut() -> js_sys::Promise>);
 
-    js_sys::Reflect::set(&obj, &JsValue::from_str("start"), start_func.as_ref().unchecked_ref())?;
-    js_sys::Reflect::set(&obj, &JsValue::from_str("is_ar_supported"), is_ar_supported_func.as_ref().unchecked_ref())?;
+    js_sys::Reflect::set(
+        &obj,
+        &JsValue::from_str("start"),
+        start_func.as_ref().unchecked_ref(),
+    )?;
+    js_sys::Reflect::set(
+        &obj,
+        &JsValue::from_str("is_ar_supported"),
+        is_ar_supported_func.as_ref().unchecked_ref(),
+    )?;
     start_func.forget();
     is_ar_supported_func.forget();
 

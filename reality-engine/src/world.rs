@@ -153,7 +153,10 @@ impl WorldState {
         self.chunks.entry(id).or_insert_with(|| Chunk::new(id))
     }
 
-    pub fn get_dominant_archetype_at(&self, loc: cgmath::Point3<f32>) -> Option<crate::reality_types::RealityArchetype> {
+    pub fn get_dominant_archetype_at(
+        &self,
+        loc: cgmath::Point3<f32>,
+    ) -> Option<crate::reality_types::RealityArchetype> {
         use cgmath::InnerSpace;
         use cgmath::MetricSpace;
         let id = ChunkId::from_world_pos(loc.x, loc.z, ANOMALY_GRID_SIZE);

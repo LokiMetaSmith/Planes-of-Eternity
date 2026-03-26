@@ -769,6 +769,21 @@
                              gameClient.delete_save(name);
                              updateSaveList();
                              inputSaveName.value = "";
+
+                             const originalText = btnDelete.innerText;
+                             btnDelete.innerText = "DELETED";
+                             btnDelete.style.background = "#ff2a6d";
+                             btnDelete.style.color = "#000";
+                             btnDelete.disabled = true;
+                             btnDelete.setAttribute("aria-live", "polite");
+
+                             setTimeout(() => {
+                                 btnDelete.innerText = originalText;
+                                 btnDelete.style.background = "";
+                                 btnDelete.style.color = "#ff2a6d";
+                                 btnDelete.disabled = false;
+                                 btnDelete.removeAttribute("aria-live");
+                             }, 2000);
                          }
                      }
                 });
@@ -778,6 +793,21 @@
                          log("> SYSTEM RESET INITIATED...");
                          gameClient.reset_world();
                          log("> WORLD STATE CLEARED.");
+
+                         const originalText = btnReset.innerText;
+                         btnReset.innerText = "CLEARED";
+                         btnReset.style.background = "#ff2a6d";
+                         btnReset.style.color = "#000";
+                         btnReset.disabled = true;
+                         btnReset.setAttribute("aria-live", "polite");
+
+                         setTimeout(() => {
+                             btnReset.innerText = originalText;
+                             btnReset.style.background = "";
+                             btnReset.style.color = "#ff2a6d";
+                             btnReset.disabled = false;
+                             btnReset.removeAttribute("aria-live");
+                         }, 2000);
                      }
                 });
 

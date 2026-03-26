@@ -884,11 +884,12 @@ impl LambdaSystem {
                 let pos = get_quadratic_bezier_point(t, p0, p1, p2);
 
                 let seg_dir = pos - prev_pos;
-                let seg_len = seg_dir.magnitude();
-                if seg_len < 0.0001 {
+                let seg_len_sq = seg_dir.magnitude2();
+                if seg_len_sq < 0.00000001 {
                     prev_pos = pos;
                     continue;
                 }
+                let seg_len = seg_len_sq.sqrt();
                 let seg_dir_norm = seg_dir / seg_len;
 
                 let w0 = ray_origin - prev_pos;

@@ -44,3 +44,7 @@
 ## 2025-03-25 - Eliminating float function overhead in hot loop distances
 **Learning:** In hot loops like physics iterations (`visual_lambda.rs`) or LOD updates over many chunks (`lib.rs`), float functions like `.powi(2)` or `.sqrt()` incur measurable overhead. A direct call to `vector.magnitude()` or `(ndc_x - sx).powi(2)` might be mathematically sound, but is unnecessary if we only need to verify if the distance exceeds a certain threshold.
 **Action:** When calculating squared distance, prefer `dx * dx + dy * dy + dz * dz` over `.powi(2)`. Additionally, calculate `.magnitude2()` instead of `.magnitude()` and compare it against the *squared* threshold (e.g., `dist_sq > 0.00000001` instead of `dist > 0.0001`). Only extract the `sqrt()` if the threshold is passed and the scalar distance is explicitly needed for further math.
+
+## 2025-03-26 - [Replace magnitude() with magnitude2() inside tight ray intersection loops]
+**Learning:** In ray-curve intersection (e.g. `intersect_edge`), calling `.magnitude()` inside a tight 10x per-edge loop incurs the cost of a `.sqrt()`. Often, this length is immediately compared against a very small threshold (`0.0001`) before the length is actually needed.
+**Action:** When calculating vector magnitudes in hot loops, use `.magnitude2()` first, compare the squared threshold (`0.0001 * 0.0001 = 0.00000001`), and only call `.sqrt()` on the squared magnitude *after* confirming the threshold is met, thus eliminating unnecessary square roots for discarded short segments.

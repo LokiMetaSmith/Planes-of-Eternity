@@ -211,7 +211,8 @@ impl Engine {
                         // Thriving: Habitate
                         speed = 0.5;
                         behavior.energy = (behavior.energy + 5.0 * dt).min(100.0);
-                        behavior.mutation_progress = (behavior.mutation_progress - 10.0 * dt).max(0.0);
+                        behavior.mutation_progress =
+                            (behavior.mutation_progress - 10.0 * dt).max(0.0);
 
                         // Small chance to stop and enjoy the area
                         if npc.target_location.is_some() && rand::random::<f32>() < 0.05 * dt {

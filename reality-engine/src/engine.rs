@@ -134,7 +134,13 @@ impl Engine {
                     let radius = 15.0;
                     let loc = Point3::new(angle.cos() * radius, 1.0, angle.sin() * radius);
 
-                    world_state.npcs.push(RealityProjector::new(loc, sig));
+                    let mut npc = RealityProjector::new(loc, sig);
+                    npc.behavior = Some(crate::projector::NpcBehavior {
+                        preferred_archetype: arch,
+                        energy: 100.0,
+                        mutation_progress: 0.0,
+                    });
+                    world_state.npcs.push(npc);
                 }
 
                 let mut ls = LambdaSystem::new();
@@ -190,9 +196,68 @@ impl Engine {
 
         // --- NPC AI Logic ---
         // Simple wandering and reality projection
+
         let mut npcs_to_update = Vec::new();
-        for npc in &mut self.world_state.npcs {
-            let speed = 2.0;
+        // First we extract the npcs into a temporary vector so we don't have multiple mutable borrows to self.world_state
+        let mut npcs = std::mem::take(&mut self.world_state.npcs);
+
+        for npc in &mut npcs {
+            let mut speed = 2.0;
+
+            if let Some(behavior) = &mut npc.behavior {
+                let current_archetype = self.world_state.get_dominant_archetype_at(npc.location);
+                if let Some(arch) = current_archetype {
+                    if arch == behavior.preferred_archetype {
+                        // Thriving: Habitate
+                        speed = 0.5;
+                        behavior.energy = (behavior.energy + 5.0 * dt).min(100.0);
+                        behavior.mutation_progress = (behavior.mutation_progress - 10.0 * dt).max(0.0);
+
+                        // Small chance to stop and enjoy the area
+                        if npc.target_location.is_some() && rand::random::<f32>() < 0.05 * dt {
+                            npc.target_location = None;
+                        }
+                    } else {
+                        // Agitated: Escape or Evolve
+                        speed = 4.0;
+                        behavior.energy = (behavior.energy - 2.0 * dt).max(0.0);
+                        behavior.mutation_progress += 15.0 * dt;
+
+                        if behavior.mutation_progress >= 100.0 {
+                            // Evolve!
+                            behavior.preferred_archetype = arch;
+                            npc.reality_signature.active_style.archetype = arch;
+                            behavior.mutation_progress = 0.0;
+                            behavior.energy = 50.0;
+                        }
+
+                        // Try to find a new target location randomly if we don't have one
+                        if npc.target_location.is_none() && rand::random::<f32>() < 0.5 * dt {
+                            use cgmath::MetricSpace;
+                            let angle = rand::random::<f32>() * std::f32::consts::PI * 2.0;
+                            let radius = 10.0 + rand::random::<f32>() * 20.0;
+                            npc.target_location = Some(cgmath::Point3::new(
+                                npc.location.x + angle.cos() * radius,
+                                1.0,
+                                npc.location.z + angle.sin() * radius,
+                            ));
+                        }
+                    }
+                } else {
+                    // No dominant archetype, slightly agitated
+                    speed = 2.5;
+                    behavior.mutation_progress += 2.0 * dt;
+                    if npc.target_location.is_none() && rand::random::<f32>() < 0.1 * dt {
+                        let angle = rand::random::<f32>() * std::f32::consts::PI * 2.0;
+                        let radius = 15.0;
+                        npc.target_location = Some(cgmath::Point3::new(
+                            npc.location.x + angle.cos() * radius,
+                            1.0,
+                            npc.location.z + angle.sin() * radius,
+                        ));
+                    }
+                }
+            }
 
             if let Some(target) = npc.target_location {
                 // Move towards target
@@ -231,6 +296,9 @@ impl Engine {
 
             npcs_to_update.push(npc.clone());
         }
+
+        // Put the modified npcs back
+        self.world_state.npcs = npcs;
 
         // Apply NPC influence
         for npc in npcs_to_update {
@@ -803,7 +871,13 @@ impl Engine {
             let radius = 15.0;
             let loc = Point3::new(angle.cos() * radius, 1.0, angle.sin() * radius);
 
-            self.world_state.npcs.push(RealityProjector::new(loc, sig));
+            let mut npc = RealityProjector::new(loc, sig);
+            npc.behavior = Some(crate::projector::NpcBehavior {
+                preferred_archetype: arch,
+                energy: 100.0,
+                mutation_progress: 0.0,
+            });
+            self.world_state.npcs.push(npc);
         }
 
         // Reset Player

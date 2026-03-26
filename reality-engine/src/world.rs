@@ -153,6 +153,29 @@ impl WorldState {
         self.chunks.entry(id).or_insert_with(|| Chunk::new(id))
     }
 
+    pub fn get_dominant_archetype_at(&self, loc: cgmath::Point3<f32>) -> Option<crate::reality_types::RealityArchetype> {
+        use cgmath::InnerSpace;
+        use cgmath::MetricSpace;
+        let id = ChunkId::from_world_pos(loc.x, loc.z, ANOMALY_GRID_SIZE);
+        let mut strongest_archetype = None;
+        let mut max_strength = 0.0;
+
+        if let Some(chunk) = self.chunks.get(&id) {
+            for anomaly in &chunk.anomalies {
+                if anomaly.deleted {
+                    continue;
+                }
+                let dist_sq = (anomaly.location - loc).magnitude2().max(1.0);
+                let strength = anomaly.reality_signature.fidelity / dist_sq.sqrt();
+                if strength > max_strength {
+                    max_strength = strength;
+                    strongest_archetype = Some(anomaly.reality_signature.active_style.archetype);
+                }
+            }
+        }
+        strongest_archetype
+    }
+
     pub fn apply_player_influence(&mut self, projector: &RealityProjector, dt: f32) {
         let id = ChunkId::from_world_pos(
             projector.location.x,

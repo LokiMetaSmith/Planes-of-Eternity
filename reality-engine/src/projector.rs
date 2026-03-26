@@ -1,7 +1,14 @@
-use crate::reality_types::{BlendResult, RealitySignature};
+use crate::reality_types::{BlendResult, RealityArchetype, RealitySignature};
 use cgmath::{MetricSpace, Point3};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct NpcBehavior {
+    pub preferred_archetype: RealityArchetype,
+    pub energy: f32,
+    pub mutation_progress: f32,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct RealityProjector {
@@ -15,6 +22,8 @@ pub struct RealityProjector {
     pub deleted: bool,
     #[serde(skip)]
     pub target_location: Option<Point3<f32>>,
+    #[serde(default)]
+    pub behavior: Option<NpcBehavior>,
 }
 
 fn default_uuid() -> String {
@@ -49,6 +58,7 @@ impl RealityProjector {
             last_updated: get_current_timestamp(),
             deleted: false,
             target_location: None,
+            behavior: None,
         }
     }
 

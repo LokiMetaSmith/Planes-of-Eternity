@@ -191,7 +191,11 @@ impl Engine {
         }
     }
 
-    pub fn update(&mut self, dt: f32) {
+    pub fn update(
+        &mut self,
+        dt: f32,
+        mut voxel_world: Option<&mut crate::voxel::VoxelWorld>,
+    ) -> bool {
         self.time += dt;
 
         // --- NPC AI Logic ---
@@ -308,19 +312,77 @@ impl Engine {
         // ---------------------
 
         // --- Dropped Item Physics ---
+        let mut voxel_destroyed = false;
         for item in &mut self.world_state.dropped_items {
             item.velocity.y -= 9.8 * dt; // Gravity
-            item.position += item.velocity * dt;
+            let next_pos = item.position + item.velocity * dt;
 
-            // Simple ground collision at y = 0.5 (radius of item approx)
-            if item.position.y <= 0.5 {
+            let mut hit_ground = false;
+
+            // Voxel Collision (Starbase-inspired physics)
+            if let Some(ref mut vw) = voxel_world {
+                let vx = next_pos.x.floor() as i32;
+                // Check foot/bottom of the item (approx radius 0.5)
+                let vy = (next_pos.y - 0.5).floor() as i32;
+                let vz = next_pos.z.floor() as i32;
+
+                if let Some(voxel) = vw.get_voxel_at(vx, vy, vz) {
+                    if voxel.id != 0 {
+                        // Collision!
+                        hit_ground = true;
+
+                        // Check for high-velocity impact (Destruction)
+                        let speed_sq = item.velocity.magnitude2();
+                        if speed_sq > 100.0 {
+                            // Speed > 10.0
+                            vw.set_voxel_at(vx, vy, vz, crate::voxel::Voxel { id: 0 });
+                            log::info!("Voxel at {}, {}, {} destroyed by impact!", vx, vy, vz);
+                            voxel_destroyed = true;
+
+                            // Self-damage to the local item voxel grid (Fracturing)
+                            if item.size[0] > 0 && item.voxels.len() > 0 {
+                                // Pseudo-random to avoid trait bound issues with different rand versions
+                                let local_idx = ((self.time * 1000.0) as usize
+                                    + item.voxels.len() / 2)
+                                    % item.voxels.len();
+                                if item.voxels[local_idx] != 0 {
+                                    item.voxels[local_idx] = 0; // Destroy a local piece
+                                    log::info!("Dropped item {} fractured!", item.id);
+                                }
+                            }
+
+                            // Reduce item velocity heavily after smashing through
+                            item.velocity *= 0.5;
+                            // Continue falling instead of bouncing
+                            hit_ground = false;
+                        }
+                    }
+                }
+            }
+
+            // Fallback ground collision
+            if !hit_ground && next_pos.y <= 0.5 {
+                hit_ground = true;
                 item.position.y = 0.5;
-                item.velocity.y = -item.velocity.y * 0.5; // Bounce with restitution
+            }
 
-                // Apply friction
+            if hit_ground {
+                item.position.x = next_pos.x;
+                item.position.z = next_pos.z;
+                item.position.y = next_pos.y.max(0.5); // Ensure it doesn't sink below global floor
+                item.velocity.y = -item.velocity.y * 0.5; // Bounce with restitution
+                                                          // Apply friction
                 item.velocity.x *= 0.9;
                 item.velocity.z *= 0.9;
+            } else {
+                item.position = next_pos;
             }
+        }
+
+        if voxel_destroyed {
+            // Signal lib.rs to mark voxel dirty by returning true, or we can just mark it in lib.rs if we know
+            // Actually, we pass a mutable reference to voxel_world, so it gets updated.
+            // But we need a way to tell the caller that voxels were dirtied so it can trigger mesh updates.
         }
 
         // Apply Player Archetype Gameplay Effects
@@ -368,6 +430,8 @@ impl Engine {
                 visual_lambda::LambdaEvent::ReductionStarted => self.audio.play_reduce(),
             }
         }
+
+        voxel_destroyed
     }
 
     pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) {
@@ -432,13 +496,14 @@ impl Engine {
                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();
                         let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
 
-                        let new_item = crate::reality_types::DroppedItem {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            position: self.camera.eye,
-                            velocity: forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
-                            scale: 0.2,
-                            color: [1.0, 0.8, 0.2, 1.0], // Goldish color
-                        };
+                        let new_item = crate::reality_types::DroppedItem::new_cube(
+                            uuid::Uuid::new_v4().to_string(),
+                            self.camera.eye,
+                            forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
+                            0.2,
+                            [1.0, 0.8, 0.2, 1.0], // Goldish color
+                            3,                    // 3x3x3 grid
+                        );
                         self.world_state.dropped_items.push(new_item);
                         log::info!("Dropped item at {:?}", self.camera.eye);
                     }

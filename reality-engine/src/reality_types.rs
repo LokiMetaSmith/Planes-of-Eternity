@@ -92,6 +92,39 @@ pub struct DroppedItem {
     pub velocity: cgmath::Vector3<f32>,
     pub scale: f32,
     pub color: [f32; 4],
+    #[serde(default)]
+    pub voxels: Vec<u8>, // Local voxel grid representing the item
+    #[serde(default)]
+    pub size: [usize; 3], // Dimensions of the local voxel grid
+}
+
+impl DroppedItem {
+    pub fn new_cube(
+        id: String,
+        position: cgmath::Point3<f32>,
+        velocity: cgmath::Vector3<f32>,
+        scale: f32,
+        color: [f32; 4],
+        size: usize,
+    ) -> Self {
+        let volume = size * size * size;
+        let mut voxels = vec![0; volume];
+
+        // Fill as a solid cube initially (ID 1 = solid)
+        for i in 0..volume {
+            voxels[i] = 1;
+        }
+
+        Self {
+            id,
+            position,
+            velocity,
+            scale,
+            color,
+            voxels,
+            size: [size, size, size],
+        }
+    }
 }
 
 impl Default for BlendResult {

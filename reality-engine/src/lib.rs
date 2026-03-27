@@ -1160,7 +1160,9 @@ impl State {
     }
 
     pub fn update(&mut self) {
-        self.engine.update(0.016); // Assuming ~60fps fixed step in update
+        if self.engine.update(0.016, Some(&mut self.voxel_world)) {
+            self.voxel_dirty = true;
+        }
 
         // Rebuild meshes if dirty or if camera moved significantly (LOD update trigger)
         let cam_pos = self.engine.camera.eye;

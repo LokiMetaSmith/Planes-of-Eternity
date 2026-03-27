@@ -64,7 +64,7 @@ fn test_engine_initialization() {
 #[test]
 fn test_engine_update() {
     let mut engine = Engine::new(800, 600, None);
-    engine.update(0.1);
+    engine.update(0.1, None);
     assert!(engine.time > 0.0);
 }
 
@@ -405,7 +405,7 @@ fn test_npc_evolution_and_movement() {
     // 15.0 mutation per second. We need 100 / 15.0 = 6.66 seconds minimum.
     // We update with dt=1.0 ten times (10 seconds total).
     for _ in 0..10 {
-        engine.update(1.0);
+        engine.update(1.0, None);
         // Force them back to center so they don't leave the anomaly chunk during their agitated wandering
         engine.world_state.npcs[0].location = npc_start_pos;
     }
@@ -457,7 +457,9 @@ fn test_get_node_labels_benchmark() {
     engine.lambda_system.set_term(term);
 
     // Update to calculate node positions
-    engine.update(0.1);
+    engine.update(0.1, None);
+    engine.update(0.1, None);
+    engine.update(0.1, None);
 
     // Warmup
     let _ = engine.get_node_labels_json();
@@ -509,7 +511,8 @@ fn test_get_node_labels() {
     engine.camera.up = Vector3::new(0.0, 1.0, 0.0);
 
     // Update to calculate node positions
-    engine.update(0.1);
+    engine.update(0.1, None);
+    engine.update(0.1, None);
 
     // Get labels
     let labels = parse_flat_labels(&engine.get_node_labels_flat());
@@ -613,7 +616,7 @@ fn test_bound_variable_labels() {
     engine.lambda_system.set_term(term);
 
     // Update layout
-    engine.update(0.1);
+    engine.update(0.1, None);
 
     // Position camera to see everything
     engine.camera.eye = Point3::new(0.0, 5.0, 20.0);

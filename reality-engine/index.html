@@ -150,6 +150,12 @@
             box-shadow: 0 0 10px rgba(5, 255, 161, 0.2);
         }
 
+        #log-area:focus-visible {
+            outline: 2px solid #fff;
+            outline-offset: 2px;
+            box-shadow: 0 0 15px rgba(5, 255, 161, 0.8);
+        }
+
         /* Scrollbar styling */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #111; }
@@ -484,7 +490,7 @@
         </div>
     </div>
 
-    <div id="log-area" aria-live="polite" role="log">
+    <div id="log-area" aria-live="polite" role="log" tabindex="0" aria-label="System Log">
         <div>> SYSTEM BOOT_SEQUENCE_INIT</div>
         <div>> CHECKING_REALITY_INTEGRITY...</div>
         <div>> WARNING: ANOMALY DETECTED</div>

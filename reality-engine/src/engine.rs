@@ -338,6 +338,19 @@ impl Engine {
                             vw.set_voxel_at(vx, vy, vz, crate::voxel::Voxel { id: 0 });
                             log::info!("Voxel at {}, {}, {} destroyed by impact!", vx, vy, vz);
                             voxel_destroyed = true;
+
+                            // Self-damage to the local item voxel grid (Fracturing)
+                            if item.size[0] > 0 && item.voxels.len() > 0 {
+                                // Pseudo-random to avoid trait bound issues with different rand versions
+                                let local_idx = ((self.time * 1000.0) as usize
+                                    + item.voxels.len() / 2)
+                                    % item.voxels.len();
+                                if item.voxels[local_idx] != 0 {
+                                    item.voxels[local_idx] = 0; // Destroy a local piece
+                                    log::info!("Dropped item {} fractured!", item.id);
+                                }
+                            }
+
                             // Reduce item velocity heavily after smashing through
                             item.velocity *= 0.5;
                             // Continue falling instead of bouncing
@@ -354,7 +367,9 @@ impl Engine {
             }
 
             if hit_ground {
-                item.position.y = item.position.y.max(0.5); // Ensure it doesn't sink below global floor
+                item.position.x = next_pos.x;
+                item.position.z = next_pos.z;
+                item.position.y = next_pos.y.max(0.5); // Ensure it doesn't sink below global floor
                 item.velocity.y = -item.velocity.y * 0.5; // Bounce with restitution
                                                           // Apply friction
                 item.velocity.x *= 0.9;
@@ -481,13 +496,14 @@ impl Engine {
                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();
                         let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
 
-                        let new_item = crate::reality_types::DroppedItem {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            position: self.camera.eye,
-                            velocity: forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
-                            scale: 0.2,
-                            color: [1.0, 0.8, 0.2, 1.0], // Goldish color
-                        };
+                        let new_item = crate::reality_types::DroppedItem::new_cube(
+                            uuid::Uuid::new_v4().to_string(),
+                            self.camera.eye,
+                            forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
+                            0.2,
+                            [1.0, 0.8, 0.2, 1.0], // Goldish color
+                            3,                    // 3x3x3 grid
+                        );
                         self.world_state.dropped_items.push(new_item);
                         log::info!("Dropped item at {:?}", self.camera.eye);
                     }

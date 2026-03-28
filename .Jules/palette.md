@@ -45,3 +45,7 @@
 ## 2026-03-25 - Contextual State Mutation Actions for Action Buttons
 **Learning:** In dynamically generated state mutations (like Save and Load functions) presented in custom UIs, users are heavily inconvenienced when forced to check the global log area to ensure the action succeeded. Relying solely on global logs for feedback when a state mutation action occurs separates the user's focus from the action.
 **Action:** Always provide inline, contextual success buttons for state mutation actions. Ensure they provide immediate, localized visual feedback (like momentarily turning green and changing text to "SAVED") instead of, or in addition to, global logging to keep the user's attention where the action happened.
+
+## 2026-03-27 - Scrollable Log Area Keyboard Accessibility
+**Learning:** Scrollable custom terminal/log containers (`overflow-y: auto`) that lack naturally focusable child elements must be explicitly made focusable using `tabindex="0"`. Without this, keyboard-only and screen reader users cannot scroll to read long outputs.
+**Action:** When creating text-heavy custom scrollable areas, always add `tabindex="0"`, a descriptive `aria-label`, and ensure the `:focus-visible` state matches the component's visual styling so keyboard navigation is intuitive.

@@ -45,7 +45,9 @@ async fn main() {
     let routes = chat.or(root_redirect).or(static_files)
         .with(warp::reply::with::header("X-Frame-Options", "DENY"))
         .with(warp::reply::with::header("X-Content-Type-Options", "nosniff"))
-        .with(warp::reply::with::header("Referrer-Policy", "strict-origin-when-cross-origin"));
+        .with(warp::reply::with::header("Referrer-Policy", "strict-origin-when-cross-origin"))
+        // Security Enhancement: Add Content-Security-Policy to mitigate XSS and restrict external resources
+        .with(warp::reply::with::header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' ws://localhost:9000 wss://localhost:9000 http://localhost:9000 https://localhost:9000 https://0.peerjs.com wss://0.peerjs.com; img-src 'self' data: blob:; media-src 'self' blob:;"));
 
     println!("Signaling server and static file server running on http://localhost:9000/");
 

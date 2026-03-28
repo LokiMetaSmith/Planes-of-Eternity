@@ -1,8 +1,7 @@
-use cgmath::{InnerSpace, Rotation, SquareMatrix};
+use cgmath::{InnerSpace, SquareMatrix};
 use serde::Serialize;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
-use std::collections::HashMap;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
@@ -14,7 +13,6 @@ use web_sys::{
     HtmlCanvasElement, XrEye, XrFrame, XrReferenceSpace, XrReferenceSpaceType, XrRenderStateInit,
     XrSession, XrView, XrViewerPose, XrWebGlLayer,
 };
-use wgpu::util::DeviceExt;
 
 pub mod audio;
 pub mod camera;

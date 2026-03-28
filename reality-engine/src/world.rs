@@ -107,8 +107,15 @@ impl Chunk {
                 }
             } else {
                 // New anomaly (or tombstone)
-                self.anomalies.push(other_anomaly.clone());
-                changed = true;
+                // Security Enhancement: Prevent DoS by limiting maximum anomalies per chunk.
+                // An attacker could send a chunk with thousands of anomalies to exhaust memory and CPU.
+                const MAX_ANOMALIES_PER_CHUNK: usize = 100;
+                if self.anomalies.len() < MAX_ANOMALIES_PER_CHUNK {
+                    self.anomalies.push(other_anomaly.clone());
+                    changed = true;
+                } else {
+                    log::warn!("Security Warning: Chunk reached maximum anomaly limit ({}). Rejecting new anomaly.", MAX_ANOMALIES_PER_CHUNK);
+                }
             }
         }
 
@@ -127,6 +134,7 @@ impl Chunk {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Default)]
 pub struct WorldState {
     pub chunks: HashMap<ChunkId, Chunk>,
     pub root_hash: String,
@@ -136,17 +144,6 @@ pub struct WorldState {
     pub dropped_items: Vec<crate::reality_types::DroppedItem>,
 }
 
-impl Default for WorldState {
-    fn default() -> Self {
-        Self {
-            chunks: HashMap::new(),
-            root_hash: String::new(),
-            dirty_chunks: HashSet::new(),
-            npcs: Vec::new(),
-            dropped_items: Vec::new(),
-        }
-    }
-}
 
 impl WorldState {
     pub fn get_or_create_chunk(&mut self, id: ChunkId) -> &mut Chunk {
@@ -158,7 +155,7 @@ impl WorldState {
         loc: cgmath::Point3<f32>,
     ) -> Option<crate::reality_types::RealityArchetype> {
         use cgmath::InnerSpace;
-        use cgmath::MetricSpace;
+
         let id = ChunkId::from_world_pos(loc.x, loc.z, ANOMALY_GRID_SIZE);
         let mut strongest_archetype = None;
         let mut max_strength_sq = 0.0;

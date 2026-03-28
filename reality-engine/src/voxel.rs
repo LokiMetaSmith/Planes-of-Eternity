@@ -423,10 +423,13 @@ impl Chunk {
                     }
 
                     // Castle (Procedural)
-                    if (-9..=9).contains(&wx) && (-9..=9).contains(&wz) && (0..10).contains(&wy)
-                        && (wx.abs() > 8 || wz.abs() > 8 || wy == 0) {
-                            voxel.id = 1;
-                        }
+                    if (-9..=9).contains(&wx)
+                        && (-9..=9).contains(&wz)
+                        && (0..10).contains(&wy)
+                        && (wx.abs() > 8 || wz.abs() > 8 || wy == 0)
+                    {
+                        voxel.id = 1;
+                    }
 
                     // Bridge
                     if wz == 0 && (11..30).contains(&wx) && wy == 5 {
@@ -637,21 +640,13 @@ impl Chunk {
                             let mut p = [x1, y1, z1];
                             p[d] += pos_offset;
 
-                            let mut du_vec = [0.0; 3];
-                            du_vec[u] = 1.0;
-                            let mut dv_vec = [0.0; 3];
-                            dv_vec[v] = 1.0;
+                            // Optimization: Instead of creating unit vectors and multiplying every component,
+                            // we directly construct the scaled w_vec and h_vec which skips 6 float multiplications per quad.
+                            let mut w_vec = [0.0; 3];
+                            w_vec[v] = width as f32;
 
-                            let w_vec = [
-                                dv_vec[0] * width as f32,
-                                dv_vec[1] * width as f32,
-                                dv_vec[2] * width as f32,
-                            ];
-                            let h_vec = [
-                                du_vec[0] * height as f32,
-                                du_vec[1] * height as f32,
-                                du_vec[2] * height as f32,
-                            ];
+                            let mut h_vec = [0.0; 3];
+                            h_vec[u] = height as f32;
 
                             // Coordinates (Scaled by LOD factor)
                             // Note: offset_x/y/z are world coordinates of chunk corner.

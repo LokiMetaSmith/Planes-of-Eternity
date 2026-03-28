@@ -161,7 +161,7 @@ impl WorldState {
         use cgmath::MetricSpace;
         let id = ChunkId::from_world_pos(loc.x, loc.z, ANOMALY_GRID_SIZE);
         let mut strongest_archetype = None;
-        let mut max_strength = 0.0;
+        let mut max_strength_sq = 0.0;
 
         if let Some(chunk) = self.chunks.get(&id) {
             for anomaly in &chunk.anomalies {
@@ -169,9 +169,16 @@ impl WorldState {
                     continue;
                 }
                 let dist_sq = (anomaly.location - loc).magnitude2().max(1.0);
-                let strength = anomaly.reality_signature.fidelity / dist_sq.sqrt();
-                if strength > max_strength {
-                    max_strength = strength;
+                let fidelity = anomaly.reality_signature.fidelity;
+
+                // Optimization: Avoid expensive sqrt() by comparing squared strength values.
+                // strength = fidelity / dist_sq.sqrt()
+                // strength^2 = fidelity^2 / dist_sq
+                // Since fidelity is positive and dist_sq >= 1.0, the monotonic relationship holds.
+                let strength_sq = (fidelity * fidelity) / dist_sq;
+
+                if strength_sq > max_strength_sq {
+                    max_strength_sq = strength_sq;
                     strongest_archetype = Some(anomaly.reality_signature.active_style.archetype);
                 }
             }

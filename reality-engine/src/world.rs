@@ -207,6 +207,7 @@ impl WorldState {
             RealityArchetype::CyberSpace => 0.15,
             RealityArchetype::Dream => 0.05,
             RealityArchetype::ObraDinn => 0.1,
+            RealityArchetype::SolarPunk => 0.1,
         };
 
         // Player influence applies over time
@@ -238,6 +239,7 @@ impl WorldState {
             RealityArchetype::CyberSpace => 0.15,
             RealityArchetype::Dream => 0.05,
             RealityArchetype::ObraDinn => 0.1,
+            RealityArchetype::SolarPunk => 0.1,
         };
 
         chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);

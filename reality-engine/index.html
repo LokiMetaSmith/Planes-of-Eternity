@@ -360,6 +360,7 @@
                     <option value="10">CyberSpace</option>
                     <option value="11">Dream</option>
                     <option value="12">Obra Dinn</option>
+                    <option value="13">SolarPunk</option>
                 </select>
             </div>
 
@@ -815,6 +816,34 @@
                              btnReset.removeAttribute("aria-live");
                          }, 2000);
                      }
+                });
+
+                // Add 'H' key listener to toggle UI visibility
+                window.addEventListener('keydown', (e) => {
+                    // Ignore if typing in input
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                    if (e.code === 'KeyH') {
+                        const uiLayer = document.getElementById('ui-layer');
+                        const logContainer = document.getElementById('log-area');
+                        if (uiLayer.style.opacity === '0') {
+                            uiLayer.style.opacity = '1';
+                            const cards = uiLayer.querySelectorAll('.cyber-card');
+                            cards.forEach(c => c.style.pointerEvents = 'auto');
+                            if (logContainer) {
+                                logContainer.style.opacity = '1';
+                                logContainer.style.pointerEvents = 'auto';
+                            }
+                        } else {
+                            uiLayer.style.opacity = '0';
+                            const cards = uiLayer.querySelectorAll('.cyber-card');
+                            cards.forEach(c => c.style.pointerEvents = 'none');
+                            if (logContainer) {
+                                logContainer.style.opacity = '0';
+                                logContainer.style.pointerEvents = 'none';
+                            }
+                        }
+                    }
                 });
 
 

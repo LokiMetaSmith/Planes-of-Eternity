@@ -423,10 +423,13 @@ impl Chunk {
                     }
 
                     // Castle (Procedural)
-                    if (-9..=9).contains(&wx) && (-9..=9).contains(&wz) && (0..10).contains(&wy)
-                        && (wx.abs() > 8 || wz.abs() > 8 || wy == 0) {
-                            voxel.id = 1;
-                        }
+                    if (-9..=9).contains(&wx)
+                        && (-9..=9).contains(&wz)
+                        && (0..10).contains(&wy)
+                        && (wx.abs() > 8 || wz.abs() > 8 || wy == 0)
+                    {
+                        voxel.id = 1;
+                    }
 
                     // Bridge
                     if wz == 0 && (11..30).contains(&wx) && wy == 5 {

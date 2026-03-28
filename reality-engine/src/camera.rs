@@ -129,8 +129,6 @@ impl CameraController {
     }
 
     pub fn update_camera(&self, camera: &mut Camera) {
-
-
         // Calculate forward direction on XZ plane for movement
         let (sin_y, cos_y) = camera.yaw.sin_cos();
         // Optimization: Vector3::new(sin_y, 0.0, cos_y) is mathematically guaranteed to be unit length (sin^2 + cos^2 = 1)

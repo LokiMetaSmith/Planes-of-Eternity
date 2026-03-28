@@ -238,7 +238,6 @@ impl Engine {
 
                         // Try to find a new target location randomly if we don't have one
                         if npc.target_location.is_none() && rand::random::<f32>() < 0.5 * dt {
-
                             let angle = rand::random::<f32>() * std::f32::consts::PI * 2.0;
                             let radius = 10.0 + rand::random::<f32>() * 20.0;
                             npc.target_location = Some(cgmath::Point3::new(
@@ -492,7 +491,6 @@ impl Engine {
                 }
                 Action::DropItem => {
                     if pressed {
-
                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();
                         let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
 

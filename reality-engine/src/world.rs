@@ -133,8 +133,7 @@ impl Chunk {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct WorldState {
     pub chunks: HashMap<ChunkId, Chunk>,
     pub root_hash: String,
@@ -143,7 +142,6 @@ pub struct WorldState {
     pub npcs: Vec<crate::projector::RealityProjector>,
     pub dropped_items: Vec<crate::reality_types::DroppedItem>,
 }
-
 
 impl WorldState {
     pub fn get_or_create_chunk(&mut self, id: ChunkId) -> &mut Chunk {

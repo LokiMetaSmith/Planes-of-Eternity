@@ -423,11 +423,10 @@ impl Chunk {
                     }
 
                     // Castle (Procedural)
-                    if (-9..=9).contains(&wx) && (-9..=9).contains(&wz) && (0..10).contains(&wy) {
-                        if wx.abs() > 8 || wz.abs() > 8 || wy == 0 {
+                    if (-9..=9).contains(&wx) && (-9..=9).contains(&wz) && (0..10).contains(&wy)
+                        && (wx.abs() > 8 || wz.abs() > 8 || wy == 0) {
                             voxel.id = 1;
                         }
-                    }
 
                     // Bridge
                     if wz == 0 && (11..30).contains(&wx) && wy == 5 {
@@ -439,7 +438,7 @@ impl Chunk {
                     let vz = wz;
                     // Optimization: Use integer arithmetic and squared distances to eliminate expensive f32 conversions
                     // and float sqrt() calls in this tight chunk generation loop.
-                    if wy >= 0 && wy <= 20 {
+                    if (0..=20).contains(&wy) {
                         let dist_sq = vx * vx + vz * vz;
                         let max_dist = 20 - wy;
                         if dist_sq <= max_dist * max_dist {

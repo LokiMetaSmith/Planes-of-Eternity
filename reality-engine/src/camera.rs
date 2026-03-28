@@ -30,7 +30,7 @@ impl Camera {
         } else {
             cgmath::perspective(Deg(self.fovy), self.aspect, self.znear, self.zfar)
         };
-        return OPENGL_TO_WGPU_MATRIX * proj * view;
+        OPENGL_TO_WGPU_MATRIX * proj * view
     }
 
     pub fn rotate(&mut self, dx: f32, dy: f32) {
@@ -129,7 +129,7 @@ impl CameraController {
     }
 
     pub fn update_camera(&self, camera: &mut Camera) {
-        use cgmath::InnerSpace;
+
 
         // Calculate forward direction on XZ plane for movement
         let (sin_y, cos_y) = camera.yaw.sin_cos();

@@ -238,7 +238,7 @@ impl Engine {
 
                         // Try to find a new target location randomly if we don't have one
                         if npc.target_location.is_none() && rand::random::<f32>() < 0.5 * dt {
-                            use cgmath::MetricSpace;
+
                             let angle = rand::random::<f32>() * std::f32::consts::PI * 2.0;
                             let radius = 10.0 + rand::random::<f32>() * 20.0;
                             npc.target_location = Some(cgmath::Point3::new(
@@ -267,7 +267,7 @@ impl Engine {
             if let Some(target) = npc.target_location {
                 // Move towards target
                 use cgmath::InnerSpace;
-                use cgmath::MetricSpace;
+
                 let dir = target - npc.location;
                 // Optimization: Avoid duplicate magnitude calculation by computing squared distance,
                 // checking against a squared threshold, and then extracting the square root just once
@@ -287,7 +287,7 @@ impl Engine {
                 for b in npc.uuid.bytes() {
                     seed += b as f32;
                 }
-                seed = seed % 100.0;
+                seed %= 100.0;
 
                 let move_x = (self.time + seed).cos() * speed * dt;
                 let move_z = (self.time + seed * 1.5).sin() * speed * dt;
@@ -340,7 +340,7 @@ impl Engine {
                             voxel_destroyed = true;
 
                             // Self-damage to the local item voxel grid (Fracturing)
-                            if item.size[0] > 0 && item.voxels.len() > 0 {
+                            if item.size[0] > 0 && !item.voxels.is_empty() {
                                 // Pseudo-random to avoid trait bound issues with different rand versions
                                 let local_idx = ((self.time * 1000.0) as usize
                                     + item.voxels.len() / 2)
@@ -492,7 +492,7 @@ impl Engine {
                 }
                 Action::DropItem => {
                     if pressed {
-                        use cgmath::InnerSpace;
+
                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();
                         let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
 

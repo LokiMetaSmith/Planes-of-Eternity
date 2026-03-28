@@ -58,3 +58,8 @@
 **Vulnerability:** The recursive descent parser in `lambda::parse` (`reality-engine/src/lambda.rs`) lacked a recursion depth limit, making it vulnerable to stack overflow Denial of Service (DoS) attacks when processing deeply nested parenthetical expressions (e.g., `((((...FIRE...))))`).
 **Learning:** Even if an initial input string is constrained in length (e.g., the 256-byte limit in `process_inscription`), 256 bytes is more than enough to encode extremely deep nesting, which could exceed the constrained WebAssembly (WASM) call stack limits or crash host environments.
 **Prevention:** Always enforce a strict `depth` limit (e.g., 64) when implementing recursive descent parsers or processing nested structures, returning early or throwing an error if the depth exceeds the safe threshold.
+
+## 2026-03-27 - Sentinel: Add max anomaly limit per chunk
+**Vulnerability:** DoS risk via unbounded anomaly list expansion in P2P synchronization. `world.rs` (`merge` and `merge_chunks`) received arbitrary chunks from other peers and pushed all provided anomalies into the local chunk's `anomalies` vector without limiting the total count. This allows malicious peers to send a single chunk update containing thousands of anomalies to exhaust the memory and CPU of connected clients when they process the world state.
+**Learning:** Synchronization mechanisms that merge collections of objects over P2P networks (like `Vec<RealityProjector>`) are vulnerable to memory exhaustion DoS if they lack capacity limits, functioning similarly to zip bombs.
+**Prevention:** Always enforce reasonable maximum capacity limits on lists/vectors when accepting state objects over the network (e.g., maximum 100 anomalies per chunk) before appending new elements.

@@ -153,7 +153,7 @@ impl NetworkManager {
 
         // Generate a random Peer ID using cryptographically secure UUID
         // Security Enhancement: Prevent predictable IDs and collision DoS
-        let peer_id = format!("peer_{}", uuid::Uuid::new_v4().to_string());
+        let peer_id = format!("peer_{}", uuid::Uuid::new_v4());
         info!("Initializing Network Manager. My Peer ID: {}", peer_id);
 
         // Initialize PeerJS

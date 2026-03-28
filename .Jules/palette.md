@@ -49,3 +49,6 @@
 ## 2026-03-27 - Scrollable Log Area Keyboard Accessibility
 **Learning:** Scrollable custom terminal/log containers (`overflow-y: auto`) that lack naturally focusable child elements must be explicitly made focusable using `tabindex="0"`. Without this, keyboard-only and screen reader users cannot scroll to read long outputs.
 **Action:** When creating text-heavy custom scrollable areas, always add `tabindex="0"`, a descriptive `aria-label`, and ensure the `:focus-visible` state matches the component's visual styling so keyboard navigation is intuitive.
+## 2026-03-28 - Focus Restoration on Re-renders
+**Learning:** When dynamic lists (like keybinds in `reality-engine`) are destroyed and re-rendered via `innerHTML = ''`, any currently focused element within them is lost, forcing keyboard users back to the `<body>`. This is a critical accessibility issue.
+**Action:** Always capture the currently focused element's identifier (e.g., via `document.activeElement.getAttribute('data-action')`) before the re-render, and restore focus (`.focus()`) to the corresponding new element after the render is complete.

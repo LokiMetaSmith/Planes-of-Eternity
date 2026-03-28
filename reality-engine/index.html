@@ -898,6 +898,7 @@
                 let currentRebindHandler = null;
 
                 function renderKeybinds() {
+                    const focusedAction = document.activeElement?.getAttribute('data-action');
                     keybindList.innerHTML = '';
                     actions.forEach(action => {
                         const row = document.createElement('div');
@@ -914,6 +915,7 @@
                         const btn = document.createElement('button');
                         const currentKey = gameClient.get_key_binding(action);
                         btn.className = 'keybind-btn';
+                        btn.setAttribute('data-action', action);
                         btn.setAttribute('aria-label', `Rebind ${action}, currently ${currentKey || "UNBOUND"}`);
                         btn.innerText = currentKey || "UNBOUND";
 
@@ -951,6 +953,10 @@
                         row.appendChild(btn);
                         keybindList.appendChild(row);
                     });
+                    if (focusedAction) {
+                        const toFocus = keybindList.querySelector(`[data-action="${focusedAction}"]`);
+                        if (toFocus) toFocus.focus();
+                    }
                 }
 
                 btnKeybinds.addEventListener('click', () => {

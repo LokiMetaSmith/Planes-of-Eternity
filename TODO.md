@@ -86,3 +86,5 @@
 - [x] **Programmatic Voxelizer**: Implement programmatic voxelization algorithm (OBJ to Voxel Chunk) in `reality-engine`.
 - [x] **Sparse Voxel Generator**: Expand `reality-genie` to include a Text-to-3D Sparse Voxel Generator (Sparc3D concept).
 - [x] **Advanced Voxel Physics**: Implement voxel terrain collision and destruction for dropped items, inspired by Starbase.
+- [x] **New Archetypes**: Added SolarPunk archetype to Reality Engine.
+- [x] **UI Improvement**: Added ability to hide UI menu bars using 'H' key for a cleaner experience.

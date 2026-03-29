@@ -360,6 +360,7 @@
                     <option value="10">CyberSpace</option>
                     <option value="11">Dream</option>
                     <option value="12">Obra Dinn</option>
+                    <option value="13">SolarPunk</option>
                 </select>
             </div>
 
@@ -817,6 +818,34 @@
                      }
                 });
 
+                // Add 'H' key listener to toggle UI visibility
+                window.addEventListener('keydown', (e) => {
+                    // Ignore if typing in input
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                    if (e.code === 'KeyH') {
+                        const uiLayer = document.getElementById('ui-layer');
+                        const logContainer = document.getElementById('log-area');
+                        if (uiLayer.style.opacity === '0') {
+                            uiLayer.style.opacity = '1';
+                            const cards = uiLayer.querySelectorAll('.cyber-card');
+                            cards.forEach(c => c.style.pointerEvents = 'auto');
+                            if (logContainer) {
+                                logContainer.style.opacity = '1';
+                                logContainer.style.pointerEvents = 'auto';
+                            }
+                        } else {
+                            uiLayer.style.opacity = '0';
+                            const cards = uiLayer.querySelectorAll('.cyber-card');
+                            cards.forEach(c => c.style.pointerEvents = 'none');
+                            if (logContainer) {
+                                logContainer.style.opacity = '0';
+                                logContainer.style.pointerEvents = 'none';
+                            }
+                        }
+                    }
+                });
+
 
                 // Network Polling
                 setInterval(() => {
@@ -898,6 +927,7 @@
                 let currentRebindHandler = null;
 
                 function renderKeybinds() {
+                    const focusedAction = document.activeElement?.getAttribute('data-action');
                     keybindList.innerHTML = '';
                     actions.forEach(action => {
                         const row = document.createElement('div');
@@ -914,6 +944,7 @@
                         const btn = document.createElement('button');
                         const currentKey = gameClient.get_key_binding(action);
                         btn.className = 'keybind-btn';
+                        btn.setAttribute('data-action', action);
                         btn.setAttribute('aria-label', `Rebind ${action}, currently ${currentKey || "UNBOUND"}`);
                         btn.innerText = currentKey || "UNBOUND";
 
@@ -951,6 +982,10 @@
                         row.appendChild(btn);
                         keybindList.appendChild(row);
                     });
+                    if (focusedAction) {
+                        const toFocus = keybindList.querySelector(`[data-action="${focusedAction}"]`);
+                        if (toFocus) toFocus.focus();
+                    }
                 }
 
                 btnKeybinds.addEventListener('click', () => {

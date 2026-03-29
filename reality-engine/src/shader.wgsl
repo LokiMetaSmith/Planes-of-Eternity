@@ -304,6 +304,14 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         // Obra Dinn (Dithered Sphere)
         // Flat terrain to highlight the dither effect
         return 0.0;
+    } else if (id < 13.5) {
+        // SolarPunk
+        let time = reality.global_offset.z;
+        let pos_scaled = pos * scale;
+        // Voronoi cells mixed with organic noise
+        let cells = voronoi(pos_scaled.xz);
+        let organic = fbm(pos_scaled.xz * 2.0 + time * 0.1, 3, roughness);
+        return mix(cells, organic, 0.5) * 5.0 * params.z;
     }
 
     return 0.0;
@@ -681,6 +689,21 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let color_light = vec3<f32>(0.9, 0.9, 0.85);
 
         return mix(color_dark, color_light, is_white);
+    } else if (id < 13.5) {
+        // SolarPunk
+        let green = vec3<f32>(0.1, 0.8, 0.3);
+        let gold = vec3<f32>(1.0, 0.8, 0.2);
+        let white = vec3<f32>(0.9, 0.95, 0.9);
+
+        let v = voronoi(pos.xz * scale * 2.0);
+        let n = fbm(pos.xz * scale * 4.0, 3, roughness);
+
+        // White/Gold structural highlights over bright green
+        let structure = step(0.9, v) + step(v, 0.1);
+        let base_mix = mix(green, base_color, 0.3);
+
+        let final_color = mix(base_mix, mix(gold, white, n), clamp(structure * n, 0.0, 1.0));
+        return final_color;
     }
 
     return base_color;

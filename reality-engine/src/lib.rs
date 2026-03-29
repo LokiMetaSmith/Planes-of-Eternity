@@ -1,4 +1,7 @@
-use cgmath::{InnerSpace, SquareMatrix};
+use cgmath::{InnerSpace, SquareMatrix, Rotation};
+use wgpu::util::DeviceExt;
+use std::collections::HashMap;
+
 use serde::Serialize;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
@@ -1068,13 +1071,14 @@ impl State {
 
         let mut to_update = Vec::new();
 
+        // Optimization: Hoist chunk size float conversions and calculations out of the chunk iteration loop
+        let chunk_size_f32 = voxel::CHUNK_SIZE as f32;
+        let half_chunk_size = chunk_size_f32 / 2.0;
+
         for (key, chunk) in &self.voxel_world.chunks {
-            let chunk_world_x =
-                chunk.key.x as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
-            let chunk_world_y =
-                chunk.key.y as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
-            let chunk_world_z =
-                chunk.key.z as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
+            let chunk_world_x = chunk.key.x as f32 * chunk_size_f32 + half_chunk_size;
+            let chunk_world_y = chunk.key.y as f32 * chunk_size_f32 + half_chunk_size;
+            let chunk_world_z = chunk.key.z as f32 * chunk_size_f32 + half_chunk_size;
 
             let dx = cam_pos.x - chunk_world_x;
             let dy = cam_pos.y - chunk_world_y;
@@ -1201,6 +1205,7 @@ impl State {
                 reality_types::RealityArchetype::CyberSpace => (10.0, [0.0, 1.0, 0.0, 1.0]), // Matrix Green
                 reality_types::RealityArchetype::Dream => (11.0, [0.8, 0.6, 1.0, 1.0]), // Pastel Purple
                 reality_types::RealityArchetype::ObraDinn => (12.0, [0.9, 0.9, 0.8, 1.0]), // Pale yellow
+                reality_types::RealityArchetype::SolarPunk => (13.0, [0.2, 0.9, 0.4, 1.0]), // Vibrant Green
             }
         }
 
@@ -1287,6 +1292,7 @@ impl State {
                 crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
                 crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
                 crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
+                crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
             };
             entity_instances.push(visual_lambda::LambdaInstance {
                 position: [npc.location.x, npc.location.y - 1.0, npc.location.z],
@@ -1563,6 +1569,7 @@ impl GameClient {
             10 => reality_types::RealityArchetype::CyberSpace,
             11 => reality_types::RealityArchetype::Dream,
             12 => reality_types::RealityArchetype::ObraDinn,
+            13 => reality_types::RealityArchetype::SolarPunk,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -1650,6 +1657,7 @@ impl GameClient {
                 reality_types::RealityArchetype::CyberSpace => 10,
                 reality_types::RealityArchetype::Dream => 11,
                 reality_types::RealityArchetype::ObraDinn => 12,
+                reality_types::RealityArchetype::SolarPunk => 13,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

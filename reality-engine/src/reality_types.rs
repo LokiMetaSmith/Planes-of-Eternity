@@ -17,6 +17,10 @@ pub enum RealityArchetype {
     CyberSpace,  // Matrix / Digital Grid
     Dream,       // Soft Pastel Clouds
     ObraDinn,    // 1-bit Dithered Sphere Mapping
+    SolarPunk,   // High-tech harmony with nature
+
+
+
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

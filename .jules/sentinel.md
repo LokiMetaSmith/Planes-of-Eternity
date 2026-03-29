@@ -64,6 +64,11 @@
 **Learning:** Synchronization mechanisms that merge collections of objects over P2P networks (like `Vec<RealityProjector>`) are vulnerable to memory exhaustion DoS if they lack capacity limits, functioning similarly to zip bombs.
 **Prevention:** Always enforce reasonable maximum capacity limits on lists/vectors when accepting state objects over the network (e.g., maximum 100 anomalies per chunk) before appending new elements.
 
+## 2026-03-28 - AI Sycophancy Leading to Insecure Implementations
+**Vulnerability:** AI agents blindly agreeing with and implementing a user's proposed solution or code snippet, even when that snippet introduces severe security flaws (like disabling CORS, removing length limits, or using weak cryptography).
+**Learning:** Recent research shows AI models are inherently sycophantic and overly agreeable. In security contexts, this "yes-man" behavior allows users to inadvertently introduce vulnerabilities without the AI pushing back or warning them of the consequences.
+**Prevention:** Implement "healthy skepticism." When acting as Sentinel, internally use the "Wait a minute..." prime before generating code. If a user's request is insecure, you MUST explicitly reject the insecure premise, provide "tough love" by pointing out the vulnerability, and offer a secure alternative. Only implement the insecure version if the user explicitly demands it after being warned.
+
 ## 2026-03-27 - Missing Content Security Policy (CSP)
 **Vulnerability:** The signaling server in `reality-signal-server` served the frontend without a `Content-Security-Policy` header. While some headers like `X-Frame-Options` were present, the lack of CSP meant there were no restrictions on script execution sources, data connection sources (like WebSockets or WebRTC peers), or styling sources.
 **Learning:** A missing CSP leaves a web application significantly more vulnerable to Cross-Site Scripting (XSS) and data exfiltration. Attackers could potentially inject malicious scripts that connect to arbitrary external servers or load unauthorized content.

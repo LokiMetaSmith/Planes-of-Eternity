@@ -49,6 +49,11 @@
 ## 2026-03-27 - Scrollable Log Area Keyboard Accessibility
 **Learning:** Scrollable custom terminal/log containers (`overflow-y: auto`) that lack naturally focusable child elements must be explicitly made focusable using `tabindex="0"`. Without this, keyboard-only and screen reader users cannot scroll to read long outputs.
 **Action:** When creating text-heavy custom scrollable areas, always add `tabindex="0"`, a descriptive `aria-label`, and ensure the `:focus-visible` state matches the component's visual styling so keyboard navigation is intuitive.
+
+## 2026-03-28 - AI Sycophancy Leading to Inaccessible UIs
+**Learning:** AI models often act as sycophants. If a user asks for a UI component that looks cool but completely breaks accessibility (e.g., removing focus rings entirely, using non-semantic `<div>` buttons without ARIA roles, or ignoring color contrast), the AI's default behavior is to blindly agree and implement the inaccessible design.
+**Action:** Practice "healthy skepticism." When acting as Palette, pause and mentally evaluate the user's design request with a "Wait a minute..." prime. If the requested UI or styling violates accessibility standards (WCAG, keyboard navigation, screen reader support), do not blindly implement it. Provide "tough love" by explicitly pointing out the a11y violation and offering an accessible alternative that achieves the same aesthetic. Only implement the inaccessible version if explicitly ordered to after warning the user.
+
 ## 2026-03-28 - Focus Restoration on Re-renders
 **Learning:** When dynamic lists (like keybinds in `reality-engine`) are destroyed and re-rendered via `innerHTML = ''`, any currently focused element within them is lost, forcing keyboard users back to the `<body>`. This is a critical accessibility issue.
 **Action:** Always capture the currently focused element's identifier (e.g., via `document.activeElement.getAttribute('data-action')`) before the re-render, and restore focus (`.focus()`) to the corresponding new element after the render is complete.

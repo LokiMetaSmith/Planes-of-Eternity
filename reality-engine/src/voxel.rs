@@ -289,9 +289,8 @@ impl Chunk {
 
     #[inline(always)]
     pub fn get(&self, x: usize, y: usize, z: usize) -> Voxel {
-        // Optimization: Use bitwise OR for bounds checking to avoid multiple branch instructions
-        // This makes `get` faster by keeping the CPU pipeline from mispredicting bounds checks in hot loops.
-        if (x | y | z) >= self.size {
+        // Optimization: Use bounds checking that does not suffer from bitwise OR non-power-of-2 overlap trap
+        if x >= self.size || y >= self.size || z >= self.size {
             return Voxel::default();
         }
         // Safety: Bounds already checked above, allowing the compiler to elide the bounds check on slice access
@@ -312,8 +311,8 @@ impl Chunk {
 
     #[inline(always)]
     pub fn set(&mut self, x: usize, y: usize, z: usize, voxel: Voxel) {
-        // Optimization: Use bitwise OR for bounds checking
-        if (x | y | z) >= self.size {
+        // Optimization: Use bounds checking that does not suffer from bitwise OR non-power-of-2 overlap trap
+        if x >= self.size || y >= self.size || z >= self.size {
             return;
         }
         let idx = self.index(x, y, z);

@@ -1,6 +1,6 @@
-use cgmath::{InnerSpace, SquareMatrix, Rotation};
-use wgpu::util::DeviceExt;
+use cgmath::{InnerSpace, Rotation, SquareMatrix};
 use std::collections::HashMap;
+use wgpu::util::DeviceExt;
 
 use serde::Serialize;
 #[cfg(target_arch = "wasm32")]

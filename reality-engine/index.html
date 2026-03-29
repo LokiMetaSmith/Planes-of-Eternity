@@ -669,11 +669,28 @@
                 filterBlock.addEventListener('change', refreshFilterUI);
 
                 btnApplyFilter.addEventListener('click', () => {
+                    if (btnApplyFilter.disabled) return;
+
                     const blocked = parseInt(filterBlock.value, 10);
                     const replaced = parseInt(filterReplace.value, 10);
                     if (blocked >= 0 && replaced >= 0) {
                         gameClient.set_archetype_filter(blocked, replaced);
                         log(`> SAFETY FILTER APPLIED: Blocked [${filterBlock.options[filterBlock.selectedIndex].text}], Replaced with [${filterReplace.options[filterReplace.selectedIndex].text}]`);
+
+                        const originalText = btnApplyFilter.innerText;
+                        btnApplyFilter.innerText = "FILTER APPLIED";
+                        btnApplyFilter.style.background = "#05ffa1";
+                        btnApplyFilter.style.color = "#000";
+                        btnApplyFilter.disabled = true;
+                        btnApplyFilter.setAttribute("aria-live", "polite");
+
+                        setTimeout(() => {
+                            btnApplyFilter.innerText = originalText;
+                            btnApplyFilter.style.background = "";
+                            btnApplyFilter.style.color = "";
+                            btnApplyFilter.disabled = false;
+                            btnApplyFilter.removeAttribute("aria-live");
+                        }, 2000);
                     } else {
                         log("> FILTER ERROR: Invalid selection.");
                     }

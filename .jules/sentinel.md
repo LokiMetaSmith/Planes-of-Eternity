@@ -73,3 +73,8 @@
 **Vulnerability:** The signaling server in `reality-signal-server` served the frontend without a `Content-Security-Policy` header. While some headers like `X-Frame-Options` were present, the lack of CSP meant there were no restrictions on script execution sources, data connection sources (like WebSockets or WebRTC peers), or styling sources.
 **Learning:** A missing CSP leaves a web application significantly more vulnerable to Cross-Site Scripting (XSS) and data exfiltration. Attackers could potentially inject malicious scripts that connect to arbitrary external servers or load unauthorized content.
 **Prevention:** Always configure a restrictive `Content-Security-Policy` header for endpoints serving HTML. Explicitly define allowed origins using directives like `script-src`, `connect-src` (crucial for P2P/WebSocket apps to whitelist their signaling/ice servers), and `style-src` to enforce strict resource boundaries.
+
+## 2024-05-24 - WASM Allocation DoS Prevention
+**Vulnerability:** Converting untrusted `JsValue` strings into Rust `String` *before* length validation allows an attacker to allocate massive strings on the WASM heap, leading to Out-Of-Memory (OOM) Denial of Service.
+**Learning:** Native JavaScript strings (`JsString`) reside in the browser engine's heap, whereas converting them to Rust `String` requires allocating linear memory inside the WASM boundary. Validating bounds after boundary traversal is too late.
+**Prevention:** Always cast untrusted `JsValue` to `js_sys::JsString` and evaluate `.length()` on the native JS side *before* calling `.into()` or otherwise initiating WASM memory allocation for strings.

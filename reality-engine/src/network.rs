@@ -219,14 +219,17 @@ impl NetworkManager {
         let pid_data = peer_id.clone();
         let on_data = Closure::wrap(Box::new(move |data: JsValue| {
             // Handle data sync
-            if let Some(txt) = data.as_string() {
+            if let Ok(js_string) = data.dyn_into::<js_sys::JsString>() {
                 // Security Enhancement: Prevent DoS by limiting WebRTC message length
+                // Evaluate length on the JS String *before* allocating a Rust String
                 // A malicious peer could send a massive JSON payload causing memory exhaustion
-                const MAX_WEBRTC_MSG_LEN: usize = 65536; // 64KB
-                if txt.len() > MAX_WEBRTC_MSG_LEN {
-                    warn!("Security Warning: WebRTC message from {} exceeded length limit ({} bytes). Dropping message.", pid_data, txt.len());
+                const MAX_WEBRTC_MSG_LEN: u32 = 65536; // 64KB
+                if js_string.length() > MAX_WEBRTC_MSG_LEN {
+                    warn!("Security Warning: WebRTC message from {} exceeded length limit ({} chars). Dropping message.", pid_data, js_string.length());
                     return;
                 }
+
+                let txt: String = js_string.into();
 
                 info!("Received WebRTC Data from {}: {}", pid_data, txt);
 

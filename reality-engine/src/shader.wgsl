@@ -40,7 +40,8 @@ fn ray_march_shadow(origin: vec3<f32>, direction: vec3<f32>) -> f32 {
         let tz = i32(floor(current_pos.z + 64.0));
 
         // Bounds Check
-        if (tx >= 0 && tx < 128 && ty >= 0 && ty < 128 && tz >= 0 && tz < 128) {
+        // Optimization: Single bounds check utilizing unsigned cast. Negative values wrap to high unsigned values
+        if (u32(tx) < 128u && u32(ty) < 128u && u32(tz) < 128u) {
             let val = textureLoad(t_density, vec3<i32>(tx, ty, tz), 0).r;
             if (val > 0u) {
                 return 0.0; // Shadow

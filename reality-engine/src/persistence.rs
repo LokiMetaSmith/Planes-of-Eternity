@@ -1,7 +1,7 @@
-use log::{info, error};
 use crate::input::InputConfig;
 use crate::projector::RealityProjector;
 use crate::world::WorldState;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use web_sys::Storage;

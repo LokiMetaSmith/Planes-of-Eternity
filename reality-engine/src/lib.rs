@@ -1071,13 +1071,14 @@ impl State {
 
         let mut to_update = Vec::new();
 
+        // Optimization: Hoist chunk size float conversions and calculations out of the chunk iteration loop
+        let chunk_size_f32 = voxel::CHUNK_SIZE as f32;
+        let half_chunk_size = chunk_size_f32 / 2.0;
+
         for (key, chunk) in &self.voxel_world.chunks {
-            let chunk_world_x =
-                chunk.key.x as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
-            let chunk_world_y =
-                chunk.key.y as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
-            let chunk_world_z =
-                chunk.key.z as f32 * voxel::CHUNK_SIZE as f32 + (voxel::CHUNK_SIZE as f32 / 2.0);
+            let chunk_world_x = chunk.key.x as f32 * chunk_size_f32 + half_chunk_size;
+            let chunk_world_y = chunk.key.y as f32 * chunk_size_f32 + half_chunk_size;
+            let chunk_world_z = chunk.key.z as f32 * chunk_size_f32 + half_chunk_size;
 
             let dx = cam_pos.x - chunk_world_x;
             let dy = cam_pos.y - chunk_world_y;

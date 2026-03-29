@@ -551,7 +551,7 @@
 
                     try {
                         const uint8Array = gameClient.get_node_labels_flat();
-                        const dataView = new DataView(uint8Array.buffer);
+                        const dataView = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
 
                         // Parse flat buffer
                         const count = dataView.getUint32(0, true);

@@ -57,3 +57,7 @@
 ## 2026-03-28 - Focus Restoration on Re-renders
 **Learning:** When dynamic lists (like keybinds in `reality-engine`) are destroyed and re-rendered via `innerHTML = ''`, any currently focused element within them is lost, forcing keyboard users back to the `<body>`. This is a critical accessibility issue.
 **Action:** Always capture the currently focused element's identifier (e.g., via `document.activeElement.getAttribute('data-action')`) before the re-render, and restore focus (`.focus()`) to the corresponding new element after the render is complete.
+
+## 2026-03-28 - Dynamic aria-live and Focus Loss Anti-patterns
+**Learning:** Temporarily disabling a button to prevent double clicks causes a severe focus-loss accessibility bug for keyboard users, dropping them back to the document root. Furthermore, dynamically adding `aria-live` just as text changes often fails to trigger screen reader announcements.
+**Action:** Use a JavaScript boolean flag (`isProcessing`) instead of the `disabled` attribute to prevent duplicate clicks while preserving focus. Always define `aria-live="polite"` directly in the static HTML for regions intended to announce dynamic updates.

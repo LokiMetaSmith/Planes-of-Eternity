@@ -533,7 +533,7 @@
             <div style="font-size: 0.8rem; color: #888;">
                 SIGNAL: <span id="status-signal" style="color: #555;">OFFLINE</span><br>
                 PEER ID: <span id="status-peer-id" style="color: #555;">---</span>
-                <button id="btn-copy-peer" class="keybind-btn" aria-label="Copy Peer ID" title="Copy Peer ID" style="display:none; font-size: 0.7rem; margin-left: 5px; padding: 0px 4px;">COPY</button><br>
+                <button id="btn-copy-peer" class="keybind-btn" aria-label="Copy Peer ID" title="Copy Peer ID" aria-live="polite" style="display:none; font-size: 0.7rem; margin-left: 5px; padding: 0px 4px;">COPY</button><br>
                 PEERS: <span id="status-peers-count" style="color: var(--theme-primary);">0</span>
             </div>
         </div>
@@ -1066,7 +1066,10 @@
                     }
                 }, 1000);
 
+                let isCopying = false;
                 document.getElementById('btn-copy-peer').addEventListener('click', () => {
+                    if (isCopying) return;
+                    isCopying = true;
                     const peerId = document.getElementById('status-peer-id').innerText;
                     navigator.clipboard.writeText(peerId).then(() => {
                         const btn = document.getElementById('btn-copy-peer');
@@ -1081,9 +1084,11 @@
                             btn.title = 'Copy Peer ID';
                             btn.style.background = "";
                             btn.style.color = "";
+                            isCopying = false;
                         }, 2000);
                     }).catch(err => {
                         log("> FAILED TO COPY PEER ID: " + err);
+                        isCopying = false;
                     });
                 });
 

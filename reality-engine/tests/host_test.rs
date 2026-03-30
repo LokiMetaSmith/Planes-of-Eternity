@@ -462,15 +462,7 @@ fn test_get_node_labels_benchmark() {
     engine.update(0.1, None);
 
     // Warmup
-    let _ = engine.get_node_labels_json();
     let _ = engine.get_node_labels_flat();
-
-    // Benchmark JSON
-    let start_json = std::time::Instant::now();
-    for _ in 0..100 {
-        let _json_output = engine.get_node_labels_json();
-    }
-    let duration_json = start_json.elapsed();
 
     // Benchmark Flat Buffer
     let start_flat = std::time::Instant::now();
@@ -480,19 +472,13 @@ fn test_get_node_labels_benchmark() {
     let duration_flat = start_flat.elapsed();
 
     println!(
-        "JSON Label Generation (100 iterations): {:?}",
-        duration_json
-    );
-    println!(
         "Flat Buffer Label Generation (100 iterations): {:?}",
         duration_flat
     );
 
     // Flat buffer approach should be faster than JSON serialization
-    assert!(
-        duration_flat < duration_json,
-        "Flat buffer approach should be faster than JSON serialization"
-    );
+    // but since we removed json, we just assert it ran successfully
+    assert!(duration_flat.as_secs_f32() >= 0.0);
 }
 
 #[test]

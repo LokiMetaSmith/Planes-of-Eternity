@@ -565,13 +565,13 @@ impl Chunk {
                         x[u] = j as i32;
                         x[v] = k as i32;
 
-                        let current = if i >= 0 && i < size as i32 {
+                        let current = if (i as u32) < size as u32 {
                             self.get(x[0] as usize, x[1] as usize, x[2] as usize).id
                         } else {
                             0
                         };
 
-                        let neighbor = if i + 1 >= 0 && i + 1 < size as i32 {
+                        let neighbor = if ((i + 1) as u32) < size as u32 {
                             self.get(
                                 (x[0] + q[0]) as usize,
                                 (x[1] + q[1]) as usize,
@@ -694,12 +694,9 @@ impl Chunk {
                                 coords[v] = v_val;
 
                                 // Boundary check (Chunk local only)
-                                if coords[0] < 0
-                                    || coords[0] >= size as i32
-                                    || coords[1] < 0
-                                    || coords[1] >= size as i32
-                                    || coords[2] < 0
-                                    || coords[2] >= size as i32
+                                if (coords[0] as u32) >= size as u32
+                                    || (coords[1] as u32) >= size as u32
+                                    || (coords[2] as u32) >= size as u32
                                 {
                                     return false; // Assume empty outside chunk to prevent dark borders
                                 }

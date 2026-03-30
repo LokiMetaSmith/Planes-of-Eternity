@@ -102,6 +102,15 @@ pub mod voxel_data_serde {
             let id = bytes[i + 2];
             i += 3;
 
+            // Security Enhancement: Prevent Decompression Bomb (DoS)
+            // A maliciously crafted run-length encoded string could specify massive counts,
+            // leading to memory exhaustion when pushing to the vector.
+            // We limit the total decoded size to the expected maximum volume of a chunk.
+            const MAX_VOXELS: usize = crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE;
+            if data.len() + (count as usize) > MAX_VOXELS {
+                return Err(serde::de::Error::custom(format!("Security Warning: Chunk data exceeds maximum allowed volume of {}", MAX_VOXELS)));
+            }
+
             for _ in 0..count {
                 data.push(Voxel { id });
             }

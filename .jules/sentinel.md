@@ -78,3 +78,8 @@
 **Vulnerability:** Converting untrusted `JsValue` strings into Rust `String` *before* length validation allows an attacker to allocate massive strings on the WASM heap, leading to Out-Of-Memory (OOM) Denial of Service.
 **Learning:** Native JavaScript strings (`JsString`) reside in the browser engine's heap, whereas converting them to Rust `String` requires allocating linear memory inside the WASM boundary. Validating bounds after boundary traversal is too late.
 **Prevention:** Always cast untrusted `JsValue` to `js_sys::JsString` and evaluate `.length()` on the native JS side *before* calling `.into()` or otherwise initiating WASM memory allocation for strings.
+
+## 2024-05-28 - Decompression Bomb in Voxel RLE Deserialization
+**Vulnerability:** The Run-Length Encoding (RLE) deserializer in `reality-engine/src/voxel.rs` (`voxel_data_serde::deserialize`) read a 16-bit count from untrusted input and blindly allocated that many voxels in a loop. A malicious payload could use a tiny hex string to cause gigabytes of memory allocation, leading to an Out-Of-Memory (OOM) Denial of Service (DoS) attack (a classic "Decompression Bomb").
+**Learning:** Custom deserialization formats, especially those involving compression like RLE, must strictly enforce bounds checking on the total decoded output size to prevent memory exhaustion, regardless of outer payload size limits.
+**Prevention:** Always track the total accumulated size during decompression and abort if it exceeds the mathematically maximum possible size for the data structure (e.g., `CHUNK_SIZE^3`).

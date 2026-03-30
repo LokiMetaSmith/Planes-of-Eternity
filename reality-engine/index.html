@@ -9,7 +9,151 @@
     <!-- Cybercore CSS (or similar aesthetic) -->
     <link rel="stylesheet" href="https://unpkg.com/cybercore-css@latest/dist/cybercore.min.css">
     <style>
-        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Courier New', monospace; }
+
+        :root {
+            --theme-primary: #00f0ff;
+            --theme-primary-rgb: 0, 240, 255;
+            --theme-bg: #050505;
+            --theme-card-bg: rgba(10, 10, 15, 0.85);
+            --theme-text-muted: #ccc;
+            --theme-text-dim: #aaa;
+            --theme-text-dimmer: #888;
+            --theme-input-bg: #222;
+            --theme-input-border: #444;
+            --theme-scroll-track: #111;
+        }
+
+        /* Archetype Themes */
+        body.theme-scifi {
+            /* Default Cybercore */
+            --theme-primary: #00f0ff;
+            --theme-primary-rgb: 0, 240, 255;
+            --theme-bg: #050505;
+            --theme-card-bg: rgba(10, 10, 15, 0.85);
+        }
+
+        body.theme-fantasy {
+            --theme-primary: #ffd700;
+            --theme-primary-rgb: 255, 215, 0;
+            --theme-bg: #1a0f14;
+            --theme-card-bg: rgba(30, 20, 25, 0.85);
+            --theme-text-muted: #e6c2ff;
+        }
+
+        body.theme-horror {
+            --theme-primary: #ff0000;
+            --theme-primary-rgb: 255, 0, 0;
+            --theme-bg: #0a0000;
+            --theme-card-bg: rgba(15, 0, 0, 0.9);
+            --theme-text-muted: #cc8888;
+            --theme-input-bg: #110000;
+            --theme-input-border: #330000;
+        }
+
+        body.theme-toon {
+            --theme-primary: #ffaa00;
+            --theme-primary-rgb: 255, 170, 0;
+            --theme-bg: #112233;
+            --theme-card-bg: rgba(20, 40, 60, 0.9);
+            --theme-text-muted: #ffffff;
+        }
+
+        body.theme-hypernature {
+            --theme-primary: #00ff66;
+            --theme-primary-rgb: 0, 255, 102;
+            --theme-bg: #001a00;
+            --theme-card-bg: rgba(0, 25, 10, 0.85);
+            --theme-text-muted: #aaffcc;
+        }
+
+        body.theme-genie {
+            --theme-primary: #ff00ff;
+            --theme-primary-rgb: 255, 0, 255;
+            --theme-bg: #1a0033;
+            --theme-card-bg: rgba(30, 0, 50, 0.85);
+            --theme-text-muted: #e6b3ff;
+        }
+
+        body.theme-glitch {
+            --theme-primary: #00ff00;
+            --theme-primary-rgb: 0, 255, 0;
+            --theme-bg: #000000;
+            --theme-card-bg: rgba(10, 10, 10, 0.85);
+            --theme-text-muted: #cccccc;
+        }
+
+        body.theme-steampunk {
+            --theme-primary: #d4a373;
+            --theme-primary-rgb: 212, 163, 115;
+            --theme-bg: #2b1d14;
+            --theme-card-bg: rgba(43, 29, 20, 0.9);
+            --theme-text-muted: #eaddcf;
+            --theme-input-bg: #3e2723;
+            --theme-input-border: #5d4037;
+        }
+
+        body.theme-vaporwave {
+            --theme-primary: #00ffff;
+            --theme-primary-rgb: 0, 255, 255;
+            --theme-bg: #2b00ff;
+            --theme-card-bg: rgba(40, 0, 100, 0.85);
+            --theme-text-muted: #ff99ff;
+            --theme-input-bg: #220044;
+            --theme-input-border: #ff00ff;
+        }
+
+        body.theme-noir {
+            --theme-primary: #ffffff;
+            --theme-primary-rgb: 255, 255, 255;
+            --theme-bg: #000000;
+            --theme-card-bg: rgba(15, 15, 15, 0.9);
+            --theme-text-muted: #aaaaaa;
+            --theme-input-bg: #111111;
+            --theme-input-border: #333333;
+        }
+
+        body.theme-cyberspace {
+            --theme-primary: #39ff14;
+            --theme-primary-rgb: 57, 255, 20;
+            --theme-bg: #001100;
+            --theme-card-bg: rgba(0, 20, 0, 0.85);
+            --theme-text-muted: #ccffcc;
+            --theme-input-bg: #002200;
+            --theme-input-border: #004400;
+        }
+
+        body.theme-dream {
+            --theme-primary: #b399ff;
+            --theme-primary-rgb: 179, 153, 255;
+            --theme-bg: #1a1a3a;
+            --theme-card-bg: rgba(30, 30, 60, 0.85);
+            --theme-text-muted: #e6e6ff;
+            --theme-input-bg: #222244;
+            --theme-input-border: #444466;
+        }
+
+        body.theme-obradinn {
+            --theme-primary: #e6e6c8;
+            --theme-primary-rgb: 230, 230, 200;
+            --theme-bg: #000000;
+            --theme-card-bg: rgba(10, 10, 5, 0.9);
+            --theme-text-muted: #ccccb3;
+            --theme-input-bg: #11110a;
+            --theme-input-border: #33332a;
+        }
+
+        body.theme-solarpunk {
+            --theme-primary: #ffcc00;
+            --theme-primary-rgb: 255, 204, 0;
+            --theme-bg: #003311;
+            --theme-card-bg: rgba(0, 40, 20, 0.85);
+            --theme-text-muted: #ccffcc;
+            --theme-input-bg: #004d1a;
+            --theme-input-border: #00802b;
+        }
+
+
+        body { margin: 0; overflow: hidden; background-color: var(--theme-bg); font-family: 'Courier New', monospace; }
         canvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 0; }
 
         #ui-layer {
@@ -23,9 +167,9 @@
 
         .cyber-card {
             pointer-events: auto; /* Re-enable clicks on the card */
-            background: rgba(10, 10, 15, 0.85);
-            border: 1px solid #00f0ff;
-            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+            background: var(--theme-card-bg);
+            border: 1px solid var(--theme-primary);
+            box-shadow: 0 0 15px rgba(var(--theme-primary-rgb), 0.2);
             padding: 20px;
             margin-bottom: 15px;
             backdrop-filter: blur(5px);
@@ -39,13 +183,13 @@
         }
 
         .cyber-header {
-            color: #00f0ff;
+            color: var(--theme-primary);
             font-size: 1.2rem;
             text-transform: uppercase;
-            border-bottom: 1px solid #00f0ff;
+            border-bottom: 1px solid var(--theme-primary);
             padding-bottom: 10px;
             margin-bottom: 20px;
-            text-shadow: 0 0 5px #00f0ff;
+            text-shadow: 0 0 5px var(--theme-primary);
             letter-spacing: 2px;
             font-weight: bold;
         }
@@ -57,7 +201,7 @@
         label {
             display: flex;
             justify-content: space-between;
-            color: #ccc;
+            color: var(--theme-text-muted);
             margin-bottom: 8px;
             font-size: 0.9rem;
             text-transform: uppercase;
@@ -66,10 +210,10 @@
         input[type="range"] {
             width: 100%;
             -webkit-appearance: none;
-            background: #222;
+            background: var(--theme-input-bg);
             height: 4px;
             outline: none;
-            border: 1px solid #444;
+            border: 1px solid var(--theme-input-border);
         }
 
         input[type="range"]::-webkit-slider-thumb {
@@ -77,24 +221,24 @@
             appearance: none;
             width: 15px;
             height: 15px;
-            background: #00f0ff;
+            background: var(--theme-primary);
             cursor: pointer;
             border: 2px solid #fff;
-            box-shadow: 0 0 10px #00f0ff;
+            box-shadow: 0 0 10px var(--theme-primary);
             transition: all 0.2s;
         }
 
         input[type="range"]::-webkit-slider-thumb:hover,
         input[type="range"]:focus-visible::-webkit-slider-thumb {
             background: #fff;
-            box-shadow: 0 0 15px #fff, 0 0 5px #00f0ff inset;
+            box-shadow: 0 0 15px #fff, 0 0 5px var(--theme-primary) inset;
         }
 
         select {
             width: 100%;
-            background: #222;
-            color: #00f0ff;
-            border: 1px solid #444;
+            background: var(--theme-input-bg);
+            color: var(--theme-primary);
+            border: 1px solid var(--theme-input-border);
             padding: 5px;
             font-family: 'Courier New', monospace;
             outline: none;
@@ -104,15 +248,15 @@
 
         select:hover,
         select:focus-visible {
-            border-color: #00f0ff;
-            box-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
+            border-color: var(--theme-primary);
+            box-shadow: 0 0 5px rgba(var(--theme-primary-rgb), 0.5);
         }
 
         input[type="text"] {
             width: 100%;
-            background: #222;
-            color: #00f0ff;
-            border: 1px solid #444;
+            background: var(--theme-input-bg);
+            color: var(--theme-primary);
+            border: 1px solid var(--theme-input-border);
             padding: 5px;
             font-family: 'Courier New', monospace;
             outline: none;
@@ -121,12 +265,12 @@
 
         input[type="text"]:hover,
         input[type="text"]:focus-visible {
-            border-color: #00f0ff;
-            box-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
+            border-color: var(--theme-primary);
+            box-shadow: 0 0 5px rgba(var(--theme-primary-rgb), 0.5);
         }
 
         .value-display {
-            color: #00f0ff;
+            color: var(--theme-primary);
             font-family: monospace;
             font-weight: bold;
         }
@@ -158,8 +302,8 @@
 
         /* Scrollbar styling */
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #111; }
-        ::-webkit-scrollbar-thumb { background: #00f0ff; }
+        ::-webkit-scrollbar-track { background: var(--theme-scroll-track); }
+        ::-webkit-scrollbar-thumb { background: var(--theme-primary); }
 
         .scanline {
             position: fixed;
@@ -193,9 +337,9 @@
 
         .cyber-button {
             width: 100%;
-            background: rgba(0, 240, 255, 0.1);
-            color: #00f0ff;
-            border: 1px solid #00f0ff;
+            background: rgba(var(--theme-primary-rgb), 0.1);
+            color: var(--theme-primary);
+            border: 1px solid var(--theme-primary);
             padding: 10px;
             font-family: 'Courier New', monospace;
             font-weight: bold;
@@ -207,9 +351,9 @@
 
         .cyber-button:not(:disabled):hover,
         .cyber-button:not(:disabled):focus-visible {
-            background: #00f0ff;
+            background: var(--theme-primary);
             color: #000;
-            box-shadow: 0 0 10px #00f0ff;
+            box-shadow: 0 0 10px var(--theme-primary);
             outline: 2px solid #fff;
             outline-offset: 2px;
         }
@@ -239,9 +383,9 @@
         }
 
         .keybind-btn {
-            background: #222;
-            border: 1px solid #444;
-            color: #00f0ff;
+            background: var(--theme-input-bg);
+            border: 1px solid var(--theme-input-border);
+            color: var(--theme-primary);
             padding: 2px 8px;
             cursor: pointer;
             font-family: monospace;
@@ -250,9 +394,9 @@
 
         .keybind-btn:hover,
         .keybind-btn:focus-visible {
-            background: #00f0ff;
+            background: var(--theme-primary);
             color: #000;
-            box-shadow: 0 0 5px #00f0ff;
+            box-shadow: 0 0 5px var(--theme-primary);
             outline: 2px solid #fff;
             outline-offset: 1px;
         }
@@ -288,24 +432,24 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background-color: #050505;
+            background-color: var(--theme-bg);
             z-index: 9999;
             display: flex;
             justify-content: center;
             align-items: center;
             flex-direction: column;
-            color: #00f0ff;
+            color: var(--theme-primary);
             font-family: 'Courier New', monospace;
             font-size: 1.5rem;
-            text-shadow: 0 0 10px #00f0ff;
+            text-shadow: 0 0 10px var(--theme-primary);
         }
 
         .loading-spinner {
             width: 50px;
             height: 50px;
-            border: 5px solid rgba(0, 240, 255, 0.3);
+            border: 5px solid rgba(var(--theme-primary-rgb), 0.3);
             border-radius: 50%;
-            border-top-color: #00f0ff;
+            border-top-color: var(--theme-primary);
             animation: spin 1s ease-in-out infinite;
             margin-bottom: 20px;
         }
@@ -321,11 +465,11 @@
             transform: translate(-50%, -50%);
             width: 10px;
             height: 10px;
-            border: 2px solid rgba(0, 240, 255, 0.8);
+            border: 2px solid rgba(var(--theme-primary-rgb), 0.8);
             border-radius: 50%;
             pointer-events: none;
             z-index: 100;
-            box-shadow: 0 0 5px #00f0ff;
+            box-shadow: 0 0 5px var(--theme-primary);
         }
     </style>
 </head>
@@ -390,7 +534,7 @@
                 SIGNAL: <span id="status-signal" style="color: #555;">OFFLINE</span><br>
                 PEER ID: <span id="status-peer-id" style="color: #555;">---</span>
                 <button id="btn-copy-peer" class="keybind-btn" aria-label="Copy Peer ID" title="Copy Peer ID" style="display:none; font-size: 0.7rem; margin-left: 5px; padding: 0px 4px;">COPY</button><br>
-                PEERS: <span id="status-peers-count" style="color: #00f0ff;">0</span>
+                PEERS: <span id="status-peers-count" style="color: var(--theme-primary);">0</span>
             </div>
         </div>
 
@@ -626,11 +770,28 @@
                 }
 
                 // Listeners
+                                function applyThemeFromArchetype() {
+                     const selectedOption = archetypeSelect.options[archetypeSelect.selectedIndex];
+                     if (selectedOption) {
+                         const rawText = selectedOption.text.toLowerCase();
+                         let themeName = rawText.replace(/[^a-z0-9]/g, '');
+                         if (rawText.includes('genie')) {
+                             themeName = 'genie';
+                         }
+                         document.body.className = `theme-${themeName}`;
+                         log(`> UI_THEME_UPDATE: ${themeName.toUpperCase()}`);
+                     }
+                }
+
                 archetypeSelect.addEventListener('change', () => {
                      const val = parseInt(archetypeSelect.value);
                      log(`> PARAM_UPDATE: ARCHETYPE_ID = ${val}`);
                      gameClient.set_anomaly_archetype(val);
+                     applyThemeFromArchetype();
                 });
+
+                // Apply theme initially
+                applyThemeFromArchetype();
 
                 roughSlider.addEventListener('input', () => {
                     updateParams();

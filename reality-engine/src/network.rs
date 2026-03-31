@@ -46,6 +46,9 @@ extern "C" {
 
     #[wasm_bindgen(method, getter)]
     fn peer(this: &DataConnection) -> String;
+
+    #[wasm_bindgen(method)]
+    fn close(this: &DataConnection);
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -87,16 +90,23 @@ impl NetworkManager {
                         if packet.peer_id != inner.peer_id
                             && !inner.connections.contains_key(&packet.peer_id)
                         {
-                            info!(
-                                "Discovered new peer: {}. Connecting via WebRTC...",
-                                packet.peer_id
-                            );
-                            let conn = inner.peer.connect(&packet.peer_id);
-                            inner
-                                .connections
-                                .insert(packet.peer_id.clone(), conn.clone().unchecked_into());
-                            drop(inner);
-                            NetworkManager::handle_connection(manager.clone(), conn);
+                            // Security Enhancement: Prevent DoS by limiting maximum concurrent WebRTC connections
+                            // An attacker could spam PollenPackets to exhaust memory by forcing connections.
+                            const MAX_PEER_CONNECTIONS: usize = 20;
+                            if inner.connections.len() >= MAX_PEER_CONNECTIONS {
+                                warn!("Security Warning: WebRTC connection limit reached ({}). Dropping connection request to {}.", MAX_PEER_CONNECTIONS, packet.peer_id);
+                            } else {
+                                info!(
+                                    "Discovered new peer: {}. Connecting via WebRTC...",
+                                    packet.peer_id
+                                );
+                                let conn = inner.peer.connect(&packet.peer_id);
+                                inner
+                                    .connections
+                                    .insert(packet.peer_id.clone(), conn.clone().unchecked_into());
+                                drop(inner);
+                                NetworkManager::handle_connection(manager.clone(), conn);
+                            }
                         }
                     }
                 }
@@ -209,6 +219,14 @@ impl NetworkManager {
         {
             let mut inner = manager.borrow_mut();
             if !inner.connections.contains_key(&peer_id) {
+                // Security Enhancement: Prevent DoS by limiting maximum concurrent WebRTC connections
+                // An attacker could spam WebRTC connections to exhaust memory and CPU.
+                const MAX_PEER_CONNECTIONS: usize = 20;
+                if inner.connections.len() >= MAX_PEER_CONNECTIONS {
+                    warn!("Security Warning: WebRTC connection limit reached ({}). Rejecting incoming connection from {}.", MAX_PEER_CONNECTIONS, peer_id);
+                    conn.close();
+                    return;
+                }
                 inner
                     .connections
                     .insert(peer_id.clone(), conn.clone().unchecked_into());

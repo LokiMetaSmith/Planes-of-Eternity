@@ -632,9 +632,9 @@ impl Engine {
         false
     }
 
-    pub fn get_node_labels_flat(&self) -> Vec<u8> {
+    pub fn get_node_labels_flat(&self, bytes: &mut Vec<u8>) {
         let view_proj = self.camera.build_view_projection_matrix();
-        let mut bytes = Vec::new();
+        bytes.clear();
 
         // We will write the count later, so we reserve 4 bytes
         bytes.extend_from_slice(&0u32.to_le_bytes());
@@ -724,8 +724,6 @@ impl Engine {
         // Write actual count
         let count_bytes = count.to_le_bytes();
         bytes[0..4].copy_from_slice(&count_bytes);
-
-        bytes
     }
 
     pub fn get_ray(&self, x: f32, y: f32) -> (Point3<f32>, Vector3<f32>) {

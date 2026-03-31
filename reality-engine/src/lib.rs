@@ -325,6 +325,8 @@ pub struct State {
     entities_instance_buffer: wgpu::Buffer,
     num_entities: u32,
     max_entities: u32,
+
+    pub labels_buffer: Vec<u8>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -849,6 +851,7 @@ impl State {
             entities_instance_buffer,
             num_entities: 1,
             max_entities: max_entities as u32,
+            labels_buffer: Vec::with_capacity(1024),
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
@@ -1527,10 +1530,11 @@ pub struct GameClient {
 #[wasm_bindgen]
 impl GameClient {
     pub fn get_node_labels_flat(&self) -> js_sys::Uint8Array {
-        let state = self.state.borrow();
-        let bytes = state.engine.get_node_labels_flat();
-        let array = js_sys::Uint8Array::new_with_length(bytes.len() as u32);
-        array.copy_from(&bytes);
+        let mut state_ref = self.state.borrow_mut();
+        let state = &mut *state_ref;
+        state.engine.get_node_labels_flat(&mut state.labels_buffer);
+        let array = js_sys::Uint8Array::new_with_length(state.labels_buffer.len() as u32);
+        array.copy_from(&state.labels_buffer);
         array
     }
 

@@ -60,4 +60,6 @@
 
 ## 2026-03-28 - Dynamic aria-live and Focus Loss Anti-patterns
 **Learning:** Temporarily disabling a button to prevent double clicks causes a severe focus-loss accessibility bug for keyboard users, dropping them back to the document root. Furthermore, dynamically adding `aria-live` just as text changes often fails to trigger screen reader announcements.
-**Action:** Use a JavaScript boolean flag (`isProcessing`) instead of the `disabled` attribute to prevent duplicate clicks while preserving focus. Always define `aria-live="polite"` directly in the static HTML for regions intended to announce dynamic updates.
+**Action:** Use a JavaScript boolean flag (`isProcessing`) instead of the `disabled` attribute to prevent duplicate clicks while preserving focus. Always define `aria-live="polite"` directly in the static HTML for regions intended to announce dynamic updates.## 2026-03-31 - Action Button Contextual Feedback Focus Management
+**Learning:** When using contextual success text for UI action buttons (e.g. changing "SAVE" to "SAVED"), relying on `btn.disabled = true` momentarily breaks keyboard navigation by dropping focus. Dynamically adding and removing `aria-live` is also unreliable for screen reader announcements.
+**Action:** Use a JS `dataset.isProcessing` flag instead of the `disabled` attribute to track temporary states and preserve focus, and place `aria-live="polite"` statically on the button HTML.

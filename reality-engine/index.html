@@ -573,7 +573,7 @@
                     <option value="10">CyberSpace</option>
                 </select>
             </div>
-            <button id="btn-apply-filter" class="cyber-button" style="width: 100%;">APPLY FILTER</button>
+            <button id="btn-apply-filter" class="cyber-button" style="width: 100%;" aria-live="polite">APPLY FILTER</button>
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
@@ -589,12 +589,12 @@
                  </select>
             </div>
             <div style="display: flex; gap: 5px;">
-                <button id="btn-save" class="cyber-button" style="flex: 1;">SAVE</button>
-                <button id="btn-load" class="cyber-button" style="flex: 1;">LOAD</button>
+                <button id="btn-save" class="cyber-button" style="flex: 1;" aria-live="polite">SAVE</button>
+                <button id="btn-load" class="cyber-button" style="flex: 1;" aria-live="polite">LOAD</button>
             </div>
             <div style="display: flex; gap: 5px; margin-top: 5px;">
-                <button id="btn-delete" class="cyber-button" aria-label="Delete selected save" title="Delete selected save" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">DEL</button>
-                <button id="btn-reset" class="cyber-button" aria-label="Reset world" title="Reset world" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">RESET</button>
+                <button id="btn-delete" class="cyber-button" aria-label="Delete selected save" title="Delete selected save" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;" aria-live="polite">DEL</button>
+                <button id="btn-reset" class="cyber-button" aria-label="Reset world" title="Reset world" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;" aria-live="polite">RESET</button>
             </div>
         </div>
 
@@ -838,7 +838,8 @@
                 filterBlock.addEventListener('change', refreshFilterUI);
 
                 btnApplyFilter.addEventListener('click', () => {
-                    if (btnApplyFilter.disabled) return;
+                    if (btnApplyFilter.dataset.isProcessing === 'true') return;
+                    btnApplyFilter.dataset.isProcessing = 'true';
 
                     const blocked = parseInt(filterBlock.value, 10);
                     const replaced = parseInt(filterReplace.value, 10);
@@ -850,18 +851,16 @@
                         btnApplyFilter.innerText = "FILTER APPLIED";
                         btnApplyFilter.style.background = "#05ffa1";
                         btnApplyFilter.style.color = "#000";
-                        btnApplyFilter.disabled = true;
-                        btnApplyFilter.setAttribute("aria-live", "polite");
 
                         setTimeout(() => {
                             btnApplyFilter.innerText = originalText;
                             btnApplyFilter.style.background = "";
                             btnApplyFilter.style.color = "";
-                            btnApplyFilter.disabled = false;
-                            btnApplyFilter.removeAttribute("aria-live");
+                            btnApplyFilter.dataset.isProcessing = 'false';
                         }, 2000);
                     } else {
                         log("> FILTER ERROR: Invalid selection.");
+                        btnApplyFilter.dataset.isProcessing = 'false';
                     }
                 });
 
@@ -906,7 +905,8 @@
                 });
 
                 btnSave.addEventListener('click', () => {
-                    if (btnSave.disabled) return;
+                    if (btnSave.dataset.isProcessing === 'true') return;
+                    btnSave.dataset.isProcessing = 'true';
 
                     const name = inputSaveName.value.trim() || "default";
                     log(`> SAVING GAME TO SLOT: ${name}`);
@@ -917,20 +917,18 @@
                     btnSave.innerText = "SAVED";
                     btnSave.style.background = "#05ffa1";
                     btnSave.style.color = "#000";
-                    btnSave.disabled = true;
-                    btnSave.setAttribute("aria-live", "polite");
 
                     setTimeout(() => {
                         btnSave.innerText = originalText;
                         btnSave.style.background = "";
                         btnSave.style.color = "";
-                        btnSave.disabled = false;
-                        btnSave.removeAttribute("aria-live");
+                        btnSave.dataset.isProcessing = 'false';
                     }, 2000);
                 });
 
                 btnLoad.addEventListener('click', () => {
-                     if (btnLoad.disabled) return;
+                     if (btnLoad.dataset.isProcessing === 'true') return;
+                     btnLoad.dataset.isProcessing = 'true';
 
                      const name = inputSaveName.value.trim() || selectSaveSlot.value || "default";
                      log(`> LOADING GAME FROM SLOT: ${name}`);
@@ -942,22 +940,22 @@
                      btnLoad.innerText = "LOADED";
                      btnLoad.style.background = "#05ffa1";
                      btnLoad.style.color = "#000";
-                     btnLoad.disabled = true;
-                     btnLoad.setAttribute("aria-live", "polite");
 
                      setTimeout(() => {
                          btnLoad.innerText = originalText;
                          btnLoad.style.background = "";
                          btnLoad.style.color = "";
-                         btnLoad.disabled = false;
-                         btnLoad.removeAttribute("aria-live");
+                         btnLoad.dataset.isProcessing = 'false';
                      }, 2000);
                 });
 
                 btnDelete.addEventListener('click', () => {
+                     if (btnDelete.dataset.isProcessing === 'true') return;
+
                      const name = inputSaveName.value.trim() || selectSaveSlot.value;
                      if (name) {
                          if(confirm(`Delete save slot '${name}'?`)) {
+                             btnDelete.dataset.isProcessing = 'true';
                              log(`> DELETING SLOT: ${name}`);
                              gameClient.delete_save(name);
                              updateSaveList();
@@ -967,22 +965,22 @@
                              btnDelete.innerText = "DELETED";
                              btnDelete.style.background = "#ff2a6d";
                              btnDelete.style.color = "#000";
-                             btnDelete.disabled = true;
-                             btnDelete.setAttribute("aria-live", "polite");
 
                              setTimeout(() => {
                                  btnDelete.innerText = originalText;
                                  btnDelete.style.background = "";
                                  btnDelete.style.color = "#ff2a6d";
-                                 btnDelete.disabled = false;
-                                 btnDelete.removeAttribute("aria-live");
+                                 btnDelete.dataset.isProcessing = 'false';
                              }, 2000);
                          }
                      }
                 });
 
                 btnReset.addEventListener('click', () => {
+                     if (btnReset.dataset.isProcessing === 'true') return;
+
                      if(confirm("RESET WORLD? ALL UNSAVED PROGRESS WILL BE LOST.")) {
+                         btnReset.dataset.isProcessing = 'true';
                          log("> SYSTEM RESET INITIATED...");
                          gameClient.reset_world();
                          log("> WORLD STATE CLEARED.");
@@ -991,15 +989,12 @@
                          btnReset.innerText = "CLEARED";
                          btnReset.style.background = "#ff2a6d";
                          btnReset.style.color = "#000";
-                         btnReset.disabled = true;
-                         btnReset.setAttribute("aria-live", "polite");
 
                          setTimeout(() => {
                              btnReset.innerText = originalText;
                              btnReset.style.background = "";
                              btnReset.style.color = "#ff2a6d";
-                             btnReset.disabled = false;
-                             btnReset.removeAttribute("aria-live");
+                             btnReset.dataset.isProcessing = 'false';
                          }, 2000);
                      }
                 });

@@ -83,3 +83,8 @@
 **Vulnerability:** The Run-Length Encoding (RLE) deserializer in `reality-engine/src/voxel.rs` (`voxel_data_serde::deserialize`) read a 16-bit count from untrusted input and blindly allocated that many voxels in a loop. A malicious payload could use a tiny hex string to cause gigabytes of memory allocation, leading to an Out-Of-Memory (OOM) Denial of Service (DoS) attack (a classic "Decompression Bomb").
 **Learning:** Custom deserialization formats, especially those involving compression like RLE, must strictly enforce bounds checking on the total decoded output size to prevent memory exhaustion, regardless of outer payload size limits.
 **Prevention:** Always track the total accumulated size during decompression and abort if it exceeds the mathematically maximum possible size for the data structure (e.g., `CHUNK_SIZE^3`).
+
+## 2026-03-29 - Sentinel: Limit WebRTC Connections
+**Vulnerability:** DoS risk via unbounded WebRTC connections. `network.rs` blindly accepted and attempted to maintain all incoming and outgoing WebRTC `DataConnection`s without limit, opening the client up to resource exhaustion (memory, CPU, connection limits) if a malicious peer spammed connection requests.
+**Learning:** Peer-to-peer applications must constrain not only message size and count per connection, but the total number of simultaneous connections a client will accept or initiate, to prevent connection exhaustion Denial of Service (DoS) attacks.
+**Prevention:** Always enforce a hard upper bound (e.g. 20) on the maximum number of concurrent peer connections (`inner.connections.len()`) and explicitly reject/close incoming connection requests that exceed the limit.

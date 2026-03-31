@@ -494,16 +494,47 @@ impl Engine {
                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();
                         let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
 
-                        let new_item = crate::reality_types::DroppedItem::new_cube(
-                            uuid::Uuid::new_v4().to_string(),
-                            self.camera.eye,
-                            forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
-                            0.2,
-                            [1.0, 0.8, 0.2, 1.0], // Goldish color
-                            3,                    // 3x3x3 grid
-                        );
-                        self.world_state.dropped_items.push(new_item);
-                        log::info!("Dropped item at {:?}", self.camera.eye);
+                        // If inventory has items, drop the last one
+                        if let Some(mut item) = self.world_state.player_inventory.pop() {
+                            item.position = self.camera.eye;
+                            item.velocity = forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0;
+                            self.world_state.dropped_items.push(item);
+                            log::info!("Dropped item from inventory at {:?}", self.camera.eye);
+                        } else {
+                            // Otherwise, create a default gold cube to drop
+                            let new_item = crate::reality_types::DroppedItem::new_cube(
+                                uuid::Uuid::new_v4().to_string(),
+                                self.camera.eye,
+                                forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
+                                0.2,
+                                [1.0, 0.8, 0.2, 1.0], // Goldish color
+                                3,                    // 3x3x3 grid
+                            );
+                            self.world_state.dropped_items.push(new_item);
+                            log::info!("Dropped new spawned item at {:?}", self.camera.eye);
+                        }
+                    }
+                }
+                Action::PickupItem => {
+                    if pressed {
+                        let mut closest_idx = None;
+                        let mut min_dist_sq = 25.0; // 5.0 units radius squared
+
+                        let player_pos = self.camera.eye;
+
+                        for (i, item) in self.world_state.dropped_items.iter().enumerate() {
+                            let dist_sq = (item.position - player_pos).magnitude2();
+                            if dist_sq < min_dist_sq {
+                                min_dist_sq = dist_sq;
+                                closest_idx = Some(i);
+                            }
+                        }
+
+                        if let Some(idx) = closest_idx {
+                            let item = self.world_state.dropped_items.remove(idx);
+                            log::info!("Picked up item {} from {:?}", item.id, item.position);
+                            self.world_state.player_inventory.push(item);
+                        }
                     }
                 }
                 // Ignore Voxel Actions (Handled by lib.rs / wrapper)

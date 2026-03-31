@@ -141,6 +141,8 @@ pub struct WorldState {
     pub dirty_chunks: HashSet<ChunkId>,
     pub npcs: Vec<crate::projector::RealityProjector>,
     pub dropped_items: Vec<crate::reality_types::DroppedItem>,
+    #[serde(default)]
+    pub player_inventory: Vec<crate::reality_types::DroppedItem>,
 }
 
 impl WorldState {

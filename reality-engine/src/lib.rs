@@ -2411,6 +2411,11 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
+    pub fn get_inventory_json(&self) -> String {
+        let state = self.state.borrow();
+        serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())
+    }
+
     pub fn get_npc_state_json(&self, uuid: &str) -> String {
         let state = self.state.borrow();
 

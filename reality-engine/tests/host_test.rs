@@ -462,12 +462,13 @@ fn test_get_node_labels_benchmark() {
     engine.update(0.1, None);
 
     // Warmup
-    let _ = engine.get_node_labels_flat();
+    let mut labels_buffer = Vec::new();
+    engine.get_node_labels_flat(&mut labels_buffer);
 
     // Benchmark Flat Buffer
     let start_flat = std::time::Instant::now();
     for _ in 0..100 {
-        let _flat_output = engine.get_node_labels_flat();
+        engine.get_node_labels_flat(&mut labels_buffer);
     }
     let duration_flat = start_flat.elapsed();
 
@@ -501,7 +502,9 @@ fn test_get_node_labels() {
     engine.update(0.1, None);
 
     // Get labels
-    let labels = parse_flat_labels(&engine.get_node_labels_flat());
+    let mut labels_buffer = Vec::new();
+    engine.get_node_labels_flat(&mut labels_buffer);
+    let labels = parse_flat_labels(&labels_buffer);
 
     println!("Labels found: {:?}", labels);
 
@@ -526,7 +529,9 @@ fn test_get_node_labels() {
     engine.camera.target = Point3::new(0.0, 5.0, 30.0);
 
     // Do NOT call update(), so nodes stay at old position
-    let labels_hidden = parse_flat_labels(&engine.get_node_labels_flat());
+    let mut labels_buffer = Vec::new();
+    engine.get_node_labels_flat(&mut labels_buffer);
+    let labels_hidden = parse_flat_labels(&labels_buffer);
     // Filter out UI status labels
     let lambda_labels: Vec<_> = labels_hidden
         .iter()
@@ -609,7 +614,9 @@ fn test_bound_variable_labels() {
     engine.camera.target = Point3::new(0.0, 5.0, 0.0);
     engine.camera.up = Vector3::new(0.0, 1.0, 0.0);
 
-    let labels = parse_flat_labels(&engine.get_node_labels_flat());
+    let mut labels_buffer = Vec::new();
+    engine.get_node_labels_flat(&mut labels_buffer);
+    let labels = parse_flat_labels(&labels_buffer);
     println!("Labels: {:?}", labels);
 
     // We expect:

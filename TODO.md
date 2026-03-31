@@ -88,3 +88,9 @@
 - [x] **Advanced Voxel Physics**: Implement voxel terrain collision and destruction for dropped items, inspired by Starbase.
 - [x] **New Archetypes**: Added SolarPunk archetype to Reality Engine.
 - [x] **UI Improvement**: Added ability to hide UI menu bars using 'H' key for a cleaner experience.
+
+## Future Enhancements
+- [ ] A specific spell-casting UI or particle effects for when spells hit the ground.
+- [x] A dedicated inventory system for picking up and storing dropped items.
+- [ ] An expanded AI system where NPCs can be hostile and attack the player.
+- [ ] Different terrain generation types based on the "base" reality of the area.

@@ -406,7 +406,7 @@ impl Chunk {
         }
     }
 
-    pub fn generate(&mut self) {
+    pub fn generate(&mut self, base_archetype: Option<crate::reality_types::RealityArchetype>) {
         // Only valid for full size chunks
         if self.size != CHUNK_SIZE {
             return;
@@ -425,47 +425,84 @@ impl Chunk {
 
                     let mut voxel = Voxel::default();
 
-                    // Ground
-                    if wy == -1 {
-                        voxel.id = 5;
-                    }
+                    match base_archetype {
+                        Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
+                            // Ground
+                            if wy == -1 {
+                                voxel.id = 5;
+                            }
 
-                    // Castle (Procedural)
-                    if (-9..=9).contains(&wx)
-                        && (-9..=9).contains(&wz)
-                        && (0..10).contains(&wy)
-                        && (wx.abs() > 8 || wz.abs() > 8 || wy == 0)
-                    {
-                        voxel.id = 1;
-                    }
-
-                    // Bridge
-                    if wz == 0 && (11..30).contains(&wx) && wy == 5 {
-                        voxel.id = 6;
-                    }
-
-                    // Volcano
-                    let vx = wx - 40;
-                    let vz = wz;
-                    // Optimization: Use integer arithmetic and squared distances to eliminate expensive f32 conversions
-                    // and float sqrt() calls in this tight chunk generation loop.
-                    if (0..=20).contains(&wy) {
-                        let dist_sq = vx * vx + vz * vz;
-                        let max_dist = 20 - wy;
-                        if dist_sq <= max_dist * max_dist {
-                            if dist_sq < 4 {
-                                voxel.id = 2;
-                            } else {
+                            // Castle (Procedural)
+                            if (-9..=9).contains(&wx)
+                                && (-9..=9).contains(&wz)
+                                && (0..10).contains(&wy)
+                                && (wx.abs() > 8 || wz.abs() > 8 || wy == 0)
+                            {
                                 voxel.id = 1;
                             }
-                        }
-                    }
 
-                    // Fire Noise
-                    if voxel.id == 0 && wy > 0 {
-                        let n = hash(wx, wy, wz);
-                        if n > 0.995 {
-                            voxel.id = 3;
+                            // Bridge
+                            if wz == 0 && (11..30).contains(&wx) && wy == 5 {
+                                voxel.id = 6;
+                            }
+
+                            // Volcano
+                            let vx = wx - 40;
+                            let vz = wz;
+                            // Optimization: Use integer arithmetic and squared distances to eliminate expensive f32 conversions
+                            // and float sqrt() calls in this tight chunk generation loop.
+                            if (0..=20).contains(&wy) {
+                                let dist_sq = vx * vx + vz * vz;
+                                let max_dist = 20 - wy;
+                                if dist_sq <= max_dist * max_dist {
+                                    if dist_sq < 4 {
+                                        voxel.id = 2;
+                                    } else {
+                                        voxel.id = 1;
+                                    }
+                                }
+                            }
+
+                            // Fire Noise
+                            if voxel.id == 0 && wy > 0 {
+                                let n = hash(wx, wy, wz);
+                                if n > 0.995 {
+                                    voxel.id = 3;
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::SciFi) => {
+                            // Metal/Stone Ground
+                            if wy == -1 {
+                                voxel.id = 1;
+                            }
+
+                            // Procedural Pillars
+                            if wx % 10 == 0 && wz % 10 == 0 && wy >= 0 && wy <= 10 {
+                                if wy == 10 {
+                                    voxel.id = 4; // Glowing energy top
+                                } else {
+                                    voxel.id = 1; // Metal pillar
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Horror) => {
+                            // Organic bumpy terrain
+                            let height = (hash(wx, 0, wz).abs() * 5.0) as i32;
+                            if wy < height {
+                                voxel.id = 1; // Dark Stone
+                            }
+
+                            // Scattered lava
+                            if wy == height && hash(wx, wy, wz).abs() > 0.8 {
+                                voxel.id = 2;
+                            }
+                        }
+                        _ => {
+                            // Default Fallback Terrain
+                            if wy == -1 {
+                                voxel.id = 5; // Grass
+                            }
                         }
                     }
 
@@ -973,7 +1010,18 @@ impl VoxelWorld {
                 for z in -2..2 {
                     let key = ChunkKey { x, y, z };
                     let chunk = self.create_chunk(key);
-                    chunk.generate();
+
+                    // Pseudo-random archetype based on coordinates
+                    let n = (x.wrapping_abs() + z.wrapping_abs()) % 3;
+                    let archetype = if n == 0 {
+                        Some(crate::reality_types::RealityArchetype::Fantasy)
+                    } else if n == 1 {
+                        Some(crate::reality_types::RealityArchetype::SciFi)
+                    } else {
+                        Some(crate::reality_types::RealityArchetype::Horror)
+                    };
+
+                    chunk.generate(archetype);
                 }
             }
         }

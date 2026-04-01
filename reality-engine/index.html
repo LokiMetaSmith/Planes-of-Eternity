@@ -613,7 +613,7 @@
         <div class="cyber-card" style="margin-top: 10px;">
             <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Controls</div>
             <div style="margin-bottom: 10px;">
-                <button id="btn-keybinds" class="cyber-button" style="font-size: 0.8rem;">CONFIGURE CONTROLS</button>
+                <button id="btn-keybinds" class="cyber-button" style="font-size: 0.8rem;" aria-haspopup="dialog" aria-expanded="false">CONFIGURE CONTROLS</button>
                 <button id="btn-toggle-ai" class="cyber-button" style="font-size: 0.8rem; margin-top: 5px;" aria-pressed="false">ENABLE BROWSER AI</button>
             </div>
             <div style="font-size: 0.85rem; color: #aaa; line-height: 1.4;">
@@ -621,7 +621,8 @@
                 [Mouse] Click to Move Anomaly<br>
                 [Click Node] Reduce Lambda<br>
                 [F] Cast Spell (Lambda)<br>
-                [Sliders] Adjust Reality Params
+                [Sliders] Adjust Reality Params<br>
+                [H] Toggle UI
             </div>
         </div>
     </div>
@@ -1009,18 +1010,22 @@
                         const logContainer = document.getElementById('log-area');
                         if (uiLayer.style.opacity === '0') {
                             uiLayer.style.opacity = '1';
+                            uiLayer.style.visibility = 'visible';
                             const cards = uiLayer.querySelectorAll('.cyber-card');
                             cards.forEach(c => c.style.pointerEvents = 'auto');
                             if (logContainer) {
                                 logContainer.style.opacity = '1';
+                                logContainer.style.visibility = 'visible';
                                 logContainer.style.pointerEvents = 'auto';
                             }
                         } else {
                             uiLayer.style.opacity = '0';
+                            uiLayer.style.visibility = 'hidden';
                             const cards = uiLayer.querySelectorAll('.cyber-card');
                             cards.forEach(c => c.style.pointerEvents = 'none');
                             if (logContainer) {
                                 logContainer.style.opacity = '0';
+                                logContainer.style.visibility = 'hidden';
                                 logContainer.style.pointerEvents = 'none';
                             }
                         }
@@ -1227,11 +1232,13 @@
                 btnKeybinds.addEventListener('click', () => {
                     renderKeybinds();
                     keybindOverlay.style.display = 'flex';
+                    btnKeybinds.setAttribute('aria-expanded', 'true');
                     btnCloseKeybinds.focus();
                 });
 
                 const closeKeybindsModal = () => {
                     keybindOverlay.style.display = 'none';
+                    btnKeybinds.setAttribute('aria-expanded', 'false');
                     if (currentlyRebinding) {
                         currentlyRebinding = null; // Cancel pending?
                         if (currentRebindHandler) {

@@ -501,17 +501,24 @@ impl Engine {
                             self.world_state.dropped_items.push(item);
                             log::info!("Dropped item from inventory at {:?}", self.camera.eye);
                         } else {
-                            // Otherwise, create a default gold cube to drop
-                            let new_item = crate::reality_types::DroppedItem::new_cube(
-                                uuid::Uuid::new_v4().to_string(),
-                                self.camera.eye,
-                                forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
-                                0.2,
-                                [1.0, 0.8, 0.2, 1.0], // Goldish color
-                                3,                    // 3x3x3 grid
-                            );
-                            self.world_state.dropped_items.push(new_item);
-                            log::info!("Dropped new spawned item at {:?}", self.camera.eye);
+                            // Security Enhancement: Prevent DoS by limiting maximum spawned items
+                            // An attacker could spam the DropItem action to spawn infinite items, exhausting memory and network bandwidth during sync.
+                            const MAX_SPAWNED_ITEMS: usize = 100;
+                            if self.world_state.dropped_items.len() < MAX_SPAWNED_ITEMS {
+                                // Otherwise, create a default gold cube to drop
+                                let new_item = crate::reality_types::DroppedItem::new_cube(
+                                    uuid::Uuid::new_v4().to_string(),
+                                    self.camera.eye,
+                                    forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
+                                    0.2,
+                                    [1.0, 0.8, 0.2, 1.0], // Goldish color
+                                    3,                    // 3x3x3 grid
+                                );
+                                self.world_state.dropped_items.push(new_item);
+                                log::info!("Dropped new spawned item at {:?}", self.camera.eye);
+                            } else {
+                                log::warn!("Security Warning: Maximum spawned items limit reached ({}). Cannot drop new item.", MAX_SPAWNED_ITEMS);
+                            }
                         }
                     }
                 }

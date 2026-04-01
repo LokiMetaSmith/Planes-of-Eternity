@@ -1533,9 +1533,12 @@ impl GameClient {
         let mut state_ref = self.state.borrow_mut();
         let state = &mut *state_ref;
         state.engine.get_node_labels_flat(&mut state.labels_buffer);
-        let array = js_sys::Uint8Array::new_with_length(state.labels_buffer.len() as u32);
-        array.copy_from(&state.labels_buffer);
-        array
+        // Optimization: Use `js_sys::Uint8Array::view` to create a direct view into WASM memory.
+        // This entirely eliminates the O(N) allocation and copying of bytes at the JS/WASM boundary
+        // every single frame, significantly improving performance.
+        unsafe {
+            js_sys::Uint8Array::view(&state.labels_buffer)
+        }
     }
 
     pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {

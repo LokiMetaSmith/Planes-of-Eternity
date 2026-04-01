@@ -63,3 +63,7 @@
 **Action:** Use a JavaScript boolean flag (`isProcessing`) instead of the `disabled` attribute to prevent duplicate clicks while preserving focus. Always define `aria-live="polite"` directly in the static HTML for regions intended to announce dynamic updates.## 2026-03-31 - Action Button Contextual Feedback Focus Management
 **Learning:** When using contextual success text for UI action buttons (e.g. changing "SAVE" to "SAVED"), relying on `btn.disabled = true` momentarily breaks keyboard navigation by dropping focus. Dynamically adding and removing `aria-live` is also unreliable for screen reader announcements.
 **Action:** Use a JS `dataset.isProcessing` flag instead of the `disabled` attribute to track temporary states and preserve focus, and place `aria-live="polite"` statically on the button HTML.
+
+## 2026-04-01 - Visual Toggling with Opacity Accessibility Anti-pattern
+**Learning:** Using only `opacity: 0` and `pointer-events: none` to hide UI layers is a critical accessibility anti-pattern because the hidden elements remain in the keyboard tab order and the screen reader accessibility tree, leading to severe confusion.
+**Action:** When visually hiding large interactive UI sections or overlays using JavaScript, always toggle `visibility: hidden` (and `visibility: visible` when showing) or use the `hidden` attribute to ensure they are properly removed from assistive technology and focus flows.

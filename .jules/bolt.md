@@ -68,3 +68,7 @@
 ## 2024-05-29 - Preallocate Buffer at WASM Boundary
 **Learning:** Frequent memory allocations inside hot loops (`requestAnimationFrame` loops generating state for rendering) create significant overhead, especially when crossing the WASM-to-JS boundary. A `Vec::new()` call inside such a method (`get_node_labels_flat`) was allocating memory on every frame, which degrades performance and triggers frequent garbage collection.
 **Action:** Keep a persistent, pre-allocated buffer (`Vec<u8>`) in the persistent application state (`State`). Pass this buffer by mutable reference (`&mut Vec<u8>`) to the internal update methods, call `.clear()` to avoid reallocation, and then copy its contents into the `js_sys::Uint8Array` used to pass the data to JavaScript.
+
+## 2024-06-05 - Avoid O(N) Allocations when Passing WASM Buffers to JS
+**Learning:** Even when using a pre-allocated Rust `Vec<u8>` to store flat memory data (like `labels_buffer`), returning it to JavaScript via `js_sys::Uint8Array::new_with_length` and `.copy_from()` still performs an expensive $O(N)$ memory allocation and byte-copy on the JS side every frame.
+**Action:** To completely eliminate allocation and copying overhead at the JS/WASM boundary for flat buffers, wrap the call in an `unsafe` block and use `js_sys::Uint8Array::view(&buffer)`. This creates a zero-copy direct `DataView` into WASM memory. Note: the JS code must consume this synchronously (e.g., inside the same `requestAnimationFrame` tick) before WASM memory is modified or resized.

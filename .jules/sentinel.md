@@ -88,3 +88,8 @@
 **Vulnerability:** DoS risk via unbounded WebRTC connections. `network.rs` blindly accepted and attempted to maintain all incoming and outgoing WebRTC `DataConnection`s without limit, opening the client up to resource exhaustion (memory, CPU, connection limits) if a malicious peer spammed connection requests.
 **Learning:** Peer-to-peer applications must constrain not only message size and count per connection, but the total number of simultaneous connections a client will accept or initiate, to prevent connection exhaustion Denial of Service (DoS) attacks.
 **Prevention:** Always enforce a hard upper bound (e.g. 20) on the maximum number of concurrent peer connections (`inner.connections.len()`) and explicitly reject/close incoming connection requests that exceed the limit.
+
+## 2026-03-29 - Unbounded In-Game Item Spawning DoS
+**Vulnerability:** DoS risk via unbounded in-game item generation. In `reality-engine/src/engine.rs`, processing the `Action::DropItem` user input when the inventory is empty resulted in unconditionally generating and spawning a new `DroppedItem` object into the `world_state.dropped_items` vector without any limit.
+**Learning:** Any user action that allocates new game state objects, especially those synchronized globally across a P2P network (like `WorldState`), is a vector for memory and network bandwidth exhaustion if the user can spam the action unboundedly.
+**Prevention:** Always enforce a hard upper bound (e.g., maximum 100 spawned items globally) before allowing a user-triggered action to generate new persisted entities in the game world.

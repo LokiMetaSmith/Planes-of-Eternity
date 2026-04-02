@@ -287,6 +287,14 @@ impl WorldState {
     }
 
     pub fn merge(&mut self, other: WorldState) -> bool {
+        // Security Enhancement: Prevent DoS by limiting maximum chunks per world merge.
+        // An attacker could send a massive WorldState payload to exhaust memory and CPU.
+        const MAX_CHUNKS_PER_MERGE: usize = 1000;
+        if other.chunks.len() > MAX_CHUNKS_PER_MERGE {
+            log::warn!("Security Warning: World merge exceeded maximum chunks limit ({}). Rejecting update.", MAX_CHUNKS_PER_MERGE);
+            return false;
+        }
+
         let mut changed = false;
         for (id, other_chunk) in other.chunks {
             let chunk = self.get_or_create_chunk(id);
@@ -304,6 +312,14 @@ impl WorldState {
     }
 
     pub fn merge_chunks(&mut self, chunks: Vec<Chunk>) -> bool {
+        // Security Enhancement: Prevent DoS by limiting maximum chunks per sync.
+        // An attacker could send a massive array of chunks to exhaust memory and CPU.
+        const MAX_CHUNKS_PER_SYNC: usize = 100;
+        if chunks.len() > MAX_CHUNKS_PER_SYNC {
+            log::warn!("Security Warning: Sync update exceeded maximum chunks limit ({}). Rejecting update.", MAX_CHUNKS_PER_SYNC);
+            return false;
+        }
+
         let mut changed = false;
         for other_chunk in chunks {
             let id = other_chunk.id;

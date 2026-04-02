@@ -93,3 +93,8 @@
 **Vulnerability:** DoS risk via unbounded in-game item generation. In `reality-engine/src/engine.rs`, processing the `Action::DropItem` user input when the inventory is empty resulted in unconditionally generating and spawning a new `DroppedItem` object into the `world_state.dropped_items` vector without any limit.
 **Learning:** Any user action that allocates new game state objects, especially those synchronized globally across a P2P network (like `WorldState`), is a vector for memory and network bandwidth exhaustion if the user can spam the action unboundedly.
 **Prevention:** Always enforce a hard upper bound (e.g., maximum 100 spawned items globally) before allowing a user-triggered action to generate new persisted entities in the game world.
+
+## 2026-03-30 - Missing Rate Limiting on Client-Side WebRTC Channels
+**Vulnerability:** The `reality-engine` P2P client lacked rate limiting on incoming WebRTC `DataConnection` messages. A malicious peer could send a flood of rapid updates (e.g., small payload messages or maxed 64KB payloads), causing the WASM client to exhaust its CPU cycle parsing and merging the updates, freezing the user's browser.
+**Learning:** Client-side P2P connections are just as vulnerable to Denial of Service (DoS) attacks as backend servers. Without per-peer rate limiting, a single malicious connection can monopolize the client's single-threaded event loop.
+**Prevention:** Always implement a per-connection rate limit (e.g., tracking `messages_per_second` and dropping excess messages) on event handlers for incoming P2P data channels.

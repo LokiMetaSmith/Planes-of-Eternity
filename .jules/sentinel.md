@@ -94,6 +94,11 @@
 **Learning:** Any user action that allocates new game state objects, especially those synchronized globally across a P2P network (like `WorldState`), is a vector for memory and network bandwidth exhaustion if the user can spam the action unboundedly.
 **Prevention:** Always enforce a hard upper bound (e.g., maximum 100 spawned items globally) before allowing a user-triggered action to generate new persisted entities in the game world.
 
+## 2026-04-02 - Sentinel: Add input validation to save slot names
+**Vulnerability:** DoS risk and Key Injection via unbounded/unsanitized local storage keys. The `get_save_key` function used user-supplied `slot_name` inputs to generate localStorage keys without restricting character types or length, potentially allowing attackers to exhaust storage quotas with massive keys or inject control characters.
+**Learning:** Even internal APIs that interact with browser storage mechanisms (like `localStorage`) must sanitize keys to prevent unpredictable behavior, quota exhaustion DoS, or key collision attacks.
+**Prevention:** Always enforce strict length limits (e.g., 64 characters) and character whitelists (e.g., alphanumeric and underscores) on user-supplied data used as dictionary keys or storage keys.
+
 ## 2026-03-30 - Missing Rate Limiting on Client-Side WebRTC Channels
 **Vulnerability:** The `reality-engine` P2P client lacked rate limiting on incoming WebRTC `DataConnection` messages. A malicious peer could send a flood of rapid updates (e.g., small payload messages or maxed 64KB payloads), causing the WASM client to exhaust its CPU cycle parsing and merging the updates, freezing the user's browser.
 **Learning:** Client-side P2P connections are just as vulnerable to Denial of Service (DoS) attacks as backend servers. Without per-peer rate limiting, a single malicious connection can monopolize the client's single-threaded event loop.

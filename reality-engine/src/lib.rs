@@ -1672,9 +1672,12 @@ impl GameClient {
         }
     }
 
-    pub fn get_key_binding(&self, action_name: String) -> String {
+    pub fn get_key_binding(&self, action_name: js_sys::JsString) -> String {
+        if action_name.length() > 64 { return "".to_string(); }
+        let action_name_str: String = action_name.into();
+
         let state = self.state.borrow();
-        if let Some(action) = input::Action::from_string(&action_name) {
+        if let Some(action) = input::Action::from_string(&action_name_str) {
             if let Some(key) = state.engine.input_config.get_binding(action) {
                 return key.clone();
             }
@@ -1682,10 +1685,14 @@ impl GameClient {
         "".to_string()
     }
 
-    pub fn set_key_binding(&self, action_name: String, key_code: String) {
+    pub fn set_key_binding(&self, action_name: js_sys::JsString, key_code: js_sys::JsString) {
+        if action_name.length() > 64 || key_code.length() > 64 { return; }
+        let action_name_str: String = action_name.into();
+        let key_code_str: String = key_code.into();
+
         let mut state = self.state.borrow_mut();
-        if let Some(action) = input::Action::from_string(&action_name) {
-            state.engine.input_config.set_binding(action, key_code);
+        if let Some(action) = input::Action::from_string(&action_name_str) {
+            state.engine.input_config.set_binding(action, key_code_str);
             self.save_state(&state);
         }
     }
@@ -2446,7 +2453,10 @@ impl GameClient {
         serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())
     }
 
-    pub fn get_npc_state_json(&self, uuid: &str) -> String {
+    pub fn get_npc_state_json(&self, uuid: js_sys::JsString) -> String {
+        if uuid.length() > 64 { return "{}".to_string(); }
+        let uuid_str: String = uuid.into();
+
         let state = self.state.borrow();
 
         let player_loc = state.engine.player_projector.location;
@@ -2455,7 +2465,7 @@ impl GameClient {
             .world_state
             .npcs
             .iter()
-            .find(|n| n.uuid == uuid)
+            .find(|n| n.uuid == uuid_str)
         {
             use cgmath::MetricSpace;
             let npc_state = crate::genie_bridge::NpcStateView {
@@ -2487,15 +2497,18 @@ impl GameClient {
         let mut state = self.state.borrow_mut();
 
         // Security Enhancement: Prevent DoS by limiting JSON payload length
-        // An excessively large JSON string could cause memory exhaustion during deserialization.
+        // Evaluate length on the JS String *before* allocating a Rust String to prevent OOM
         const MAX_ACTION_JSON_LEN: u32 = 1024; // 1KB limit for simple actions
         if action_json.length() > MAX_ACTION_JSON_LEN {
-            log::warn!("Security Warning: NPC action JSON exceeded length limit ({} bytes). Dropping payload.", action_json.length());
+            log::warn!("Security Warning: NPC action JSON exceeded length limit ({} chars). Dropping payload.", action_json.length());
+            return false;
+        }
+        if uuid.length() > 64 {
             return false;
         }
 
-        let action_json_str: String = action_json.into();
         let uuid_str: String = uuid.into();
+        let action_json_str: String = action_json.into();
 
         if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(&action_json_str) {
             if let Some(npc) = state

@@ -8,6 +8,8 @@ pub struct NpcBehavior {
     pub preferred_archetype: RealityArchetype,
     pub energy: f32,
     pub mutation_progress: f32,
+    #[serde(default)]
+    pub hostile: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

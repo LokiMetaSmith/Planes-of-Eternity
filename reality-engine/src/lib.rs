@@ -2108,12 +2108,14 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             // Pause/Unlock pointer if needed?
             // web_sys::window().unwrap().document().unwrap().exit_pointer_lock();
 
-            if let Ok(Some(text)) = web_sys::window()
-                .unwrap()
-                .prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):")
-            {
-                if !text.is_empty() {
-                    state_keydown.borrow_mut().engine.process_inscription(&text);
+            if let Some(window) = web_sys::window() {
+                // Security Enhancement: Prevent Application Crash DoS
+                // Using .unwrap() on the window object could cause a WebAssembly panic if the environment is unusual.
+                // We use if-let instead to safely handle the potential absence of the window object.
+                if let Ok(Some(text)) = window.prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):") {
+                    if !text.is_empty() {
+                        state_keydown.borrow_mut().engine.process_inscription(&text);
+                    }
                 }
             }
             return;
@@ -2462,6 +2464,9 @@ impl GameClient {
     }
 
     pub fn get_npc_state_json(&self, uuid: js_sys::JsString) -> String {
+        if uuid.length() > 64 { return "{}".to_string(); }
+        let uuid_str: String = uuid.into();
+
         let state = self.state.borrow();
         const MAX_UUID_LEN: u32 = 64;
         if uuid.length() > MAX_UUID_LEN {
@@ -2508,15 +2513,18 @@ impl GameClient {
         let mut state = self.state.borrow_mut();
 
         // Security Enhancement: Prevent DoS by limiting JSON payload length
-        // An excessively large JSON string could cause memory exhaustion during deserialization.
+        // Evaluate length on the JS String *before* allocating a Rust String to prevent OOM
         const MAX_ACTION_JSON_LEN: u32 = 1024; // 1KB limit for simple actions
         if action_json.length() > MAX_ACTION_JSON_LEN {
-            log::warn!("Security Warning: NPC action JSON exceeded length limit ({} bytes). Dropping payload.", action_json.length());
+            log::warn!("Security Warning: NPC action JSON exceeded length limit ({} chars). Dropping payload.", action_json.length());
+            return false;
+        }
+        if uuid.length() > 64 {
             return false;
         }
 
-        let action_json_str: String = action_json.into();
         let uuid_str: String = uuid.into();
+        let action_json_str: String = action_json.into();
 
         if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(&action_json_str) {
             if let Some(npc) = state

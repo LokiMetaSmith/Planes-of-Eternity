@@ -1673,10 +1673,13 @@ impl GameClient {
     }
 
     pub fn get_key_binding(&self, action_name: js_sys::JsString) -> String {
-        if action_name.length() > 64 { return "".to_string(); }
-        let action_name_str: String = action_name.into();
-
         let state = self.state.borrow();
+        const MAX_ACTION_NAME_LEN: u32 = 64;
+        if action_name.length() > MAX_ACTION_NAME_LEN {
+            log::warn!("Security Warning: Action name exceeded length limit ({} bytes). Rejecting get_key_binding.", MAX_ACTION_NAME_LEN);
+            return "".to_string();
+        }
+        let action_name_str: String = action_name.into();
         if let Some(action) = input::Action::from_string(&action_name_str) {
             if let Some(key) = state.engine.input_config.get_binding(action) {
                 return key.clone();
@@ -1686,11 +1689,15 @@ impl GameClient {
     }
 
     pub fn set_key_binding(&self, action_name: js_sys::JsString, key_code: js_sys::JsString) {
-        if action_name.length() > 64 || key_code.length() > 64 { return; }
+        let mut state = self.state.borrow_mut();
+        const MAX_ACTION_NAME_LEN: u32 = 64;
+        const MAX_KEY_CODE_LEN: u32 = 64;
+        if action_name.length() > MAX_ACTION_NAME_LEN || key_code.length() > MAX_KEY_CODE_LEN {
+            log::warn!("Security Warning: Action name or key code exceeded length limit. Rejecting set_key_binding.");
+            return;
+        }
         let action_name_str: String = action_name.into();
         let key_code_str: String = key_code.into();
-
-        let mut state = self.state.borrow_mut();
         if let Some(action) = input::Action::from_string(&action_name_str) {
             state.engine.input_config.set_binding(action, key_code_str);
             self.save_state(&state);
@@ -1706,29 +1713,31 @@ impl GameClient {
         }
     }
 
-    pub fn save_game(&self, slot_name: String) {
+    pub fn save_game(&self, slot_name: js_sys::JsString) {
         // Security Enhancement: Prevent DoS by limiting save slot name length
-        const MAX_SLOT_NAME_LEN: usize = 64;
-        if slot_name.len() > MAX_SLOT_NAME_LEN {
+        const MAX_SLOT_NAME_LEN: u32 = 64;
+        if slot_name.length() > MAX_SLOT_NAME_LEN {
             log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting save.", MAX_SLOT_NAME_LEN);
             return;
         }
 
-        *self.current_save_slot.borrow_mut() = slot_name;
+        let slot_name_str: String = slot_name.into();
+        *self.current_save_slot.borrow_mut() = slot_name_str;
         let state = self.state.borrow();
         self.save_state(&state);
     }
 
-    pub fn load_game(&self, slot_name: String) {
+    pub fn load_game(&self, slot_name: js_sys::JsString) {
         // Security Enhancement: Prevent DoS by limiting save slot name length
-        const MAX_SLOT_NAME_LEN: usize = 64;
-        if slot_name.len() > MAX_SLOT_NAME_LEN {
+        const MAX_SLOT_NAME_LEN: u32 = 64;
+        if slot_name.length() > MAX_SLOT_NAME_LEN {
             log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting load.", MAX_SLOT_NAME_LEN);
             return;
         }
 
-        *self.current_save_slot.borrow_mut() = slot_name.clone();
-        let key = persistence::get_save_key(&slot_name);
+        let slot_name_str: String = slot_name.into();
+        *self.current_save_slot.borrow_mut() = slot_name_str.clone();
+        let key = persistence::get_save_key(&slot_name_str);
         if let Some(loaded_state) = persistence::load_from_local_storage(&key) {
             let mut state = self.state.borrow_mut();
 
@@ -1779,9 +1788,9 @@ impl GameClient {
                 state.engine.lambda_system.set_term(term);
             }
 
-            log::info!("Game Loaded from slot: {}", slot_name);
+            log::info!("Game Loaded from slot: {}", slot_name_str);
         } else {
-            log::warn!("Failed to load save slot: {}", slot_name);
+            log::warn!("Failed to load save slot: {}", slot_name_str);
         }
     }
 
@@ -1790,15 +1799,16 @@ impl GameClient {
         serde_json::to_string(&saves).unwrap_or_else(|_| "[]".to_string())
     }
 
-    pub fn delete_save(&self, slot_name: String) {
+    pub fn delete_save(&self, slot_name: js_sys::JsString) {
         // Security Enhancement: Prevent DoS by limiting save slot name length
-        const MAX_SLOT_NAME_LEN: usize = 64;
-        if slot_name.len() > MAX_SLOT_NAME_LEN {
+        const MAX_SLOT_NAME_LEN: u32 = 64;
+        if slot_name.length() > MAX_SLOT_NAME_LEN {
             log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting delete.", MAX_SLOT_NAME_LEN);
             return;
         }
 
-        persistence::delete_save(&slot_name);
+        let slot_name_str: String = slot_name.into();
+        persistence::delete_save(&slot_name_str);
     }
 
     pub fn reset_world(&self) {
@@ -2458,6 +2468,12 @@ impl GameClient {
         let uuid_str: String = uuid.into();
 
         let state = self.state.borrow();
+        const MAX_UUID_LEN: u32 = 64;
+        if uuid.length() > MAX_UUID_LEN {
+            log::warn!("Security Warning: UUID exceeded length limit. Rejecting get_npc_state_json.");
+            return "{}".to_string();
+        }
+        let uuid_str: String = uuid.into();
 
         let player_loc = state.engine.player_projector.location;
         if let Some(npc) = state

@@ -93,3 +93,8 @@
 **Vulnerability:** DoS risk via unbounded in-game item generation. In `reality-engine/src/engine.rs`, processing the `Action::DropItem` user input when the inventory is empty resulted in unconditionally generating and spawning a new `DroppedItem` object into the `world_state.dropped_items` vector without any limit.
 **Learning:** Any user action that allocates new game state objects, especially those synchronized globally across a P2P network (like `WorldState`), is a vector for memory and network bandwidth exhaustion if the user can spam the action unboundedly.
 **Prevention:** Always enforce a hard upper bound (e.g., maximum 100 spawned items globally) before allowing a user-triggered action to generate new persisted entities in the game world.
+
+## 2026-03-30 - Sentinel: Add WebRTC message rate limiting
+**Vulnerability:** DoS risk via unbounded WebRTC message frequency. `network.rs` received and parsed messages over PeerJS `DataConnection`s without rate limiting, potentially allowing a malicious peer to exhaust CPU and memory by flooding the connection.
+**Learning:** Peer-to-peer applications must constrain not only message size and total connections, but also the frequency of messages per connection to prevent processing-based Denial of Service (DoS) attacks.
+**Prevention:** Always enforce a per-connection rate limit (e.g., max messages per second) on incoming WebRTC data channels, and close the connection if the peer violates the limit.

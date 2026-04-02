@@ -1700,12 +1700,26 @@ impl GameClient {
     }
 
     pub fn save_game(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting save.", MAX_SLOT_NAME_LEN);
+            return;
+        }
+
         *self.current_save_slot.borrow_mut() = slot_name;
         let state = self.state.borrow();
         self.save_state(&state);
     }
 
     pub fn load_game(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting load.", MAX_SLOT_NAME_LEN);
+            return;
+        }
+
         *self.current_save_slot.borrow_mut() = slot_name.clone();
         let key = persistence::get_save_key(&slot_name);
         if let Some(loaded_state) = persistence::load_from_local_storage(&key) {
@@ -1770,6 +1784,13 @@ impl GameClient {
     }
 
     pub fn delete_save(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting delete.", MAX_SLOT_NAME_LEN);
+            return;
+        }
+
         persistence::delete_save(&slot_name);
     }
 
@@ -2460,24 +2481,27 @@ impl GameClient {
         serde_json::to_string(&uuids).unwrap_or_else(|_| "[]".to_string())
     }
 
-    pub fn execute_npc_action_json(&self, uuid: &str, action_json: &str) -> bool {
+    pub fn execute_npc_action_json(&self, uuid: js_sys::JsString, action_json: js_sys::JsString) -> bool {
         let mut state = self.state.borrow_mut();
 
         // Security Enhancement: Prevent DoS by limiting JSON payload length
         // An excessively large JSON string could cause memory exhaustion during deserialization.
-        const MAX_ACTION_JSON_LEN: usize = 1024; // 1KB limit for simple actions
-        if action_json.len() > MAX_ACTION_JSON_LEN {
-            log::warn!("Security Warning: NPC action JSON exceeded length limit ({} bytes). Dropping payload.", action_json.len());
+        const MAX_ACTION_JSON_LEN: u32 = 1024; // 1KB limit for simple actions
+        if action_json.length() > MAX_ACTION_JSON_LEN {
+            log::warn!("Security Warning: NPC action JSON exceeded length limit ({} bytes). Dropping payload.", action_json.length());
             return false;
         }
 
-        if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(action_json) {
+        let action_json_str: String = action_json.into();
+        let uuid_str: String = uuid.into();
+
+        if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(&action_json_str) {
             if let Some(npc) = state
                 .engine
                 .world_state
                 .npcs
                 .iter_mut()
-                .find(|n| n.uuid == uuid)
+                .find(|n| n.uuid == uuid_str)
             {
                 if let (Some(tx), Some(ty), Some(tz)) =
                     (action.target_x, action.target_y, action.target_z)
@@ -2507,7 +2531,7 @@ impl GameClient {
                         })
                         .collect();
 
-                    log::info!("NPC {} says: {}", uuid, sanitized);
+                    log::info!("NPC {} says: {}", uuid_str, sanitized);
                     // Could add to an in-game chat log here
                 }
                 return true;

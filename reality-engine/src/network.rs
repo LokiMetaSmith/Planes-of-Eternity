@@ -233,24 +233,23 @@ impl NetworkManager {
             }
         }
 
-        let mut msg_count = 0;
-        let mut last_reset = js_sys::Date::now();
-        let c_close: DataConnection = conn.clone().unchecked_into();
-
         let m_data = manager.clone();
         let pid_data = peer_id.clone();
+        let rate_limit = Rc::new(RefCell::new((js_sys::Date::now() as u64, 0)));
         let on_data = Closure::wrap(Box::new(move |data: JsValue| {
-            // Rate Limit Logic
-            let now = js_sys::Date::now();
-            if now - last_reset >= 1000.0 {
-                msg_count = 0;
-                last_reset = now;
+            // Security Enhancement: Prevent CPU exhaustion DoS by rate limiting incoming WebRTC messages
+            let now = js_sys::Date::now() as u64;
+            let mut rl = rate_limit.borrow_mut();
+            if now.saturating_sub(rl.0) >= 1000 {
+                rl.0 = now;
+                rl.1 = 0;
             }
-            msg_count += 1;
-            const MAX_WEBRTC_MESSAGES_PER_SEC: usize = 60;
-            if msg_count > MAX_WEBRTC_MESSAGES_PER_SEC {
-                warn!("Security Warning: Peer {} exceeded WebRTC rate limit. Closing connection.", pid_data);
-                c_close.close();
+            rl.1 += 1;
+            const MAX_WEBRTC_MSGS_PER_SEC: usize = 50;
+            if rl.1 > MAX_WEBRTC_MSGS_PER_SEC {
+                if rl.1 == MAX_WEBRTC_MSGS_PER_SEC + 1 {
+                    warn!("Security Warning: WebRTC rate limit exceeded by peer {}. Dropping messages.", pid_data);
+                }
                 return;
             }
 

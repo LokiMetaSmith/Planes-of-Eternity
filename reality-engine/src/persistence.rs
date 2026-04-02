@@ -31,10 +31,16 @@ pub struct GameState {
 }
 
 pub fn get_save_key(slot: &str) -> String {
-    if slot == "default" || slot.is_empty() {
+    let sanitized_slot: String = slot
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+        .take(64)
+        .collect();
+
+    if sanitized_slot == "default" || sanitized_slot.is_empty() {
         "reality_engine_save".to_string()
     } else {
-        format!("reality_engine_save_{}", slot)
+        format!("reality_engine_save_{}", sanitized_slot)
     }
 }
 

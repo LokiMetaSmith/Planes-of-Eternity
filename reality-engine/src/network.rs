@@ -235,7 +235,24 @@ impl NetworkManager {
 
         let m_data = manager.clone();
         let pid_data = peer_id.clone();
+        let rate_limit = Rc::new(RefCell::new((js_sys::Date::now() as u64, 0)));
         let on_data = Closure::wrap(Box::new(move |data: JsValue| {
+            // Security Enhancement: Prevent CPU exhaustion DoS by rate limiting incoming WebRTC messages
+            let now = js_sys::Date::now() as u64;
+            let mut rl = rate_limit.borrow_mut();
+            if now.saturating_sub(rl.0) >= 1000 {
+                rl.0 = now;
+                rl.1 = 0;
+            }
+            rl.1 += 1;
+            const MAX_WEBRTC_MSGS_PER_SEC: usize = 50;
+            if rl.1 > MAX_WEBRTC_MSGS_PER_SEC {
+                if rl.1 == MAX_WEBRTC_MSGS_PER_SEC + 1 {
+                    warn!("Security Warning: WebRTC rate limit exceeded by peer {}. Dropping messages.", pid_data);
+                }
+                return;
+            }
+
             // Handle data sync
             if let Ok(js_string) = data.dyn_into::<js_sys::JsString>() {
                 // Security Enhancement: Prevent DoS by limiting WebRTC message length

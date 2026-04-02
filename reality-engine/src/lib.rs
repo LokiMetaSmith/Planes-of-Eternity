@@ -1700,12 +1700,26 @@ impl GameClient {
     }
 
     pub fn save_game(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting save.", MAX_SLOT_NAME_LEN);
+            return;
+        }
+
         *self.current_save_slot.borrow_mut() = slot_name;
         let state = self.state.borrow();
         self.save_state(&state);
     }
 
     pub fn load_game(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting load.", MAX_SLOT_NAME_LEN);
+            return;
+        }
+
         *self.current_save_slot.borrow_mut() = slot_name.clone();
         let key = persistence::get_save_key(&slot_name);
         if let Some(loaded_state) = persistence::load_from_local_storage(&key) {
@@ -1770,6 +1784,13 @@ impl GameClient {
     }
 
     pub fn delete_save(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting delete.", MAX_SLOT_NAME_LEN);
+            return;
+        }
+
         persistence::delete_save(&slot_name);
     }
 

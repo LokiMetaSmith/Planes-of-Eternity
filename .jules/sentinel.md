@@ -93,3 +93,8 @@
 **Vulnerability:** DoS risk via unbounded in-game item generation. In `reality-engine/src/engine.rs`, processing the `Action::DropItem` user input when the inventory is empty resulted in unconditionally generating and spawning a new `DroppedItem` object into the `world_state.dropped_items` vector without any limit.
 **Learning:** Any user action that allocates new game state objects, especially those synchronized globally across a P2P network (like `WorldState`), is a vector for memory and network bandwidth exhaustion if the user can spam the action unboundedly.
 **Prevention:** Always enforce a hard upper bound (e.g., maximum 100 spawned items globally) before allowing a user-triggered action to generate new persisted entities in the game world.
+
+## 2026-04-02 - Sentinel: Fix Unhandled WebAssembly Panic (DoS)
+**Vulnerability:** DoS risk via unhandled application panic on external boundary. `lib.rs` called `web_sys::window().unwrap()` inside an event listener to access the prompt dialog. If the browser environment restricts access to the window object or it is somehow `None`, the `unwrap()` call will cause a WebAssembly panic, crashing the application.
+**Learning:** External API boundaries (like browser DOM APIs via `web_sys`) can theoretically fail and return `None` or `Err`. While rare for core objects like `window`, blindly using `unwrap()` creates an unnecessary crash risk.
+**Prevention:** Always use safe error handling patterns like `if let Some(window) = ...` or `match` when dealing with external boundaries to fail gracefully and avoid application-crashing panics.

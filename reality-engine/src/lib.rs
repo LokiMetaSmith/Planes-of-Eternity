@@ -2070,12 +2070,14 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             // Pause/Unlock pointer if needed?
             // web_sys::window().unwrap().document().unwrap().exit_pointer_lock();
 
-            if let Ok(Some(text)) = web_sys::window()
-                .unwrap()
-                .prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):")
-            {
-                if !text.is_empty() {
-                    state_keydown.borrow_mut().engine.process_inscription(&text);
+            if let Some(window) = web_sys::window() {
+                // Security Enhancement: Prevent Application Crash DoS
+                // Using .unwrap() on the window object could cause a WebAssembly panic if the environment is unusual.
+                // We use if-let instead to safely handle the potential absence of the window object.
+                if let Ok(Some(text)) = window.prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):") {
+                    if !text.is_empty() {
+                        state_keydown.borrow_mut().engine.process_inscription(&text);
+                    }
                 }
             }
             return;

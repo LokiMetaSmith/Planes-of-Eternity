@@ -93,3 +93,8 @@
 **Vulnerability:** DoS risk via unbounded in-game item generation. In `reality-engine/src/engine.rs`, processing the `Action::DropItem` user input when the inventory is empty resulted in unconditionally generating and spawning a new `DroppedItem` object into the `world_state.dropped_items` vector without any limit.
 **Learning:** Any user action that allocates new game state objects, especially those synchronized globally across a P2P network (like `WorldState`), is a vector for memory and network bandwidth exhaustion if the user can spam the action unboundedly.
 **Prevention:** Always enforce a hard upper bound (e.g., maximum 100 spawned items globally) before allowing a user-triggered action to generate new persisted entities in the game world.
+
+## 2026-04-02 - Sentinel: Add input validation to save slot names
+**Vulnerability:** DoS risk and Key Injection via unbounded/unsanitized local storage keys. The `get_save_key` function used user-supplied `slot_name` inputs to generate localStorage keys without restricting character types or length, potentially allowing attackers to exhaust storage quotas with massive keys or inject control characters.
+**Learning:** Even internal APIs that interact with browser storage mechanisms (like `localStorage`) must sanitize keys to prevent unpredictable behavior, quota exhaustion DoS, or key collision attacks.
+**Prevention:** Always enforce strict length limits (e.g., 64 characters) and character whitelists (e.g., alphanumeric and underscores) on user-supplied data used as dictionary keys or storage keys.

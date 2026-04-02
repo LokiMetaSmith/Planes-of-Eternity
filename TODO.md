@@ -92,5 +92,5 @@
 ## Future Enhancements
 - [ ] A specific spell-casting UI or particle effects for when spells hit the ground.
 - [x] A dedicated inventory system for picking up and storing dropped items.
-- [ ] An expanded AI system where NPCs can be hostile and attack the player.
+- [x] An expanded AI system where NPCs can be hostile and attack the player.
 - [x] Different terrain generation types based on the "base" reality of the area.

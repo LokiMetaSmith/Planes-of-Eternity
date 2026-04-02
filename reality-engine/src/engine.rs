@@ -139,6 +139,7 @@ impl Engine {
                         preferred_archetype: arch,
                         energy: 100.0,
                         mutation_progress: 0.0,
+                        hostile: arch == RealityArchetype::Horror,
                     });
                     world_state.npcs.push(npc);
                 }
@@ -259,6 +260,24 @@ impl Engine {
                             1.0,
                             npc.location.z + angle.sin() * radius,
                         ));
+                    }
+                }
+            }
+
+            if let Some(behavior) = &npc.behavior {
+                if behavior.hostile {
+                    use cgmath::InnerSpace;
+                    let dir_to_player = self.camera.eye - npc.location;
+                    let dist_to_player_sq = dir_to_player.magnitude2();
+                    if dist_to_player_sq < 400.0 { // 20 units squared
+                        npc.target_location = Some(self.camera.eye);
+                        speed = 6.0;
+
+                        if dist_to_player_sq < 4.0 { // 2 units squared
+                            // Push back the player
+                            let push_dir = dir_to_player * (5.0 / dist_to_player_sq.sqrt().max(0.1));
+                            self.camera.eye += push_dir;
+                        }
                     }
                 }
             }
@@ -901,6 +920,7 @@ impl Engine {
                 preferred_archetype: arch,
                 energy: 100.0,
                 mutation_progress: 0.0,
+                hostile: arch == RealityArchetype::Horror,
             });
             self.world_state.npcs.push(npc);
         }

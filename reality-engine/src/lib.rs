@@ -1706,21 +1706,29 @@ impl GameClient {
         }
     }
 
-    pub fn save_game(&self, slot_name: js_sys::JsString) {
-        if slot_name.length() > 128 { return; }
-        let slot_name_str: String = slot_name.into();
+    pub fn save_game(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting save.", MAX_SLOT_NAME_LEN);
+            return;
+        }
 
-        *self.current_save_slot.borrow_mut() = slot_name_str;
+        *self.current_save_slot.borrow_mut() = slot_name;
         let state = self.state.borrow();
         self.save_state(&state);
     }
 
-    pub fn load_game(&self, slot_name: js_sys::JsString) {
-        if slot_name.length() > 128 { return; }
-        let slot_name_str: String = slot_name.into();
+    pub fn load_game(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting load.", MAX_SLOT_NAME_LEN);
+            return;
+        }
 
-        *self.current_save_slot.borrow_mut() = slot_name_str.clone();
-        let key = persistence::get_save_key(&slot_name_str);
+        *self.current_save_slot.borrow_mut() = slot_name.clone();
+        let key = persistence::get_save_key(&slot_name);
         if let Some(loaded_state) = persistence::load_from_local_storage(&key) {
             let mut state = self.state.borrow_mut();
 
@@ -1782,10 +1790,15 @@ impl GameClient {
         serde_json::to_string(&saves).unwrap_or_else(|_| "[]".to_string())
     }
 
-    pub fn delete_save(&self, slot_name: js_sys::JsString) {
-        if slot_name.length() > 128 { return; }
-        let slot_name_str: String = slot_name.into();
-        persistence::delete_save(&slot_name_str);
+    pub fn delete_save(&self, slot_name: String) {
+        // Security Enhancement: Prevent DoS by limiting save slot name length
+        const MAX_SLOT_NAME_LEN: usize = 64;
+        if slot_name.len() > MAX_SLOT_NAME_LEN {
+            log::warn!("Security Warning: Save slot name exceeded length limit ({} bytes). Rejecting delete.", MAX_SLOT_NAME_LEN);
+            return;
+        }
+
+        persistence::delete_save(&slot_name);
     }
 
     pub fn reset_world(&self) {
@@ -2085,12 +2098,14 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             // Pause/Unlock pointer if needed?
             // web_sys::window().unwrap().document().unwrap().exit_pointer_lock();
 
-            if let Ok(Some(text)) = web_sys::window()
-                .unwrap()
-                .prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):")
-            {
-                if !text.is_empty() {
-                    state_keydown.borrow_mut().engine.process_inscription(&text);
+            if let Some(window) = web_sys::window() {
+                // Security Enhancement: Prevent Application Crash DoS
+                // Using .unwrap() on the window object could cause a WebAssembly panic if the environment is unusual.
+                // We use if-let instead to safely handle the potential absence of the window object.
+                if let Ok(Some(text)) = window.prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):") {
+                    if !text.is_empty() {
+                        state_keydown.borrow_mut().engine.process_inscription(&text);
+                    }
                 }
             }
             return;
@@ -2531,7 +2546,7 @@ impl GameClient {
                         })
                         .collect();
 
-                    log::info!("NPC {} says: {}", uuid, sanitized);
+                    log::info!("NPC {} says: {}", uuid_str, sanitized);
                     // Could add to an in-game chat log here
                 }
                 return true;

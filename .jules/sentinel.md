@@ -98,3 +98,18 @@
 **Vulnerability:** Length limits inside `#[wasm_bindgen]` functions (like `execute_npc_action_json` and `save_game`) were bypassed because the function signatures accepted `&str` or `String`. `wasm_bindgen` automatically allocates these strings in WASM linear memory *before* the function body executes, leading to OOM DoS attacks regardless of internal checks.
 **Learning:** Native type conversion happens at the boundary. Internal length checks are completely useless against memory exhaustion if the boundary automatically allocates the full malicious payload.
 **Prevention:** For any exported WASM function accepting unbounded user input or JSON payloads, use `js_sys::JsString` in the signature to prevent automatic allocation, check `.length()` natively, and only then safely convert to a Rust `String`.
+
+## 2026-04-02 - Sentinel: Fix Unhandled WebAssembly Panic (DoS)
+**Vulnerability:** DoS risk via unhandled application panic on external boundary. `lib.rs` called `web_sys::window().unwrap()` inside an event listener to access the prompt dialog. If the browser environment restricts access to the window object or it is somehow `None`, the `unwrap()` call will cause a WebAssembly panic, crashing the application.
+**Learning:** External API boundaries (like browser DOM APIs via `web_sys`) can theoretically fail and return `None` or `Err`. While rare for core objects like `window`, blindly using `unwrap()` creates an unnecessary crash risk.
+**Prevention:** Always use safe error handling patterns like `if let Some(window) = ...` or `match` when dealing with external boundaries to fail gracefully and avoid application-crashing panics.
+
+## 2026-04-02 - Sentinel: Add input validation to save slot names
+**Vulnerability:** DoS risk and Key Injection via unbounded/unsanitized local storage keys. The `get_save_key` function used user-supplied `slot_name` inputs to generate localStorage keys without restricting character types or length, potentially allowing attackers to exhaust storage quotas with massive keys or inject control characters.
+**Learning:** Even internal APIs that interact with browser storage mechanisms (like `localStorage`) must sanitize keys to prevent unpredictable behavior, quota exhaustion DoS, or key collision attacks.
+**Prevention:** Always enforce strict length limits (e.g., 64 characters) and character whitelists (e.g., alphanumeric and underscores) on user-supplied data used as dictionary keys or storage keys.
+
+## 2026-03-30 - Missing Rate Limiting on Client-Side WebRTC Channels
+**Vulnerability:** The `reality-engine` P2P client lacked rate limiting on incoming WebRTC `DataConnection` messages. A malicious peer could send a flood of rapid updates (e.g., small payload messages or maxed 64KB payloads), causing the WASM client to exhaust its CPU cycle parsing and merging the updates, freezing the user's browser.
+**Learning:** Client-side P2P connections are just as vulnerable to Denial of Service (DoS) attacks as backend servers. Without per-peer rate limiting, a single malicious connection can monopolize the client's single-threaded event loop.
+**Prevention:** Always implement a per-connection rate limit (e.g., tracking `messages_per_second` and dropping excess messages) on event handlers for incoming P2P data channels.

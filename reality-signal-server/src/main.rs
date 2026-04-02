@@ -47,7 +47,9 @@ async fn main() {
         .with(warp::reply::with::header("X-Content-Type-Options", "nosniff"))
         .with(warp::reply::with::header("Referrer-Policy", "strict-origin-when-cross-origin"))
         // Security Enhancement: Add Content-Security-Policy to mitigate XSS and restrict external resources
-        .with(warp::reply::with::header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' ws://localhost:9000 wss://localhost:9000 http://localhost:9000 https://localhost:9000 https://0.peerjs.com wss://0.peerjs.com; img-src 'self' data: blob:; media-src 'self' blob:;"));
+        .with(warp::reply::with::header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' ws://localhost:9000 wss://localhost:9000 http://localhost:9000 https://localhost:9000 https://0.peerjs.com wss://0.peerjs.com; img-src 'self' data: blob:; media-src 'self' blob:;"))
+        // Security Enhancement: Add Strict-Transport-Security to enforce HTTPS
+        .with(warp::reply::with::header("Strict-Transport-Security", "max-age=31536000; includeSubDomains"));
 
     println!("Signaling server and static file server running on http://localhost:9000/");
 

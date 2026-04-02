@@ -98,3 +98,28 @@
 **Vulnerability:** DoS risk via `NaN` propagation from overflowing coordinates. When an attacker provides extremely large coordinates (e.g., `1e38`) via JSON, the resulting squared distance calculation (`dir.magnitude2()`) in `engine.rs` evaluates to `f32::INFINITY`. When `Infinity` is used in a normalized move vector multiplication where speed is zero or inverse distance is zero, `Infinity * 0.0` evaluates to `NaN`. This `NaN` is then propagated to the NPC's location vector, permanently corrupting the game state and preventing rendering or collision.
 **Learning:** `f32` coordinates passed into standard vector math functions like `magnitude2()` can overflow if they exceed `sqrt(f32::MAX)`. Even if the inputs are theoretically finite, squaring them internally can cause an `Infinity` overflow, resulting in a silent `NaN` poisoning vulnerability.
 **Prevention:** Always verify that squared distances and other critical intermediate floating-point calculations are finite using `.is_finite()` before proceeding with further arithmetic, especially before multiplying or dividing by those distances.
+
+## 2026-03-30 - WASM Bindgen Argument Allocation Bypass
+**Vulnerability:** Length limits inside `#[wasm_bindgen]` functions (like `execute_npc_action_json` and `save_game`) were bypassed because the function signatures accepted `&str` or `String`. `wasm_bindgen` automatically allocates these strings in WASM linear memory *before* the function body executes, leading to OOM DoS attacks regardless of internal checks.
+**Learning:** Native type conversion happens at the boundary. Internal length checks are completely useless against memory exhaustion if the boundary automatically allocates the full malicious payload.
+**Prevention:** For any exported WASM function accepting unbounded user input or JSON payloads, use `js_sys::JsString` in the signature to prevent automatic allocation, check `.length()` natively, and only then safely convert to a Rust `String`.
+
+## 2026-04-02 - Sentinel: Fix Unhandled WebAssembly Panic (DoS)
+**Vulnerability:** DoS risk via unhandled application panic on external boundary. `lib.rs` called `web_sys::window().unwrap()` inside an event listener to access the prompt dialog. If the browser environment restricts access to the window object or it is somehow `None`, the `unwrap()` call will cause a WebAssembly panic, crashing the application.
+**Learning:** External API boundaries (like browser DOM APIs via `web_sys`) can theoretically fail and return `None` or `Err`. While rare for core objects like `window`, blindly using `unwrap()` creates an unnecessary crash risk.
+**Prevention:** Always use safe error handling patterns like `if let Some(window) = ...` or `match` when dealing with external boundaries to fail gracefully and avoid application-crashing panics.
+
+## 2026-04-02 - Sentinel: Add input validation to save slot names
+**Vulnerability:** DoS risk and Key Injection via unbounded/unsanitized local storage keys. The `get_save_key` function used user-supplied `slot_name` inputs to generate localStorage keys without restricting character types or length, potentially allowing attackers to exhaust storage quotas with massive keys or inject control characters.
+**Learning:** Even internal APIs that interact with browser storage mechanisms (like `localStorage`) must sanitize keys to prevent unpredictable behavior, quota exhaustion DoS, or key collision attacks.
+**Prevention:** Always enforce strict length limits (e.g., 64 characters) and character whitelists (e.g., alphanumeric and underscores) on user-supplied data used as dictionary keys or storage keys.
+
+## 2026-03-30 - Missing Rate Limiting on Client-Side WebRTC Channels
+**Vulnerability:** The `reality-engine` P2P client lacked rate limiting on incoming WebRTC `DataConnection` messages. A malicious peer could send a flood of rapid updates (e.g., small payload messages or maxed 64KB payloads), causing the WASM client to exhaust its CPU cycle parsing and merging the updates, freezing the user's browser.
+**Learning:** Client-side P2P connections are just as vulnerable to Denial of Service (DoS) attacks as backend servers. Without per-peer rate limiting, a single malicious connection can monopolize the client's single-threaded event loop.
+**Prevention:** Always implement a per-connection rate limit (e.g., tracking `messages_per_second` and dropping excess messages) on event handlers for incoming P2P data channels.
+
+## 2025-05-24 - Sentinel: WASM Boundary OOM DoS via Unbounded Strings
+**Vulnerability:** The WASM boundary functions in `reality-engine/src/lib.rs` (like `save_game`, `load_game`, `delete_save`, `get_key_binding`) accepted Rust `String` parameters directly from JavaScript. This allows an attacker to pass an exceptionally large string from JS, causing the JS-to-WASM bridge to implicitly allocate unbounded memory in the WASM heap *before* any internal Rust length checks are executed, leading to an Out-Of-Memory (OOM) Denial of Service (DoS) attack that crashes the WASM module.
+**Learning:** Converting untrusted `JsValue` or implicit JS strings into Rust `String` at the `#[wasm-bindgen]` boundary happens automatically and without length constraints. Length checks placed *inside* the Rust function body are ineffective against allocation DoS if the allocation happens at the ABI boundary.
+**Prevention:** Always accept `js_sys::JsString` for untrusted string inputs at the `#[wasm-bindgen]` boundary. Evaluate `.length()` on the native JS string representation *before* calling `.into()` to convert it to a Rust `String` to prevent malicious allocations.

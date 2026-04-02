@@ -291,13 +291,15 @@ impl Engine {
                 // checking against a squared threshold, and then extracting the square root just once
                 // to multiply it back as a scalar, instead of calling `.magnitude()` and then `.normalize()`.
                 let dist_sq = dir.magnitude2();
-                if dist_sq > 0.01 {
+                // Security Enhancement: Prevent NaN propagation DoS if target coordinates are excessively large (e.g. 1e38).
+                // Squaring massive finite floats overflows to Infinity. Infinity * 0.0 results in NaN, corrupting the NPC's location.
+                if dist_sq > 0.01 && dist_sq.is_finite() {
                     // 0.1 squared
                     let dist = dist_sq.sqrt();
                     let move_vec = dir * (speed * dt / dist);
                     npc.location += move_vec;
                 } else {
-                    npc.target_location = None; // Reached target
+                    npc.target_location = None; // Reached target or invalid
                 }
             } else {
                 // Fallback deterministic wandering

@@ -94,6 +94,11 @@
 **Learning:** Any user action that allocates new game state objects, especially those synchronized globally across a P2P network (like `WorldState`), is a vector for memory and network bandwidth exhaustion if the user can spam the action unboundedly.
 **Prevention:** Always enforce a hard upper bound (e.g., maximum 100 spawned items globally) before allowing a user-triggered action to generate new persisted entities in the game world.
 
+## 2026-04-03 - Sentinel: Prevent NaN Propagation DoS in Target Distances
+**Vulnerability:** DoS risk via `NaN` propagation from overflowing coordinates. When an attacker provides extremely large coordinates (e.g., `1e38`) via JSON, the resulting squared distance calculation (`dir.magnitude2()`) in `engine.rs` evaluates to `f32::INFINITY`. When `Infinity` is used in a normalized move vector multiplication where speed is zero or inverse distance is zero, `Infinity * 0.0` evaluates to `NaN`. This `NaN` is then propagated to the NPC's location vector, permanently corrupting the game state and preventing rendering or collision.
+**Learning:** `f32` coordinates passed into standard vector math functions like `magnitude2()` can overflow if they exceed `sqrt(f32::MAX)`. Even if the inputs are theoretically finite, squaring them internally can cause an `Infinity` overflow, resulting in a silent `NaN` poisoning vulnerability.
+**Prevention:** Always verify that squared distances and other critical intermediate floating-point calculations are finite using `.is_finite()` before proceeding with further arithmetic, especially before multiplying or dividing by those distances.
+
 ## 2026-03-30 - WASM Bindgen Argument Allocation Bypass
 **Vulnerability:** Length limits inside `#[wasm_bindgen]` functions (like `execute_npc_action_json` and `save_game`) were bypassed because the function signatures accepted `&str` or `String`. `wasm_bindgen` automatically allocates these strings in WASM linear memory *before* the function body executes, leading to OOM DoS attacks regardless of internal checks.
 **Learning:** Native type conversion happens at the boundary. Internal length checks are completely useless against memory exhaustion if the boundary automatically allocates the full malicious payload.

@@ -93,3 +93,8 @@
 **Vulnerability:** DoS risk via unbounded in-game item generation. In `reality-engine/src/engine.rs`, processing the `Action::DropItem` user input when the inventory is empty resulted in unconditionally generating and spawning a new `DroppedItem` object into the `world_state.dropped_items` vector without any limit.
 **Learning:** Any user action that allocates new game state objects, especially those synchronized globally across a P2P network (like `WorldState`), is a vector for memory and network bandwidth exhaustion if the user can spam the action unboundedly.
 **Prevention:** Always enforce a hard upper bound (e.g., maximum 100 spawned items globally) before allowing a user-triggered action to generate new persisted entities in the game world.
+
+## 2026-03-30 - WASM Bindgen Argument Allocation Bypass
+**Vulnerability:** Length limits inside `#[wasm_bindgen]` functions (like `execute_npc_action_json` and `save_game`) were bypassed because the function signatures accepted `&str` or `String`. `wasm_bindgen` automatically allocates these strings in WASM linear memory *before* the function body executes, leading to OOM DoS attacks regardless of internal checks.
+**Learning:** Native type conversion happens at the boundary. Internal length checks are completely useless against memory exhaustion if the boundary automatically allocates the full malicious payload.
+**Prevention:** For any exported WASM function accepting unbounded user input or JSON payloads, use `js_sys::JsString` in the signature to prevent automatic allocation, check `.length()` natively, and only then safely convert to a Rust `String`.

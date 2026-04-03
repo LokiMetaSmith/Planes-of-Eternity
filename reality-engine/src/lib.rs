@@ -1313,6 +1313,24 @@ impl State {
             });
         }
 
+        // 4. Add Spell Effects (Particles)
+        for effect in &self.engine.spell_effects {
+            let progress = effect.timer / effect.max_time;
+            // Scale expands over time
+            let current_scale = effect.scale * (progress * 2.0).min(1.0);
+
+            // Pulse opacity
+            let alpha = 1.0 - progress;
+            let mut color = effect.color;
+            color[3] = alpha;
+
+            entity_instances.push(visual_lambda::LambdaInstance {
+                position: [effect.position.x, effect.position.y, effect.position.z],
+                color,
+                scale: current_scale,
+            });
+        }
+
         self.num_entities = entity_instances.len() as u32;
 
         if self.num_entities > self.max_entities {
@@ -2464,16 +2482,14 @@ impl GameClient {
     }
 
     pub fn get_npc_state_json(&self, uuid: js_sys::JsString) -> String {
-        if uuid.length() > 64 { return "{}".to_string(); }
-        let uuid_str: String = uuid.into();
-
-        let state = self.state.borrow();
         const MAX_UUID_LEN: u32 = 64;
         if uuid.length() > MAX_UUID_LEN {
             log::warn!("Security Warning: UUID exceeded length limit. Rejecting get_npc_state_json.");
             return "{}".to_string();
         }
         let uuid_str: String = uuid.into();
+
+        let state = self.state.borrow();
 
         let player_loc = state.engine.player_projector.location;
         if let Some(npc) = state

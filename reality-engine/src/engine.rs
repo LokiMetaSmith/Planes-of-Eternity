@@ -19,6 +19,14 @@ pub struct LabelInfo {
     pub color: String,
 }
 
+pub struct SpellEffect {
+    pub position: cgmath::Point3<f32>,
+    pub color: [f32; 4],
+    pub scale: f32,
+    pub timer: f32,
+    pub max_time: f32,
+}
+
 pub struct Engine {
     pub world_state: WorldState,
     pub player_projector: RealityProjector,
@@ -33,6 +41,7 @@ pub struct Engine {
     pub pending_full_sync: bool,
     pub width: u32,
     pub height: u32,
+    pub spell_effects: Vec<SpellEffect>,
 }
 
 impl Engine {
@@ -177,6 +186,7 @@ impl Engine {
             pending_full_sync: false,
             width,
             height,
+            spell_effects: Vec::new(),
         }
     }
 
@@ -451,6 +461,12 @@ impl Engine {
             }
         }
 
+        // Update Spell Effects
+        for effect in &mut self.spell_effects {
+            effect.timer += dt;
+        }
+        self.spell_effects.retain(|e| e.timer < e.max_time);
+
         voxel_destroyed
     }
 
@@ -470,6 +486,34 @@ impl Engine {
                                     "Spell Cast Successfully: {:?}",
                                     anomaly.reality_signature.active_style.archetype
                                 );
+
+                                // Spawn visual effect
+                                let color = match anomaly.reality_signature.active_style.archetype {
+                                    crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
+                                    crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
+                                    crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
+                                    crate::reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],
+                                    crate::reality_types::RealityArchetype::HyperNature => [0.0, 0.8, 0.2, 1.0],
+                                    crate::reality_types::RealityArchetype::Genie => [1.0, 0.0, 1.0, 1.0],
+                                    crate::reality_types::RealityArchetype::Void => [0.1, 0.1, 0.1, 1.0],
+                                    crate::reality_types::RealityArchetype::Glitch => [0.0, 1.0, 0.0, 1.0],
+                                    crate::reality_types::RealityArchetype::Steampunk => [0.8, 0.5, 0.2, 1.0],
+                                    crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
+                                    crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
+                                    crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
+                                    crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
+                                    crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
+                                    crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
+                                };
+
+                                self.spell_effects.push(SpellEffect {
+                                    position: anomaly.location,
+                                    color,
+                                    scale: anomaly.reality_signature.active_style.scale,
+                                    timer: 0.0,
+                                    max_time: 1.5,
+                                });
+
                             } else {
                                 log::warn!(
                                     "Spell Failed: Term did not compile to a valid anomaly."

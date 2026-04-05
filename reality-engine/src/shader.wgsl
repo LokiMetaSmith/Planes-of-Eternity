@@ -313,6 +313,15 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let cells = voronoi(pos_scaled);
         let organic = fbm(pos_scaled * 2.0 + time * 0.1, 3, roughness);
         return mix(cells, organic, 0.5) * 5.0 * params.z;
+    } else if (id < 14.5) {
+        // Biopunk (Fleshy, pulsing, veiny structures)
+        let time = reality.global_offset.z;
+        let p = pos * scale;
+        let n1 = fbm(p + vec2<f32>(time * 0.2), 3, roughness);
+        let n2 = voronoi(p * 2.0 - vec2<f32>(time * 0.1));
+        // Inverse voronoi for veiny/web-like structures
+        let veins = (1.0 - n2) * 2.0;
+        return (n1 + veins) * 3.0 * params.z;
     }
 
     return 0.0;
@@ -705,6 +714,23 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
 
         let final_color = mix(base_mix, mix(gold, white, n), clamp(structure * n, 0.0, 1.0));
         return final_color;
+    } else if (id < 14.5) {
+        // Biopunk
+        let time = reality.global_offset.z;
+        let flesh_base = vec3<f32>(0.8, 0.3, 0.3);
+        let flesh_dark = vec3<f32>(0.4, 0.1, 0.15);
+        let vein_color = vec3<f32>(0.2, 0.1, 0.5); // Purplish veins
+
+        let p = pos.xz * scale;
+        let noise = fbm(p, 4, roughness);
+        let pulse = sin(time * 2.0 + noise * 10.0) * 0.5 + 0.5;
+
+        let flesh = mix(flesh_dark, flesh_base, noise + pulse * 0.2);
+
+        let v = voronoi(p * 3.0);
+        let is_vein = step(0.8, 1.0 - v); // Sharp web-like veins
+
+        return mix(flesh, vein_color, is_vein * 0.8);
     }
 
     return base_color;

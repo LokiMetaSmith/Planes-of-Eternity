@@ -18,6 +18,7 @@ pub enum RealityArchetype {
     Dream,       // Soft Pastel Clouds
     ObraDinn,    // 1-bit Dithered Sphere Mapping
     SolarPunk,   // High-tech harmony with nature
+    Biopunk,     // Organic, fleshy, mutated structures
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

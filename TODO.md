@@ -73,6 +73,7 @@
 - [x] **New Archetypes**: Added CyberSpace archetype to Reality Engine.
 - [x] **New Archetypes**: Added Dream archetype to Reality Engine.
 - [x] **New Archetypes**: Added ObraDinn archetype to Reality Engine with spherical dither mapping.
+- [x] **New Archetypes**: Added Biopunk archetype to Reality Engine.
 
 ## Game Mechanics
 - [x] **Item Physics**: Added simple physics for dropped items with gravity and ground collision.

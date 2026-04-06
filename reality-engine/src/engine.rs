@@ -473,14 +473,29 @@ impl Engine {
     pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) {
         // Map raw key to Action
         if let Some(action) = self.input_config.map_key(key_code) {
+            // First pass input to camera controller
+            self.camera_controller.process_action(action, pressed);
+
+            // Send trigger actions via lambda evaluation for scriptability
+            if pressed {
+                let term = match action {
+                    Action::Jump => Some(Term::prim(Primitive::Jump)),
+                    Action::DropItem => Some(Term::prim(Primitive::Drop)),
+                    _ => None,
+                };
+                if let Some(t) = term {
+                    self.compile_spell(t);
+                }
+            }
+
             match action {
                 Action::CastSpell => {
                     if pressed {
                         // Cast Spell
                         log::info!("Casting Lambda Spell!");
                         self.audio.play_cast();
-                        if let Some(term) = &self.lambda_system.root_term {
-                            if let Some(anomaly) = self.compile_spell(term.clone()) {
+                        if let Some(term) = self.lambda_system.root_term.clone() {
+                            if let Some(anomaly) = self.compile_spell(term) {
                                 self.world_state.add_anomaly(anomaly.clone());
                                 log::info!(
                                     "Spell Cast Successfully: {:?}",
@@ -811,7 +826,7 @@ impl Engine {
         (ray_origin, ray_dir)
     }
 
-    fn compile_spell(&self, term: Rc<Term>) -> Option<RealityProjector> {
+    fn compile_spell(&mut self, term: Rc<Term>) -> Option<RealityProjector> {
         // 1. Fully reduce the term
         let mut current = term;
         for _ in 0..100 {
@@ -830,11 +845,64 @@ impl Engine {
         let spawn_pos = self.camera.eye + forward * 10.0;
 
         match &*current {
-            Term::Prim(p) => self.primitive_to_anomaly(*p, spawn_pos),
+            Term::Prim(p) => {
+                match p {
+                    Primitive::Jump => {
+                        // Side effect: jump
+                        self.camera_controller.process_action(Action::Jump, true);
+                        None
+                    }
+                    Primitive::Drop => {
+                        // Side effect: drop item
+                        let (sin_y, cos_y) = self.camera.yaw.sin_cos();
+                        let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
+
+                        // If inventory has items, drop the last one
+                        if let Some(mut item) = self.world_state.player_inventory.pop() {
+                            item.position = self.camera.eye;
+                            item.velocity = forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0;
+                            self.world_state.dropped_items.push(item);
+                            log::info!("Lambda dropped item from inventory at {:?}", self.camera.eye);
+                        } else {
+                            // Security Enhancement: Prevent DoS by limiting maximum spawned items
+                            const MAX_SPAWNED_ITEMS: usize = 100;
+                            if self.world_state.dropped_items.len() < MAX_SPAWNED_ITEMS {
+                                // Otherwise, create a default gold cube to drop
+                                let new_item = crate::reality_types::DroppedItem::new_cube(
+                                    uuid::Uuid::new_v4().to_string(),
+                                    self.camera.eye,
+                                    forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
+                                    0.2,
+                                    [1.0, 0.8, 0.2, 1.0], // Goldish color
+                                    3,                    // 3x3x3 grid
+                                );
+                                self.world_state.dropped_items.push(new_item);
+                                log::info!("Lambda dropped new spawned item at {:?}", self.camera.eye);
+                            } else {
+                                log::warn!("Security Warning: Maximum spawned items limit reached ({}). Cannot drop new item.", MAX_SPAWNED_ITEMS);
+                            }
+                        }
+                        None
+                    }
+                    _ => self.primitive_to_anomaly(*p, spawn_pos)
+                }
+            },
             Term::App(func, arg) => {
                 // Check if it's Prim App Prim
                 if let Term::Prim(op) = &**func {
                     if let Term::Prim(target) = &**arg {
+                        // Special case for Move Left, Move Right etc
+                        if *op == Primitive::Move {
+                            match target {
+                                Primitive::Forward => self.camera_controller.process_action(Action::MoveForward, true),
+                                Primitive::Backward => self.camera_controller.process_action(Action::MoveBackward, true),
+                                Primitive::Left => self.camera_controller.process_action(Action::MoveLeft, true),
+                                Primitive::Right => self.camera_controller.process_action(Action::MoveRight, true),
+                                _ => ()
+                            }
+                            return None;
+                        }
+
                         return self.combine_primitives(*op, *target, spawn_pos);
                     }
                 }

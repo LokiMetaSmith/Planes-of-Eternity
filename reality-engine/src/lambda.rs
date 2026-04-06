@@ -12,6 +12,13 @@ pub enum Primitive {
     Energy,
     Stable,
     Void,
+    Move,
+    Jump,
+    Drop,
+    Forward,
+    Backward,
+    Left,
+    Right,
 }
 
 impl fmt::Display for Primitive {
@@ -26,6 +33,13 @@ impl fmt::Display for Primitive {
             Primitive::Energy => write!(f, "ENERGY"),
             Primitive::Stable => write!(f, "STABLE"),
             Primitive::Void => write!(f, "VOID"),
+            Primitive::Move => write!(f, "MOVE"),
+            Primitive::Jump => write!(f, "JUMP"),
+            Primitive::Drop => write!(f, "DROP"),
+            Primitive::Forward => write!(f, "FORWARD"),
+            Primitive::Backward => write!(f, "BACKWARD"),
+            Primitive::Left => write!(f, "LEFT"),
+            Primitive::Right => write!(f, "RIGHT"),
         }
     }
 }
@@ -44,6 +58,13 @@ impl std::str::FromStr for Primitive {
             "ENERGY" => Ok(Primitive::Energy),
             "STABLE" => Ok(Primitive::Stable),
             "VOID" => Ok(Primitive::Void),
+            "MOVE" => Ok(Primitive::Move),
+            "JUMP" => Ok(Primitive::Jump),
+            "DROP" => Ok(Primitive::Drop),
+            "FORWARD" => Ok(Primitive::Forward),
+            "BACKWARD" => Ok(Primitive::Backward),
+            "LEFT" => Ok(Primitive::Left),
+            "RIGHT" => Ok(Primitive::Right),
             _ => Err(()),
         }
     }

@@ -95,3 +95,10 @@
 - [x] A dedicated inventory system for picking up and storing dropped items.
 - [x] An expanded AI system where NPCs can be hostile and attack the player.
 - [x] Different terrain generation types based on the "base" reality of the area.
+
+## Full Lambda Scripting Integration
+- [ ] **Extend Primitives**: Introduce new lambda primitives (e.g., `MOVE`, `JUMP`, `DROP`, `SET_ARCHETYPE`) to map game actions into the Lambda engine.
+- [ ] **Engine Action Hook**: Replace hardcoded Rust state changes triggered by key-presses with evaluation of Lambda expressions.
+- [ ] **Advanced Spells & Effects**: Expand `compile_spell` to allow spells to trigger side-effects (e.g. modify environment, heal player) based on complex function evaluation.
+- [ ] **Custom Hotkeys UI**: Allow players to bind custom lambda spell expressions to specific hotkeys via the UI.
+- [ ] **Visual Scripting Expansion**: Expand the 3D drag-and-drop bubble visual system / Inscribe overlay to facilitate building game logic directly within the UI.

@@ -1570,6 +1570,13 @@ impl LambdaSystem {
             Primitive::Energy => [1.0, 1.0, 0.0, 1.0],
             Primitive::Stable => [1.0, 1.0, 1.0, 1.0],
             Primitive::Void => [0.1, 0.1, 0.1, 1.0],
+            Primitive::Move => [0.2, 0.5, 1.0, 1.0],
+            Primitive::Jump => [1.0, 0.5, 0.2, 1.0],
+            Primitive::Drop => [0.5, 0.2, 0.1, 1.0],
+            Primitive::Forward => [0.9, 0.9, 0.9, 1.0],
+            Primitive::Backward => [0.4, 0.4, 0.4, 1.0],
+            Primitive::Left => [0.6, 0.6, 0.6, 1.0],
+            Primitive::Right => [0.6, 0.6, 0.6, 1.0],
         }
     }
 }

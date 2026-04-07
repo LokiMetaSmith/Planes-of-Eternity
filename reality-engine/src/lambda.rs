@@ -19,6 +19,8 @@ pub enum Primitive {
     Backward,
     Left,
     Right,
+    SetArchetype,
+    Descend,
 }
 
 impl fmt::Display for Primitive {
@@ -40,6 +42,8 @@ impl fmt::Display for Primitive {
             Primitive::Backward => write!(f, "BACKWARD"),
             Primitive::Left => write!(f, "LEFT"),
             Primitive::Right => write!(f, "RIGHT"),
+            Primitive::SetArchetype => write!(f, "SET_ARCHETYPE"),
+            Primitive::Descend => write!(f, "DESCEND"),
         }
     }
 }
@@ -65,6 +69,8 @@ impl std::str::FromStr for Primitive {
             "BACKWARD" => Ok(Primitive::Backward),
             "LEFT" => Ok(Primitive::Left),
             "RIGHT" => Ok(Primitive::Right),
+            "SET_ARCHETYPE" => Ok(Primitive::SetArchetype),
+            "DESCEND" => Ok(Primitive::Descend),
             _ => Err(()),
         }
     }

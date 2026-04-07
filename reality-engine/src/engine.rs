@@ -852,6 +852,11 @@ impl Engine {
                         self.camera_controller.process_action(Action::Jump, true);
                         None
                     }
+                    Primitive::Descend => {
+                        // Side effect: descend
+                        self.camera_controller.process_action(Action::Descend, true);
+                        None
+                    }
                     Primitive::Drop => {
                         // Side effect: drop item
                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();
@@ -904,6 +909,36 @@ impl Engine {
                         }
 
                         return self.combine_primitives(*op, *target, spawn_pos);
+                    } else if let Term::Var(target) = &**arg {
+                        if *op == Primitive::SetArchetype {
+                            let arch = match target.to_uppercase().as_str() {
+                                "FANTASY" => Some(crate::reality_types::RealityArchetype::Fantasy),
+                                "SCIFI" => Some(crate::reality_types::RealityArchetype::SciFi),
+                                "HORROR" => Some(crate::reality_types::RealityArchetype::Horror),
+                                "TOON" => Some(crate::reality_types::RealityArchetype::Toon),
+                                "HYPERNATURE" => Some(crate::reality_types::RealityArchetype::HyperNature),
+                                "GENIE" => Some(crate::reality_types::RealityArchetype::Genie),
+                                "GLITCH" => Some(crate::reality_types::RealityArchetype::Glitch),
+                                "STEAMPUNK" => Some(crate::reality_types::RealityArchetype::Steampunk),
+                                "VAPORWAVE" => Some(crate::reality_types::RealityArchetype::Vaporwave),
+                                "NOIR" => Some(crate::reality_types::RealityArchetype::Noir),
+                                "CYBERSPACE" => Some(crate::reality_types::RealityArchetype::CyberSpace),
+                                "DREAM" => Some(crate::reality_types::RealityArchetype::Dream),
+                                "OBRADINN" => Some(crate::reality_types::RealityArchetype::ObraDinn),
+                                "SOLARPUNK" => Some(crate::reality_types::RealityArchetype::SolarPunk),
+                                "BIOPUNK" => Some(crate::reality_types::RealityArchetype::Biopunk),
+                                "VOID" => Some(crate::reality_types::RealityArchetype::Void),
+                                _ => None,
+                            };
+
+                            if let Some(a) = arch {
+                                self.player_projector.reality_signature.active_style.archetype = a;
+                                log::info!("Player archetype set to {:?}", a);
+                            } else {
+                                log::warn!("Unknown archetype: {}", target);
+                            }
+                            return None;
+                        }
                     }
                 }
                 // Also check if it's Prim App (App...) - recursive evaluation is hard without specific logic.

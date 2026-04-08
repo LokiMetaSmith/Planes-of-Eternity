@@ -1579,6 +1579,8 @@ impl LambdaSystem {
             Primitive::Right => [0.6, 0.6, 0.6, 1.0],
             Primitive::SetArchetype => [0.8, 0.2, 0.8, 1.0],
             Primitive::Descend => [0.5, 0.3, 0.2, 1.0],
+            Primitive::Stop => [1.0, 0.2, 0.2, 1.0],
+            Primitive::Pickup => [0.2, 0.8, 0.2, 1.0],
         }
     }
 }

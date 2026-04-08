@@ -21,6 +21,8 @@ pub enum Primitive {
     Right,
     SetArchetype,
     Descend,
+    Stop,
+    Pickup,
 }
 
 impl fmt::Display for Primitive {
@@ -44,6 +46,8 @@ impl fmt::Display for Primitive {
             Primitive::Right => write!(f, "RIGHT"),
             Primitive::SetArchetype => write!(f, "SET_ARCHETYPE"),
             Primitive::Descend => write!(f, "DESCEND"),
+            Primitive::Stop => write!(f, "STOP"),
+            Primitive::Pickup => write!(f, "PICKUP"),
         }
     }
 }
@@ -71,6 +75,8 @@ impl std::str::FromStr for Primitive {
             "RIGHT" => Ok(Primitive::Right),
             "SET_ARCHETYPE" => Ok(Primitive::SetArchetype),
             "DESCEND" => Ok(Primitive::Descend),
+            "STOP" => Ok(Primitive::Stop),
+            "PICKUP" => Ok(Primitive::Pickup),
             _ => Err(()),
         }
     }

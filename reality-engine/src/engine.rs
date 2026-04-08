@@ -473,19 +473,26 @@ impl Engine {
     pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) {
         // Map raw key to Action
         if let Some(action) = self.input_config.map_key(key_code) {
-            // First pass input to camera controller
-            self.camera_controller.process_action(action, pressed);
+            // Send engine actions via lambda evaluation for scriptability
+            let term = match action {
+                Action::Jump => Some(Term::prim(Primitive::Jump)),
+                Action::Descend => Some(Term::prim(Primitive::Descend)),
+                Action::MoveForward => Some(Term::app(Term::prim(Primitive::Move), Term::prim(Primitive::Forward))),
+                Action::MoveBackward => Some(Term::app(Term::prim(Primitive::Move), Term::prim(Primitive::Backward))),
+                Action::MoveLeft => Some(Term::app(Term::prim(Primitive::Move), Term::prim(Primitive::Left))),
+                Action::MoveRight => Some(Term::app(Term::prim(Primitive::Move), Term::prim(Primitive::Right))),
+                Action::DropItem => Some(Term::prim(Primitive::Drop)),
+                Action::PickupItem => Some(Term::prim(Primitive::Pickup)),
+                _ => None,
+            };
 
-            // Send trigger actions via lambda evaluation for scriptability
-            if pressed {
-                let term = match action {
-                    Action::Jump => Some(Term::prim(Primitive::Jump)),
-                    Action::DropItem => Some(Term::prim(Primitive::Drop)),
-                    _ => None,
+            if let Some(t) = term {
+                let final_term = if pressed {
+                    t
+                } else {
+                    Term::app(Term::prim(Primitive::Stop), t)
                 };
-                if let Some(t) = term {
-                    self.compile_spell(t);
-                }
+                self.compile_spell(final_term);
             }
 
             match action {
@@ -538,20 +545,6 @@ impl Engine {
                         }
                     }
                 }
-                Action::MoveForward
-                | Action::MoveBackward
-                | Action::MoveLeft
-                | Action::MoveRight
-                | Action::Jump
-                | Action::Descend => {
-                    // Camera controller handles WASD implicitly, but we need to map our Config to it.
-                    // The CameraController currently hardcodes KeyW, etc.
-                    // We need to update CameraController to accept generic Actions or boolean flags.
-
-                    // For now, let's keep CameraController "dumb" about bindings and just set its flags.
-                    // But CameraController takes key_code string.
-                    // We should modify CameraController to take Action enum? Or just bool flags.
-                }
                 Action::Inscribe => {
                     // Handled by GameClient (lib.rs) triggering window.prompt
                 }
@@ -603,43 +596,11 @@ impl Engine {
                         }
                     }
                 }
-                Action::PickupItem => {
-                    if pressed {
-                        let mut closest_idx = None;
-                        let mut min_dist_sq = 25.0; // 5.0 units radius squared
-
-                        let player_pos = self.camera.eye;
-
-                        for (i, item) in self.world_state.dropped_items.iter().enumerate() {
-                            let dist_sq = (item.position - player_pos).magnitude2();
-                            if dist_sq < min_dist_sq {
-                                min_dist_sq = dist_sq;
-                                closest_idx = Some(i);
-                            }
-                        }
-
-                        if let Some(idx) = closest_idx {
-                            let item = self.world_state.dropped_items.remove(idx);
-                            log::info!("Picked up item {} from {:?}", item.id, item.position);
-                            self.world_state.player_inventory.push(item);
-                        }
-                    }
-                }
                 // Ignore Voxel Actions (Handled by lib.rs / wrapper)
                 _ => {}
             }
         }
 
-        // TEMPORARY: CameraController still hardcodes keys.
-        // We will pass the key_code to it, but really we should refactor it to use Actions.
-        // To support rebinding for movement, we must map the *bound key* to the *hardcoded internal logic* OR update CameraController.
-        // Let's do the clean way: Update CameraController to take Action.
-
-        // Wait, Engine owns CameraController.
-        // Let's act as the bridge.
-        if let Some(action) = self.input_config.map_key(key_code) {
-            self.camera_controller.process_action(action, pressed);
-        }
     }
 
     pub fn process_mouse_down(&mut self, x: f32, y: f32, button: i16) {
@@ -840,51 +801,73 @@ impl Engine {
         }
 
         // 2. Interpret the result
+        self.execute_side_effect(&current, true)
+    }
+
+    fn execute_side_effect(&mut self, term: &Term, pressed: bool) -> Option<RealityProjector> {
         // Default spawn position
         let forward = (self.camera.target - self.camera.eye).normalize();
         let spawn_pos = self.camera.eye + forward * 10.0;
 
-        match &*current {
+        match term {
             Term::Prim(p) => {
                 match p {
                     Primitive::Jump => {
-                        // Side effect: jump
-                        self.camera_controller.process_action(Action::Jump, true);
+                        self.camera_controller.process_action(Action::Jump, pressed);
                         None
                     }
                     Primitive::Descend => {
-                        // Side effect: descend
-                        self.camera_controller.process_action(Action::Descend, true);
+                        self.camera_controller.process_action(Action::Descend, pressed);
                         None
                     }
                     Primitive::Drop => {
-                        // Side effect: drop item
-                        let (sin_y, cos_y) = self.camera.yaw.sin_cos();
-                        let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
+                        if pressed {
+                            let (sin_y, cos_y) = self.camera.yaw.sin_cos();
+                            let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
 
-                        // If inventory has items, drop the last one
-                        if let Some(mut item) = self.world_state.player_inventory.pop() {
-                            item.position = self.camera.eye;
-                            item.velocity = forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0;
-                            self.world_state.dropped_items.push(item);
-                            log::info!("Lambda dropped item from inventory at {:?}", self.camera.eye);
-                        } else {
-                            // Security Enhancement: Prevent DoS by limiting maximum spawned items
-                            const MAX_SPAWNED_ITEMS: usize = 100;
-                            if self.world_state.dropped_items.len() < MAX_SPAWNED_ITEMS {
-                                // Otherwise, create a default gold cube to drop
-                                let new_item = crate::reality_types::DroppedItem::new_cube(
-                                    uuid::Uuid::new_v4().to_string(),
-                                    self.camera.eye,
-                                    forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
-                                    0.2,
-                                    [1.0, 0.8, 0.2, 1.0], // Goldish color
-                                    3,                    // 3x3x3 grid
-                                );
-                                self.world_state.dropped_items.push(new_item);
-                                log::info!("Lambda dropped new spawned item at {:?}", self.camera.eye);
+                            if let Some(mut item) = self.world_state.player_inventory.pop() {
+                                item.position = self.camera.eye;
+                                item.velocity = forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0;
+                                self.world_state.dropped_items.push(item);
+                                log::info!("Lambda dropped item from inventory at {:?}", self.camera.eye);
                             } else {
-                                log::warn!("Security Warning: Maximum spawned items limit reached ({}). Cannot drop new item.", MAX_SPAWNED_ITEMS);
+                                const MAX_SPAWNED_ITEMS: usize = 100;
+                                if self.world_state.dropped_items.len() < MAX_SPAWNED_ITEMS {
+                                    let new_item = crate::reality_types::DroppedItem::new_cube(
+                                        uuid::Uuid::new_v4().to_string(),
+                                        self.camera.eye,
+                                        forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
+                                        0.2,
+                                        [1.0, 0.8, 0.2, 1.0], // Goldish color
+                                        3,                    // 3x3x3 grid
+                                    );
+                                    self.world_state.dropped_items.push(new_item);
+                                    log::info!("Lambda dropped new spawned item at {:?}", self.camera.eye);
+                                } else {
+                                    log::warn!("Security Warning: Maximum spawned items limit reached ({}). Cannot drop new item.", MAX_SPAWNED_ITEMS);
+                                }
+                            }
+                        }
+                        None
+                    }
+                    Primitive::Pickup => {
+                        if pressed {
+                            let mut closest_idx = None;
+                            let mut min_dist_sq = 25.0; // 5.0 units radius squared
+                            let player_pos = self.camera.eye;
+
+                            for (i, item) in self.world_state.dropped_items.iter().enumerate() {
+                                let dist_sq = (item.position - player_pos).magnitude2();
+                                if dist_sq < min_dist_sq {
+                                    min_dist_sq = dist_sq;
+                                    closest_idx = Some(i);
+                                }
+                            }
+
+                            if let Some(idx) = closest_idx {
+                                let item = self.world_state.dropped_items.remove(idx);
+                                log::info!("Lambda picked up item {} from {:?}", item.id, item.position);
+                                self.world_state.player_inventory.push(item);
                             }
                         }
                         None
@@ -893,21 +876,25 @@ impl Engine {
                 }
             },
             Term::App(func, arg) => {
-                // Check if it's Prim App Prim
                 if let Term::Prim(op) = &**func {
-                    if let Term::Prim(target) = &**arg {
-                        // Special case for Move Left, Move Right etc
-                        if *op == Primitive::Move {
+                    if *op == Primitive::Stop {
+                        return self.execute_side_effect(&**arg, false);
+                    }
+
+                    if *op == Primitive::Move {
+                        if let Term::Prim(target) = &**arg {
                             match target {
-                                Primitive::Forward => self.camera_controller.process_action(Action::MoveForward, true),
-                                Primitive::Backward => self.camera_controller.process_action(Action::MoveBackward, true),
-                                Primitive::Left => self.camera_controller.process_action(Action::MoveLeft, true),
-                                Primitive::Right => self.camera_controller.process_action(Action::MoveRight, true),
+                                Primitive::Forward => self.camera_controller.process_action(Action::MoveForward, pressed),
+                                Primitive::Backward => self.camera_controller.process_action(Action::MoveBackward, pressed),
+                                Primitive::Left => self.camera_controller.process_action(Action::MoveLeft, pressed),
+                                Primitive::Right => self.camera_controller.process_action(Action::MoveRight, pressed),
                                 _ => ()
                             }
-                            return None;
                         }
+                        return None;
+                    }
 
+                    if let Term::Prim(target) = &**arg {
                         return self.combine_primitives(*op, *target, spawn_pos);
                     } else if let Term::Var(target) = &**arg {
                         if *op == Primitive::SetArchetype {
@@ -941,8 +928,6 @@ impl Engine {
                         }
                     }
                 }
-                // Also check if it's Prim App (App...) - recursive evaluation is hard without specific logic.
-                // For now, only support 1 level of application (Modifier Target).
                 None
             }
             _ => None,

@@ -81,6 +81,8 @@ pub struct InputConfig {
     pub reverse_bindings: HashMap<String, Action>, // KeyCode -> Action
     #[serde(default)]
     pub archetype_filters: HashMap<RealityArchetype, RealityArchetype>, // Blacklist -> Replacement
+    #[serde(default)]
+    pub custom_spell_bindings: HashMap<String, String>, // KeyCode -> Lambda String
 }
 
 impl Default for InputConfig {
@@ -108,6 +110,7 @@ impl Default for InputConfig {
             bindings,
             reverse_bindings: HashMap::new(),
             archetype_filters: HashMap::new(),
+            custom_spell_bindings: HashMap::new(),
         };
         config.update_reverse_bindings();
         config

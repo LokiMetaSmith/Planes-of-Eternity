@@ -914,6 +914,14 @@ impl Engine {
                         }
                         None
                     }
+                    Primitive::Heal => {
+                        if pressed {
+                            self.player_projector.reality_signature.fidelity =
+                                (self.player_projector.reality_signature.fidelity + 20.0).min(100.0);
+                            log::info!("Player healed. Current fidelity: {}", self.player_projector.reality_signature.fidelity);
+                        }
+                        None
+                    }
                     _ => self.primitive_to_anomaly(*p, spawn_pos)
                 }
             },

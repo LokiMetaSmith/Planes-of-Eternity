@@ -23,6 +23,7 @@ pub enum Primitive {
     Descend,
     Stop,
     Pickup,
+    Heal,
 }
 
 impl fmt::Display for Primitive {
@@ -48,6 +49,7 @@ impl fmt::Display for Primitive {
             Primitive::Descend => write!(f, "DESCEND"),
             Primitive::Stop => write!(f, "STOP"),
             Primitive::Pickup => write!(f, "PICKUP"),
+            Primitive::Heal => write!(f, "HEAL"),
         }
     }
 }
@@ -77,6 +79,7 @@ impl std::str::FromStr for Primitive {
             "DESCEND" => Ok(Primitive::Descend),
             "STOP" => Ok(Primitive::Stop),
             "PICKUP" => Ok(Primitive::Pickup),
+            "HEAL" => Ok(Primitive::Heal),
             _ => Err(()),
         }
     }

@@ -99,6 +99,6 @@
 ## Full Lambda Scripting Integration
 - [x] **Extend Primitives**: Introduce new lambda primitives (e.g., `MOVE`, `JUMP`, `DROP`, `SET_ARCHETYPE`) to map game actions into the Lambda engine.
 - [x] **Engine Action Hook**: Replace hardcoded Rust state changes triggered by key-presses with evaluation of Lambda expressions.
-- [ ] **Advanced Spells & Effects**: Expand `compile_spell` to allow spells to trigger side-effects (e.g. modify environment, heal player) based on complex function evaluation.
+- [x] **Advanced Spells & Effects**: Expand `compile_spell` to allow spells to trigger side-effects (e.g. modify environment, heal player) based on complex function evaluation.
 - [x] **Custom Hotkeys UI**: Allow players to bind custom lambda spell expressions to specific hotkeys via the UI.
 - [ ] **Visual Scripting Expansion**: Expand the 3D drag-and-drop bubble visual system / Inscribe overlay to facilitate building game logic directly within the UI.

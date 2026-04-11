@@ -1276,7 +1276,7 @@ impl State {
         entity_instances.push(visual_lambda::LambdaInstance {
             position: [p1.location.x, p1.location.y - 1.0, p1.location.z],
             color: color1,
-            scale: 1.0,
+            scale: (p1.reality_signature.fidelity / 100.0).clamp(0.1, 1.0),
         });
 
         // 2. Add NPCs

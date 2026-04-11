@@ -1581,6 +1581,7 @@ impl LambdaSystem {
             Primitive::Descend => [0.5, 0.3, 0.2, 1.0],
             Primitive::Stop => [1.0, 0.2, 0.2, 1.0],
             Primitive::Pickup => [0.2, 0.8, 0.2, 1.0],
+            Primitive::Heal => [0.2, 1.0, 0.5, 1.0], // Bright green-ish
         }
     }
 }

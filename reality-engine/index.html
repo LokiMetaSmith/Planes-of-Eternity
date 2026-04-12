@@ -628,6 +628,30 @@
     </div>
 
     <!-- Keybinds Overlay -->
+    <!-- Inscribe Overlay -->
+    <div id="inscribe-overlay" role="dialog" aria-modal="true" aria-labelledby="inscribe-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 2500; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
+        <div class="cyber-card" style="width: 500px; max-width: 90vw; padding: 30px;">
+            <h2 id="inscribe-header" class="cyber-header" style="text-align: center; margin-bottom: 20px;">INSCRIBE REALITY</h2>
+
+            <div class="control-group">
+                <label for="inscribe-input">SPELL (LAMBDA TERM)</label>
+                <input type="text" id="inscribe-input" placeholder="e.g. FIRE, JUMP, (\x.x) y" style="font-size: 1.2rem; padding: 10px; margin-bottom: 15px; width: 100%; box-sizing: border-box;" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="control-group">
+                <label>PRIMITIVES PALETTE</label>
+                <div id="primitives-palette" style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 20px;">
+                    <!-- Primitive buttons will be generated here -->
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; gap: 10px;">
+                <button id="btn-cancel-inscribe" style="flex: 1; padding: 10px; background: #222; border: 1px solid #444; color: #ccc; cursor: pointer; font-family: monospace; font-size: 1.1rem; transition: all 0.2s;">CANCEL (ESC)</button>
+                <button id="btn-submit-inscribe" style="flex: 1; padding: 10px; background: rgba(0, 240, 255, 0.2); border: 1px solid #00f0ff; color: #00f0ff; cursor: pointer; font-family: monospace; font-size: 1.1rem; transition: all 0.2s;">CAST (ENTER)</button>
+            </div>
+        </div>
+    </div>
+
     <div id="keybind-overlay" role="dialog" aria-modal="true" aria-labelledby="keybind-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
         <div class="cyber-card" style="width: 400px; max-width: 90%;">
             <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;" role="heading" aria-level="2">
@@ -671,7 +695,7 @@
     </style>
 
     <!-- Add data-type=module to rust link to generate modular bindings that we can import -->
-    <link data-trunk rel="rust" data-wasm-opt="z" data-type="main" />
+    <link data-trunk rel="rust" data-target-name="reality_engine" data-wasm-opt="z" data-type="main" />
     <script type="module">
         async function run() {
             try {
@@ -698,6 +722,7 @@
 
                 log("> STARTING ENGINE...");
                 const gameClient = await start("reality-canvas");
+                window.gameClient = gameClient;
 
                 // Hide loading overlay
                 document.getElementById('loading-overlay').style.display = 'none';
@@ -1326,6 +1351,11 @@
 
                 window.addEventListener('keydown', (e) => {
                     if (e.code === 'Escape') {
+                        if (window.showInscribeOverlay && document.getElementById('inscribe-overlay').style.display === 'flex') {
+                            e.preventDefault();
+                            document.getElementById('inscribe-overlay').style.display = 'none';
+                            return;
+                        }
                         if (currentlyRebinding) {
                             e.preventDefault();
                             currentlyRebinding = null;
@@ -1338,6 +1368,76 @@
                             e.preventDefault();
                             closeKeybindsModal();
                         }
+                    }
+                });
+
+                // Inscribe Overlay Logic
+                const inscribeOverlay = document.getElementById('inscribe-overlay');
+                const inscribeInput = document.getElementById('inscribe-input');
+                const btnCancelInscribe = document.getElementById('btn-cancel-inscribe');
+                const btnSubmitInscribe = document.getElementById('btn-submit-inscribe');
+                const primitivesPalette = document.getElementById('primitives-palette');
+
+                const availablePrimitives = [
+                    "FIRE", "WATER", "EARTH", "AIR", "GROWTH", "DECAY", "ENERGY", "STABLE", "VOID",
+                    "MOVE", "JUMP", "DROP", "FORWARD", "BACKWARD", "LEFT", "RIGHT", "SET_ARCHETYPE",
+                    "DESCEND", "STOP", "PICKUP", "HEAL"
+                ];
+
+                availablePrimitives.forEach(prim => {
+                    const btn = document.createElement('button');
+                    btn.innerText = prim;
+                    btn.style.padding = '5px 8px';
+                    btn.style.background = '#111';
+                    btn.style.border = '1px solid #333';
+                    btn.style.color = 'var(--theme-primary)';
+                    btn.style.cursor = 'pointer';
+                    btn.style.fontFamily = 'monospace';
+                    btn.style.fontSize = '0.8rem';
+
+                    btn.addEventListener('mouseenter', () => {
+                        btn.style.background = 'var(--theme-input-bg)';
+                        btn.style.borderColor = 'var(--theme-primary)';
+                    });
+                    btn.addEventListener('mouseleave', () => {
+                        btn.style.background = '#111';
+                        btn.style.borderColor = '#333';
+                    });
+
+                    btn.addEventListener('click', () => {
+                        inscribeInput.value = (inscribeInput.value + " " + prim).trim() + " ";
+                        inscribeInput.focus();
+                    });
+
+                    primitivesPalette.appendChild(btn);
+                });
+
+                window.showInscribeOverlay = function() {
+                    inscribeOverlay.style.display = 'flex';
+                    inscribeInput.value = '';
+                    inscribeInput.focus();
+                };
+
+                function closeInscribeOverlay() {
+                    inscribeOverlay.style.display = 'none';
+                }
+
+                function submitInscription() {
+                    const text = inscribeInput.value.trim();
+                    if (text && window.gameClient) {
+                        window.gameClient.process_inscription(text);
+                        log("> INSCRIBED: " + text);
+                    }
+                    closeInscribeOverlay();
+                }
+
+                btnCancelInscribe.addEventListener('click', closeInscribeOverlay);
+                btnSubmitInscribe.addEventListener('click', submitInscription);
+
+                inscribeInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        submitInscription();
                     }
                 });
 

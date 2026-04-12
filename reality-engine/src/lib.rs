@@ -1549,6 +1549,11 @@ pub struct GameClient {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
+    pub fn process_inscription(&self, text: String) {
+        let mut state = self.state.borrow_mut();
+        state.engine.process_inscription(&text);
+    }
+
     pub fn get_node_labels_flat(&self) -> js_sys::Uint8Array {
         let mut state_ref = self.state.borrow_mut();
         let state = &mut *state_ref;
@@ -2170,16 +2175,15 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         };
 
         if is_inscribe {
-            // Pause/Unlock pointer if needed?
-            // web_sys::window().unwrap().document().unwrap().exit_pointer_lock();
-
+            // Pause/Unlock pointer if needed
             if let Some(window) = web_sys::window() {
-                // Security Enhancement: Prevent Application Crash DoS
-                // Using .unwrap() on the window object could cause a WebAssembly panic if the environment is unusual.
-                // We use if-let instead to safely handle the potential absence of the window object.
-                if let Ok(Some(text)) = window.prompt_with_message("Inscribe Reality (e.g. 'FIRE', 'GROWTH TREE'):") {
-                    if !text.is_empty() {
-                        state_keydown.borrow_mut().engine.process_inscription(&text);
+                if let Some(document) = window.document() {
+                    document.exit_pointer_lock();
+                }
+
+                if let Ok(js_val) = js_sys::Reflect::get(&window, &wasm_bindgen::JsValue::from_str("showInscribeOverlay")) {
+                    if let Ok(func) = js_val.dyn_into::<js_sys::Function>() {
+                        let _ = func.call0(&wasm_bindgen::JsValue::NULL);
                     }
                 }
             }

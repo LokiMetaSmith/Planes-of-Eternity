@@ -1213,6 +1213,7 @@ impl State {
                 reality_types::RealityArchetype::ObraDinn => (12.0, [0.9, 0.9, 0.8, 1.0]), // Pale yellow
                 reality_types::RealityArchetype::SolarPunk => (13.0, [0.2, 0.9, 0.4, 1.0]), // Vibrant Green
                 reality_types::RealityArchetype::Biopunk => (14.0, [0.8, 0.2, 0.4, 1.0]), // Fleshy Red
+                reality_types::RealityArchetype::Tron => (15.0, [0.0, 1.0, 1.0, 1.0]), // Cyan Neon
             }
         }
 
@@ -1301,11 +1302,18 @@ impl State {
                 crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
                 crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
                 crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
+                crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
             };
+            let scale = if npc.reality_signature.active_style.archetype == crate::reality_types::RealityArchetype::Tron {
+                -1.0 // negative scale triggers the bit geometry logic in shader_lambda if added
+            } else {
+                1.0
+            };
+
             entity_instances.push(visual_lambda::LambdaInstance {
                 position: [npc.location.x, npc.location.y - 1.0, npc.location.z],
                 color,
-                scale: 1.0,
+                scale,
             });
         }
 
@@ -1695,6 +1703,7 @@ impl GameClient {
                 reality_types::RealityArchetype::ObraDinn => 12,
                 reality_types::RealityArchetype::SolarPunk => 13,
                 reality_types::RealityArchetype::Biopunk => 14,
+                reality_types::RealityArchetype::Tron => 15,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

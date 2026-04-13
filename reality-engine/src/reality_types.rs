@@ -19,6 +19,7 @@ pub enum RealityArchetype {
     ObraDinn,    // 1-bit Dithered Sphere Mapping
     SolarPunk,   // High-tech harmony with nature
     Biopunk,     // Organic, fleshy, mutated structures
+    Tron,        // Geometric, neon grid
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

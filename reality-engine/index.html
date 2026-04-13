@@ -505,6 +505,8 @@
                     <option value="11">Dream</option>
                     <option value="12">Obra Dinn</option>
                     <option value="13">SolarPunk</option>
+                    <option value="14">Biopunk</option>
+                    <option value="15">Tron</option>
                 </select>
             </div>
 
@@ -555,6 +557,11 @@
                     <option value="8">Vaporwave</option>
                     <option value="9">Noir</option>
                     <option value="10">CyberSpace</option>
+                    <option value="11">Dream</option>
+                    <option value="12">Obra Dinn</option>
+                    <option value="13">SolarPunk</option>
+                    <option value="14">Biopunk</option>
+                    <option value="15">Tron</option>
                 </select>
             </div>
             <div class="control-group">
@@ -571,6 +578,11 @@
                     <option value="8">Vaporwave</option>
                     <option value="9">Noir</option>
                     <option value="10">CyberSpace</option>
+                    <option value="11">Dream</option>
+                    <option value="12">Obra Dinn</option>
+                    <option value="13">SolarPunk</option>
+                    <option value="14">Biopunk</option>
+                    <option value="15">Tron</option>
                 </select>
             </div>
             <button id="btn-apply-filter" class="cyber-button" style="width: 100%;" aria-live="polite">APPLY FILTER</button>
@@ -1603,7 +1615,11 @@
                                     // Approach and chat
                                     tx = state.x + (Math.random() * 5 - 2.5);
                                     tz = state.z + (Math.random() * 5 - 2.5);
-                                    msg = "Hello, traveler!";
+                                    if (state.archetype === "Tron") {
+                                        msg = Math.random() > 0.5 ? "yes" : "no";
+                                    } else {
+                                        msg = "Hello, traveler!";
+                                    }
                                     window.GenieAI.commandNPC(uuid, { target_x: tx, target_z: tz, chat_message: msg });
                                 }
                             }

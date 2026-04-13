@@ -322,6 +322,9 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         // Inverse voronoi for veiny/web-like structures
         let veins = (1.0 - n2) * 2.0;
         return (n1 + veins) * 3.0 * params.z;
+    } else if (id < 15.5) {
+        // Tron (Geometric flat grid)
+        return 0.0;
     }
 
     return 0.0;
@@ -731,6 +734,19 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let is_vein = step(0.8, 1.0 - v); // Sharp web-like veins
 
         return mix(flesh, vein_color, is_vein * 0.8);
+    } else if (id < 15.5) {
+        // Tron (Glowing cyan grid)
+        let time = reality.global_offset.z;
+        let p = pos_in.xz * scale * 2.0;
+
+        let grid_thickness = 0.05;
+        let g = step(1.0 - grid_thickness, fract(p.x)) + step(1.0 - grid_thickness, fract(p.y));
+
+        let dark_bg = vec3<f32>(0.05, 0.05, 0.05);
+        let bright_cyan = vec3<f32>(0.0, 1.0, 1.0);
+        let pulse = (sin(time * 3.0 + (p.x + p.y)) * 0.5 + 0.5) * 0.5 + 0.5;
+
+        return mix(dark_bg, bright_cyan * pulse, clamp(g, 0.0, 1.0));
     }
 
     return base_color;

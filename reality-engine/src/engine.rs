@@ -130,6 +130,7 @@ impl Engine {
                     RealityArchetype::CyberSpace,
                     RealityArchetype::Dream,
                     RealityArchetype::ObraDinn,
+                    RealityArchetype::Tron,
                 ];
                 for (i, arch) in archetypes.into_iter().enumerate() {
                     let mut sig = RealitySignature::default();
@@ -498,6 +499,7 @@ impl Engine {
                             crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
                             crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
                             crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
+                            crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
                         };
 
                         self.spell_effects.push(SpellEffect {
@@ -569,6 +571,7 @@ impl Engine {
                                     crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
                                     crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
                                     crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
+                                    crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
                                 };
 
                                 self.spell_effects.push(SpellEffect {
@@ -1087,6 +1090,7 @@ impl Engine {
             RealityArchetype::CyberSpace,
             RealityArchetype::Dream,
             RealityArchetype::ObraDinn,
+            RealityArchetype::Tron,
         ];
         for (i, arch) in archetypes.into_iter().enumerate() {
             let mut sig = RealitySignature::default();

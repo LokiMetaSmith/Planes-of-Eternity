@@ -3,6 +3,7 @@
 struct CameraUniform {
     view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
+    time: vec4<f32>,
 };
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -30,7 +31,21 @@ fn vs_main(
     model: VertexInput,
     instance: InstanceInput,
 ) -> VertexOutput {
-    let world_pos = (model.position * instance.instance_scale) + instance.instance_pos;
+    // Procedural Wobble/Squash Animation
+    let t = camera.time.x;
+
+    // Scale animation intensity based on scale (bubbles vs. small objects)
+    let is_animated = step(0.1, instance.instance_scale);
+    let wobble = sin(t * 3.0 + instance.instance_pos.x * 0.5 + instance.instance_pos.z * 0.5) * 0.1 * is_animated;
+    let squash = cos(t * 5.0 + instance.instance_pos.y * 0.5) * 0.05 * is_animated;
+
+    var animated_pos = model.position;
+    animated_pos.x *= 1.0 + squash;
+    animated_pos.z *= 1.0 + squash;
+    animated_pos.y *= 1.0 - squash * 2.0; // Preserve volume roughly
+    animated_pos += model.normal * wobble;
+
+    let world_pos = (animated_pos * instance.instance_scale) + instance.instance_pos;
     var out: VertexOutput;
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.color = instance.instance_color;

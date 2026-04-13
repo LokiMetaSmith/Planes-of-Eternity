@@ -40,6 +40,7 @@ pub mod xr;
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
     camera_pos: [f32; 4], // xyz, w=padding
+    time: [f32; 4],       // x=time, yzw=padding
 }
 
 impl CameraUniform {
@@ -48,12 +49,14 @@ impl CameraUniform {
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
             camera_pos: [0.0; 4],
+            time: [0.0; 4],
         }
     }
 
-    fn update_view_proj(&mut self, camera: &camera::Camera) {
+    fn update_view_proj(&mut self, camera: &camera::Camera, time: f32) {
         self.view_proj = camera.build_view_projection_matrix().into();
         self.camera_pos = [camera.eye.x, camera.eye.y, camera.eye.z, 1.0];
+        self.time[0] = time;
     }
 }
 
@@ -496,7 +499,7 @@ impl State {
         let engine = engine::Engine::new(width, height, loaded_state);
 
         let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&engine.camera);
+        camera_uniform.update_view_proj(&engine.camera, engine.time);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -1184,7 +1187,7 @@ impl State {
         }
 
         // Sync WGPU buffers with Engine State
-        self.camera_uniform.update_view_proj(&self.engine.camera);
+        self.camera_uniform.update_view_proj(&self.engine.camera, self.engine.time);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,

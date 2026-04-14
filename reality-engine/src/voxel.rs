@@ -556,6 +556,42 @@ impl Chunk {
                                 next_data[up_idx].id = 3;
                             }
                         }
+                    } else if current_id == 7 {
+                        // Acid spreading (liquid physics)
+                        let down_idx = self.index_opt(x, y - 1, z);
+                        if let Some(d_idx) = down_idx {
+                            if self.data[d_idx].id == 0 {
+                                // Move down if air
+                                next_data[idx].id = 0;
+                                next_data[d_idx].id = 7;
+                            } else if self.data[d_idx].id != 0 {
+                                // Block below is solid, try spreading horizontally
+                                let neighbors = [
+                                    (x + 1, y, z),
+                                    (x - 1, y, z),
+                                    (x, y, z + 1),
+                                    (x, y, z - 1),
+                                ];
+                                // Move to one random available neighbor to avoid infinite cloning/flooding
+                                // since we don't have volume simulation, we just randomly pick one air neighbor and swap.
+                                // Using hash to pick deterministically pseudo-random neighbor
+                                let mut available = Vec::new();
+                                for (nx, ny, nz) in neighbors {
+                                    if let Some(nidx) = self.index_opt(nx, ny, nz) {
+                                        if self.data[nidx].id == 0 {
+                                            available.push(nidx);
+                                        }
+                                    }
+                                }
+
+                                if !available.is_empty() {
+                                    let rand_idx = (hash(x + self.key.x, y, z + self.key.z).abs() * 100.0) as usize % available.len();
+                                    let target_idx = available[rand_idx];
+                                    next_data[idx].id = 0;
+                                    next_data[target_idx].id = 7;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -584,6 +620,7 @@ impl Chunk {
                 4 => [0.0, 0.0, 1.0], // Water
                 5 => [0.0, 0.8, 0.0], // Grass
                 6 => [0.6, 0.4, 0.2], // Wood
+                7 => [0.2, 1.0, 0.2], // Acid
                 _ => [1.0, 0.0, 1.0],
             }
         }

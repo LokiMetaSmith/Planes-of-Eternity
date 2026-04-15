@@ -592,6 +592,34 @@ impl Chunk {
                                 }
                             }
                         }
+                    } else if current_id == 8 {
+                        // Fog randomly dissipates
+                        if hash(x + self.key.x, y, z).abs() % 1.0 > 0.95 {
+                            next_data[idx].id = 0;
+                        }
+                    } else if current_id == 9 {
+                        // Clouds occasionally spawn rain beneath them
+                        let down_idx = self.index_opt(x, y - 1, z);
+                        if let Some(d_idx) = down_idx {
+                            if self.data[d_idx].id == 0 && hash(x + self.key.x, y, z).abs() % 1.0 > 0.9 {
+                                next_data[d_idx].id = 10;
+                            }
+                        }
+                    } else if current_id == 10 {
+                        // Rain falls straight down
+                        let down_idx = self.index_opt(x, y - 1, z);
+                        if let Some(d_idx) = down_idx {
+                            if self.data[d_idx].id == 0 {
+                                next_data[idx].id = 0;
+                                next_data[d_idx].id = 10;
+                            } else {
+                                // Hit solid block, delete rain
+                                next_data[idx].id = 0;
+                            }
+                        } else {
+                            // Hit bottom of chunk, delete rain
+                            next_data[idx].id = 0;
+                        }
                     }
                 }
             }
@@ -621,6 +649,9 @@ impl Chunk {
                 5 => [0.0, 0.8, 0.0], // Grass
                 6 => [0.6, 0.4, 0.2], // Wood
                 7 => [0.2, 1.0, 0.2], // Acid
+                8 => [0.8, 0.8, 0.8], // Fog
+                9 => [0.9, 0.9, 0.9], // Cloud
+                10 => [0.5, 0.5, 1.0], // Rain
                 _ => [1.0, 0.0, 1.0],
             }
         }

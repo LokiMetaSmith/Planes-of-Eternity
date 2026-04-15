@@ -2,6 +2,7 @@
 
 ## 4D Voxel Engine
 - [x] Added Acid liquid voxel type with particle physics
+- [x] Added Fog, Cloud, and Rain voxel types with weather particle physics
 - [x] **Player Reality Projection**: Associate the player character with their area and transmit their archetype outward.
 - [x] **Voxel Associations**: Add a method for associating voxels to other voxels.
 - [x] **Optimize Rendering**: Implement Greedy Meshing to reduce triangle count.

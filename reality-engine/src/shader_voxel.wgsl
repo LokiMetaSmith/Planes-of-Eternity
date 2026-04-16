@@ -71,11 +71,35 @@ struct VertexOutput {
 @vertex
 fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.world_pos = model.position;
+    let time = reality.global_offset.z;
+    var animated_pos = model.position;
+
+    // Liquid and Gas logic
+    if (model.color.r < 0.3 && model.color.g > 0.9 && model.color.b < 0.3) {
+        // Acid
+        animated_pos.y += sin(time * 3.0 + model.position.x * 2.0 + model.position.z * 2.0) * 0.1;
+    } else if (model.color.r < 0.1 && model.color.g < 0.1 && model.color.b > 0.9) {
+        // Water
+        animated_pos.y += sin(time * 1.5 + model.position.x + model.position.z) * 0.15;
+    } else if (model.color.r > 0.9 && model.color.g < 0.4 && model.color.b < 0.1) {
+        // Lava
+        animated_pos.y += sin(time * 0.5 + model.position.x * 0.5 + model.position.z * 0.5) * 0.05;
+    } else if ((model.color.r > 0.7 && model.color.g > 0.7 && model.color.b > 0.7) || (model.color.b > 0.9 && model.color.r > 0.4 && model.color.g > 0.4 && model.color.r < 0.6)) {
+        // Gasses/Weather (Fog, Cloud, Rain)
+        animated_pos.x += sin(time * 0.5 + model.position.y) * 0.2;
+        animated_pos.z += cos(time * 0.5 + model.position.y) * 0.2;
+    } else if (model.color.g > 0.6 || (model.color.r > 0.4 && model.color.b < 0.4)) {
+        // Existing Landscape (Grass tops/wood wobble slightly in wind)
+        if (model.normal.y > 0.5) {
+            animated_pos.x += sin(time * 2.0 + model.position.y) * 0.05;
+        }
+    }
+
+    out.world_pos = animated_pos;
     out.color = model.color;
     out.normal = model.normal;
     out.ao = model.ao;
-    out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
+    out.clip_position = camera.view_proj * vec4<f32>(animated_pos, 1.0);
     return out;
 }
 
@@ -98,10 +122,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             offset = vec2<f32>(0.0, 0.5);
             emissive_strength = 1.0;
         }
-    } else if (in.color.b > 0.8) {
+    } else if (in.color.b > 0.8 && in.color.g < 0.2 && in.color.r < 0.2) {
         // Water (Stone texture + Blue tint + Shiny)
         offset = vec2<f32>(0.0, 0.0);
         specular_strength = 1.0;
+    } else if (in.color.g > 0.9 && in.color.r < 0.3 && in.color.b < 0.3) {
+        // Acid
+        offset = vec2<f32>(0.0, 0.0);
+        specular_strength = 0.8;
+        emissive_strength = 0.5;
+    } else if ((in.color.r > 0.7 && in.color.g > 0.7 && in.color.b > 0.7) || (in.color.b > 0.9 && in.color.r > 0.4 && in.color.g > 0.4 && in.color.r < 0.6)) {
+        // Fog/Cloud/Rain
+        offset = vec2<f32>(0.0, 0.0);
+        specular_strength = 0.1;
     } else if (in.color.g > 0.6 || (in.color.r > 0.4 && in.color.b < 0.4)) {
         // Wood/Grass (BR)
         offset = vec2<f32>(0.5, 0.5);

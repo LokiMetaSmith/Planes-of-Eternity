@@ -93,6 +93,7 @@
 - [x] **UI Improvement**: Added ability to hide UI menu bars using 'H' key for a cleaner experience.
 
 ## Future Enhancements
+- [x] Add shaders to liquids, and gasses, as well as existing landscape.
 - [x] A specific spell-casting UI or particle effects for when spells hit the ground.
 - [x] A dedicated inventory system for picking up and storing dropped items.
 - [x] An expanded AI system where NPCs can be hostile and attack the player.

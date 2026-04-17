@@ -1017,6 +1017,26 @@ impl Engine {
             Primitive::Void => {
                 sig.active_style.archetype = RealityArchetype::Void;
             }
+            Primitive::Acid => {
+                sig.active_style.archetype = RealityArchetype::Biopunk;
+                sig.active_style.roughness = 0.8;
+                sig.active_style.distortion = 0.9;
+            }
+            Primitive::Fog => {
+                sig.active_style.archetype = RealityArchetype::Noir;
+                sig.active_style.roughness = 0.1;
+                sig.active_style.distortion = 0.2;
+            }
+            Primitive::Cloud => {
+                sig.active_style.archetype = RealityArchetype::Dream;
+                sig.active_style.roughness = 0.4;
+                sig.active_style.scale = 2.0;
+            }
+            Primitive::Rain => {
+                sig.active_style.archetype = RealityArchetype::Noir;
+                sig.active_style.roughness = 0.5;
+                sig.active_style.distortion = 0.6;
+            }
             _ => return None,
         }
 

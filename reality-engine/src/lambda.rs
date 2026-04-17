@@ -24,6 +24,10 @@ pub enum Primitive {
     Stop,
     Pickup,
     Heal,
+    Acid,
+    Fog,
+    Cloud,
+    Rain,
 }
 
 impl fmt::Display for Primitive {
@@ -50,6 +54,10 @@ impl fmt::Display for Primitive {
             Primitive::Stop => write!(f, "STOP"),
             Primitive::Pickup => write!(f, "PICKUP"),
             Primitive::Heal => write!(f, "HEAL"),
+            Primitive::Acid => write!(f, "ACID"),
+            Primitive::Fog => write!(f, "FOG"),
+            Primitive::Cloud => write!(f, "CLOUD"),
+            Primitive::Rain => write!(f, "RAIN"),
         }
     }
 }
@@ -80,6 +88,10 @@ impl std::str::FromStr for Primitive {
             "STOP" => Ok(Primitive::Stop),
             "PICKUP" => Ok(Primitive::Pickup),
             "HEAL" => Ok(Primitive::Heal),
+            "ACID" => Ok(Primitive::Acid),
+            "FOG" => Ok(Primitive::Fog),
+            "CLOUD" => Ok(Primitive::Cloud),
+            "RAIN" => Ok(Primitive::Rain),
             _ => Err(()),
         }
     }

@@ -1582,6 +1582,10 @@ impl LambdaSystem {
             Primitive::Stop => [1.0, 0.2, 0.2, 1.0],
             Primitive::Pickup => [0.2, 0.8, 0.2, 1.0],
             Primitive::Heal => [0.2, 1.0, 0.5, 1.0], // Bright green-ish
+            Primitive::Acid => [0.2, 1.0, 0.2, 1.0], // Bright green
+            Primitive::Fog => [0.8, 0.8, 0.8, 0.8],  // Light gray
+            Primitive::Cloud => [0.9, 0.9, 0.9, 0.8], // White
+            Primitive::Rain => [0.5, 0.5, 1.0, 0.8], // Light blue
         }
     }
 }

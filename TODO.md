@@ -106,3 +106,4 @@
 - [x] **Custom Hotkeys UI**: Allow players to bind custom lambda spell expressions to specific hotkeys via the UI.
 - [x] **Visual Scripting Expansion**: Expand the 3D drag-and-drop bubble visual system / Inscribe overlay to facilitate building game logic directly within the UI.
 - [x] Extend scripting language to support the new weather and liquid system (Acid, Fog, Cloud, Rain primitives).
+- [x] **New Archetypes**: Added Tron archetype mappings to Reality Engine.

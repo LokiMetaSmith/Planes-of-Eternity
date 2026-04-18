@@ -1614,6 +1614,7 @@ impl GameClient {
             12 => reality_types::RealityArchetype::ObraDinn,
             13 => reality_types::RealityArchetype::SolarPunk,
             14 => reality_types::RealityArchetype::Biopunk,
+            15 => reality_types::RealityArchetype::Tron,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -1637,6 +1638,11 @@ impl GameClient {
             8 => reality_types::RealityArchetype::Vaporwave,
             9 => reality_types::RealityArchetype::Noir,
             10 => reality_types::RealityArchetype::CyberSpace,
+            11 => reality_types::RealityArchetype::Dream,
+            12 => reality_types::RealityArchetype::ObraDinn,
+            13 => reality_types::RealityArchetype::SolarPunk,
+            14 => reality_types::RealityArchetype::Biopunk,
+            15 => reality_types::RealityArchetype::Tron,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1652,6 +1658,11 @@ impl GameClient {
             8 => reality_types::RealityArchetype::Vaporwave,
             9 => reality_types::RealityArchetype::Noir,
             10 => reality_types::RealityArchetype::CyberSpace,
+            11 => reality_types::RealityArchetype::Dream,
+            12 => reality_types::RealityArchetype::ObraDinn,
+            13 => reality_types::RealityArchetype::SolarPunk,
+            14 => reality_types::RealityArchetype::Biopunk,
+            15 => reality_types::RealityArchetype::Tron,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1678,6 +1689,11 @@ impl GameClient {
             8 => reality_types::RealityArchetype::Vaporwave,
             9 => reality_types::RealityArchetype::Noir,
             10 => reality_types::RealityArchetype::CyberSpace,
+            11 => reality_types::RealityArchetype::Dream,
+            12 => reality_types::RealityArchetype::ObraDinn,
+            13 => reality_types::RealityArchetype::SolarPunk,
+            14 => reality_types::RealityArchetype::Biopunk,
+            15 => reality_types::RealityArchetype::Tron,
             _ => reality_types::RealityArchetype::Void,
         };
 

@@ -6,12 +6,9 @@ struct CameraUniform {
 var<uniform> camera: CameraUniform;
 
 struct RealityUniform {
-    proj1_pos_fid: vec4<f32>,
-    proj1_params: vec4<f32>, // x=roughness, y=scale, z=distortion, w=archetype_id
-    proj1_color: vec4<f32>,
-    proj2_pos_fid: vec4<f32>,
-    proj2_params: vec4<f32>,
-    proj2_color: vec4<f32>,
+    proj_pos_fid: array<vec4<f32>, 5>,
+    proj_params: array<vec4<f32>, 5>, // x=roughness, y=scale, z=distortion, w=archetype_id
+    proj_color: array<vec4<f32>, 5>,
     global_offset: vec4<f32>,
 };
 @group(2) @binding(0)
@@ -129,31 +126,33 @@ fn domain_warp(p: vec2<f32>) -> f32 {
 }
 
 struct BlendResult {
-    weight1: f32,
-    weight2: f32,
+    weights: array<f32, 5>,
     total_strength: f32,
 };
 
 fn calculate_blend(pos: vec3<f32>) -> BlendResult {
-    let dist1 = max(distance(pos, reality.proj1_pos_fid.xyz), 1.0);
-    let dist2 = max(distance(pos, reality.proj2_pos_fid.xyz), 1.0);
+    var strengths: array<f32, 5>;
+    var total = 0.0;
 
-    let strength1 = reality.proj1_pos_fid.w / dist1;
-    let strength2 = reality.proj2_pos_fid.w / dist2;
-    let total = strength1 + strength2;
-
-    var w1 = 0.5;
-    var w2 = 0.5;
-
-    if (total > 0.0001) {
-        w1 = strength1 / total;
-        w2 = strength2 / total;
-    } else {
-        w1 = 0.0;
-        w2 = 0.0;
+    for (var i = 0u; i < 5u; i = i + 1u) {
+        let dist = max(distance(pos, reality.proj_pos_fid[i].xyz), 1.0);
+        let strength = reality.proj_pos_fid[i].w / dist;
+        strengths[i] = strength;
+        total = total + strength;
     }
 
-    return BlendResult(w1, w2, total);
+    var weights: array<f32, 5>;
+    if (total > 0.0001) {
+        for (var i = 0u; i < 5u; i = i + 1u) {
+            weights[i] = strengths[i] / total;
+        }
+    } else {
+        for (var i = 0u; i < 5u; i = i + 1u) {
+            weights[i] = 0.0;
+        }
+    }
+
+    return BlendResult(weights, total);
 }
 
 fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
@@ -334,16 +333,16 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
 fn get_height_at(pos: vec3<f32>) -> f32 {
     let blend = calculate_blend(pos);
 
-    let disp1 = get_displacement(pos.xz, reality.proj1_params);
-    let disp2 = get_displacement(pos.xz, reality.proj2_params);
+    var total_displacement = 0.0;
+    for (var i = 0u; i < 5u; i = i + 1u) {
+        if (blend.weights[i] > 0.001) {
+            let disp = get_displacement(pos.xz, reality.proj_params[i]);
+            let val = disp * reality.proj_params[i].z;
+            total_displacement = total_displacement + val * blend.weights[i];
+        }
+    }
 
-    // Apply distortion amount
-    let val1 = disp1 * reality.proj1_params.z;
-    let val2 = disp2 * reality.proj2_params.z;
-
-    let total_displacement = val1 * blend.weight1 + val2 * blend.weight2;
     let visibility = min(blend.total_strength, 1.0);
-
     return total_displacement * visibility;
 }
 
@@ -352,11 +351,14 @@ struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
     @location(1) height: f32,
     @location(2) world_pos: vec3<f32>,
-    @location(3) weight1: f32,
-    @location(4) weight2: f32,
-    @location(5) visibility: f32,
-    @location(6) normal: vec3<f32>,
-    @location(7) instability: f32,
+    @location(3) weight0: f32,
+    @location(4) weight1: f32,
+    @location(5) weight2: f32,
+    @location(6) weight3: f32,
+    @location(7) weight4: f32,
+    @location(8) visibility: f32,
+    @location(9) normal: vec3<f32>,
+    @location(10) instability: f32,
 };
 
 @vertex
@@ -406,8 +408,11 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.height = pos.y;
     out.world_pos = pos;
     out.clip_position = camera.view_proj * vec4<f32>(pos, 1.0);
-    out.weight1 = blend.weight1;
-    out.weight2 = blend.weight2;
+    out.weight0 = blend.weights[0];
+    out.weight1 = blend.weights[1];
+    out.weight2 = blend.weights[2];
+    out.weight3 = blend.weights[3];
+    out.weight4 = blend.weights[4];
     out.visibility = min(blend.total_strength, 1.0);
     out.normal = normal;
     out.instability = instability;
@@ -756,15 +761,20 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_texture = textureSample(t_diffuse, s_diffuse, in.tex_coords);
 
-    // Generate Patterns Independently
-    let c1 = get_pattern_color(in.world_pos, reality.proj1_params, reality.proj1_color.rgb);
-    let c2 = get_pattern_color(in.world_pos, reality.proj2_params, reality.proj2_color.rgb);
+    let weights = array<f32, 5>(in.weight0, in.weight1, in.weight2, in.weight3, in.weight4);
 
-    // Blend Patterns
-    let pattern_color = c1 * in.weight1 + c2 * in.weight2;
+    var pattern_color = vec3<f32>(0.0);
+    var blended_roughness = 0.0;
+
+    for (var i = 0u; i < 5u; i = i + 1u) {
+        if (weights[i] > 0.001) {
+            let c = get_pattern_color(in.world_pos, reality.proj_params[i], reality.proj_color[i].rgb);
+            pattern_color = pattern_color + c * weights[i];
+            blended_roughness = blended_roughness + reality.proj_params[i].x * weights[i];
+        }
+    }
 
     // Wireframe effect
-    let blended_roughness = reality.proj1_params.x * in.weight1 + reality.proj2_params.x * in.weight2;
     let edge = step(0.9, fract(in.world_pos.x * 5.0)) + step(0.9, fract(in.world_pos.z * 5.0));
     let wireframe = clamp(edge, 0.0, 0.2) * blended_roughness;
 

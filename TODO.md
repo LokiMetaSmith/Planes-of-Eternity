@@ -1,6 +1,7 @@
 # Reality Engine Tasks
 
 ## 4D Voxel Engine
+- [x] **Multi-Archetype Blending**: Implement proper shader and state logic to support blending up to 5 reality projectors simultaneously based on proximity and fidelity.
 - [x] Added Acid liquid voxel type with particle physics
 - [x] Added Fog, Cloud, and Rain voxel types with weather particle physics
 - [x] **Player Reality Projection**: Associate the player character with their area and transmit their archetype outward.

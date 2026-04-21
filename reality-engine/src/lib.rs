@@ -63,25 +63,21 @@ impl CameraUniform {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct RealityUniform {
-    proj1_pos_fid: [f32; 4],
-    proj1_params: [f32; 4], // x=roughness, y=scale, z=distortion, w=archetype_id
-    proj1_color: [f32; 4],
-    proj2_pos_fid: [f32; 4],
-    proj2_params: [f32; 4],
-    proj2_color: [f32; 4],
+    proj_pos_fid: [[f32; 4]; 5],
+    proj_params: [[f32; 4]; 5], // x=roughness, y=scale, z=distortion, w=archetype_id
+    proj_color: [[f32; 4]; 5],
     global_offset: [f32; 4],
+
 }
 
 impl RealityUniform {
     fn new() -> Self {
         Self {
-            proj1_pos_fid: [0.0; 4],
-            proj1_params: [0.0; 4],
-            proj1_color: [0.0; 4],
-            proj2_pos_fid: [0.0; 4],
-            proj2_params: [0.0; 4],
-            proj2_color: [0.0; 4],
+            proj_pos_fid: [[0.0; 4]; 5],
+            proj_params: [[0.0; 4]; 5],
+            proj_color: [[0.0; 4]; 5],
             global_offset: [0.0; 4],
+
         }
     }
 }
@@ -1217,54 +1213,57 @@ impl State {
             }
         }
 
-        let p1 = &self.engine.player_projector;
-        let p1_archetype = *self
-            .engine
-            .input_config
-            .archetype_filters
-            .get(&p1.reality_signature.active_style.archetype)
-            .unwrap_or(&p1.reality_signature.active_style.archetype);
-        let (id1, color1) = get_archetype_data(p1_archetype);
-        self.reality_uniform.proj1_pos_fid = [
-            p1.location.x,
-            p1.location.y,
-            p1.location.z,
-            p1.reality_signature.fidelity,
-        ];
-        self.reality_uniform.proj1_params = [
-            p1.reality_signature.active_style.roughness,
-            p1.reality_signature.active_style.scale,
-            p1.reality_signature.active_style.distortion,
-            id1,
-        ];
-        self.reality_uniform.proj1_color = color1;
+        // Gather all potential projectors
+        let mut projectors = Vec::new();
+        projectors.push(&self.engine.player_projector);
+        if let Some(ref anomaly) = self.engine.active_anomaly {
+            projectors.push(anomaly);
+        }
+        for npc in &self.engine.world_state.npcs {
+            projectors.push(npc);
+        }
 
-        let p2 = if let Some(ref anomaly) = self.engine.active_anomaly {
-            anomaly
-        } else {
-            &self.engine.player_projector
-        };
+        let cam_pos = self.engine.camera.eye;
 
-        let p2_archetype = *self
-            .engine
-            .input_config
-            .archetype_filters
-            .get(&p2.reality_signature.active_style.archetype)
-            .unwrap_or(&p2.reality_signature.active_style.archetype);
-        let (id2, color2) = get_archetype_data(p2_archetype);
-        self.reality_uniform.proj2_pos_fid = [
-            p2.location.x,
-            p2.location.y,
-            p2.location.z,
-            p2.reality_signature.fidelity,
-        ];
-        self.reality_uniform.proj2_params = [
-            p2.reality_signature.active_style.roughness,
-            p2.reality_signature.active_style.scale,
-            p2.reality_signature.active_style.distortion,
-            id2,
-        ];
-        self.reality_uniform.proj2_color = color2;
+        // Sort by distance to camera
+        projectors.sort_by(|a, b| {
+            let dist_a = (a.location.x - cam_pos.x).powi(2) + (a.location.y - cam_pos.y).powi(2) + (a.location.z - cam_pos.z).powi(2);
+            let dist_b = (b.location.x - cam_pos.x).powi(2) + (b.location.y - cam_pos.y).powi(2) + (b.location.z - cam_pos.z).powi(2);
+            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Reset all slots
+        self.reality_uniform.proj_pos_fid = [[0.0; 4]; 5];
+        self.reality_uniform.proj_params = [[0.0; 4]; 5];
+        self.reality_uniform.proj_color = [[0.0; 4]; 5];
+
+        // Fill up to 5 slots
+        let count = std::cmp::min(5, projectors.len());
+        for i in 0..count {
+            let p = projectors[i];
+            let p_archetype = *self
+                .engine
+                .input_config
+                .archetype_filters
+                .get(&p.reality_signature.active_style.archetype)
+                .unwrap_or(&p.reality_signature.active_style.archetype);
+            let (id, color) = get_archetype_data(p_archetype);
+
+            self.reality_uniform.proj_pos_fid[i] = [
+                p.location.x,
+                p.location.y,
+                p.location.z,
+                p.reality_signature.fidelity,
+            ];
+            self.reality_uniform.proj_params[i] = [
+                p.reality_signature.active_style.roughness,
+                p.reality_signature.active_style.scale,
+                p.reality_signature.active_style.distortion,
+                id,
+            ];
+            self.reality_uniform.proj_color[i] = color;
+        }
+
         self.reality_uniform.global_offset = self.engine.global_offset;
         self.reality_uniform.global_offset[2] = self.engine.time;
 
@@ -1277,6 +1276,15 @@ impl State {
         let mut entity_instances = Vec::new();
 
         // 1. Add Player
+        let p1 = &self.engine.player_projector;
+        let p1_archetype = *self
+            .engine
+            .input_config
+            .archetype_filters
+            .get(&p1.reality_signature.active_style.archetype)
+            .unwrap_or(&p1.reality_signature.active_style.archetype);
+        let (_, color1) = get_archetype_data(p1_archetype);
+
         entity_instances.push(visual_lambda::LambdaInstance {
             position: [p1.location.x, p1.location.y - 1.0, p1.location.z],
             color: color1,

@@ -478,7 +478,7 @@ impl Chunk {
                             }
 
                             // Procedural Pillars
-                            if wx % 10 == 0 && wz % 10 == 0 && wy >= 0 && wy <= 10 {
+                            if wx % 10 == 0 && wz % 10 == 0 && (0..=10).contains(&wy) {
                                 if wy == 10 {
                                     voxel.id = 4; // Glowing energy top
                                 } else {

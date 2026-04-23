@@ -211,6 +211,15 @@ impl Engine {
         self.time += dt;
 
         // --- NPC AI Logic ---
+        let current_time = crate::projector::get_current_timestamp();
+        for npc in &mut self.world_state.npcs {
+            if let Some((_, timestamp)) = npc.chat_message {
+                if current_time > timestamp + 5000 {
+                    npc.chat_message = None;
+                }
+            }
+        }
+
         // Simple wandering and reality projection
 
         let mut npcs_to_update = Vec::new();
@@ -931,7 +940,7 @@ impl Engine {
             Term::App(func, arg) => {
                 if let Term::Prim(op) = &**func {
                     if *op == Primitive::Stop {
-                        return self.execute_side_effect(&**arg, false);
+                        return self.execute_side_effect(arg, false);
                     }
 
                     if *op == Primitive::Move {

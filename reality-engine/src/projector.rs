@@ -26,6 +26,8 @@ pub struct RealityProjector {
     pub target_location: Option<Point3<f32>>,
     #[serde(default)]
     pub behavior: Option<NpcBehavior>,
+    #[serde(skip)]
+    pub chat_message: Option<(String, u64)>,
 }
 
 fn default_uuid() -> String {
@@ -61,6 +63,7 @@ impl RealityProjector {
             deleted: false,
             target_location: None,
             behavior: None,
+            chat_message: None,
         }
     }
 

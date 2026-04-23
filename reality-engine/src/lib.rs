@@ -1,6 +1,4 @@
-use cgmath::{InnerSpace, Rotation, SquareMatrix};
-use std::collections::HashMap;
-use wgpu::util::DeviceExt;
+use cgmath::{InnerSpace, SquareMatrix};
 
 use serde::Serialize;
 #[cfg(target_arch = "wasm32")]
@@ -2568,6 +2566,30 @@ impl GameClient {
         serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())
     }
 
+    pub fn world_to_screen(&self, x: f32, y: f32, z: f32) -> js_sys::Float32Array {
+        let mut state_ref = self.state.borrow_mut();
+        let state = &mut *state_ref;
+
+        let view_proj = state.engine.camera.build_view_projection_matrix();
+        let pos = cgmath::Vector4::new(x, y, z, 1.0);
+        let mut clip_space_pos = view_proj * pos;
+
+        let mut result = [0.0, 0.0, -1.0]; // -1.0 z means offscreen
+
+        if clip_space_pos.w > 0.0 {
+            clip_space_pos.x /= clip_space_pos.w;
+            clip_space_pos.y /= clip_space_pos.w;
+            clip_space_pos.z /= clip_space_pos.w;
+
+            // Map to 0-1 range
+            result[0] = (clip_space_pos.x + 1.0) * 0.5;
+            result[1] = (1.0 - clip_space_pos.y) * 0.5; // Flip Y
+            result[2] = clip_space_pos.z;
+        }
+
+        js_sys::Float32Array::from(&result[..])
+    }
+
     pub fn get_npc_state_json(&self, uuid: js_sys::JsString) -> String {
         const MAX_UUID_LEN: u32 = 64;
         if uuid.length() > MAX_UUID_LEN {
@@ -2594,6 +2616,7 @@ impl GameClient {
                 z: npc.location.z,
                 archetype: format!("{:?}", npc.reality_signature.active_style.archetype),
                 player_distance: npc.location.distance(player_loc),
+                chat_message: npc.chat_message.as_ref().map(|(msg, _)| msg.clone()),
             };
             return serde_json::to_string(&npc_state).unwrap_or_else(|_| "{}".to_string());
         }
@@ -2666,6 +2689,7 @@ impl GameClient {
                         .collect();
 
                     log::info!("NPC {} says: {}", uuid_str, sanitized);
+                    npc.chat_message = Some((sanitized.clone(), crate::projector::get_current_timestamp()));
                     // Could add to an in-game chat log here
                 }
                 return true;

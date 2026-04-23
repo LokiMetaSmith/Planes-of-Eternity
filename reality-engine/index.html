@@ -471,6 +471,33 @@
             z-index: 100;
             box-shadow: 0 0 5px var(--theme-primary);
         }
+
+        .npc-chat-bubble {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            pointer-events: none;
+            transform: translate(-50%, -100%);
+            white-space: nowrap;
+            z-index: 1000;
+            box-shadow: 0px 4px 6px rgba(0,0,0,0.5);
+            transition: left 0.1s linear, top 0.1s linear;
+        }
+        .npc-chat-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px 6px 0;
+            border-style: solid;
+            border-color: rgba(0, 0, 0, 0.7) transparent transparent transparent;
+        }
+
     </style>
 </head>
 <body>
@@ -704,6 +731,9 @@
             50% { opacity: 0.3; }
             100% { opacity: 1; }
         }
+
+
+
     </style>
 
     <!-- Add data-type=module to rust link to generate modular bindings that we can import -->
@@ -748,8 +778,57 @@
 
                 const textDecoder = new TextDecoder('utf-8');
 
+
+                // Throttled NPC Chat Bubbles Logic
+                let chatBubbleFrameCounter = 0;
+                const chatBubbles = {};
+                function updateChatBubbles() {
+                    chatBubbleFrameCounter++;
+                    if (chatBubbleFrameCounter % 5 !== 0) return; // Update every 5 frames (~12fps) for performance
+                    try {
+                        const npcs = JSON.parse(gameClient.get_all_npcs_json() || '[]');
+                        const activeUuids = new Set();
+
+                        for (const uuid of npcs) {
+                            try {
+                                const state = JSON.parse(gameClient.get_npc_state_json(uuid) || '{}');
+                                if (state.chat_message && state.player_distance < 5000) {
+                                    activeUuids.add(uuid);
+
+                                    let el = chatBubbles[uuid];
+                                    if (!el) {
+                                        el = document.createElement('div');
+                                        el.className = 'npc-chat-bubble';
+                                        document.getElementById('ui-layer').appendChild(el);
+                                        chatBubbles[uuid] = el;
+                                    }
+                                    el.innerText = state.chat_message;
+
+                                    const screenPos = gameClient.world_to_screen(state.x, state.y + 2.0, state.z);
+                                    if (screenPos[2] > 0 && screenPos[2] < 1.0) {
+                                        el.style.left = (screenPos[0] * 100) + '%';
+                                        el.style.top = (screenPos[1] * 100) + '%';
+                                        el.style.display = 'block';
+                                    } else {
+                                        el.style.display = 'none';
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+
+                        // Remove inactive
+                        for (const uuid in chatBubbles) {
+                            if (!activeUuids.has(uuid)) {
+                                chatBubbles[uuid].remove();
+                                delete chatBubbles[uuid];
+                            }
+                        }
+                    } catch (e) {}
+                }
+
                 function updateLabels() {
                     requestAnimationFrame(updateLabels);
+                    updateChatBubbles();
 
                     try {
                         const uint8Array = gameClient.get_node_labels_flat();

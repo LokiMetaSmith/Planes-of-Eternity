@@ -20,6 +20,7 @@ pub enum RealityArchetype {
     SolarPunk,   // High-tech harmony with nature
     Biopunk,     // Organic, fleshy, mutated structures
     Tron,        // Geometric, neon grid
+    ColdStorage, // Offline, high-security host
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

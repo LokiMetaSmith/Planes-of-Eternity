@@ -30,6 +30,7 @@ The world is a canvas shaped by "Reality Projectors" (anomalies). Each projector
     *   `Toon`: Cartoon logic and visuals.
     *   `HyperNature`: Procedural, overgrown nature.
     *   `Genie`: Generative dream spaces.
+    *   `ColdStorage`: Offline, high-security host environment.
 *   **Blending:** Realities blend based on `fidelity` (signal strength) and `influence_radius`. The `BlendResult` determines the dominant archetype, blend alpha (bleed), and whether genres conflict. Styles are further customized by `roughness`, `scale`, and `distortion` for generative, Stable Diffusion-like control over the noise fields.
 
 ### 3. Visual Lambda System (The "Magic")

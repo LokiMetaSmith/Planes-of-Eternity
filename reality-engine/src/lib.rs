@@ -1208,6 +1208,7 @@ impl State {
                 reality_types::RealityArchetype::SolarPunk => (13.0, [0.2, 0.9, 0.4, 1.0]), // Vibrant Green
                 reality_types::RealityArchetype::Biopunk => (14.0, [0.8, 0.2, 0.4, 1.0]), // Fleshy Red
                 reality_types::RealityArchetype::Tron => (15.0, [0.0, 1.0, 1.0, 1.0]), // Cyan Neon
+                reality_types::RealityArchetype::ColdStorage => (16.0, [0.6, 0.9, 1.0, 1.0]), // Icy Blue
             }
         }
 
@@ -1309,6 +1310,7 @@ impl State {
                 crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
                 crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
                 crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
             };
             let scale = if npc.reality_signature.active_style.archetype == crate::reality_types::RealityArchetype::Tron {
                 -1.0 // negative scale triggers the bit geometry logic in shader_lambda if added
@@ -1621,6 +1623,7 @@ impl GameClient {
             13 => reality_types::RealityArchetype::SolarPunk,
             14 => reality_types::RealityArchetype::Biopunk,
             15 => reality_types::RealityArchetype::Tron,
+            16 => reality_types::RealityArchetype::ColdStorage,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -1649,6 +1652,7 @@ impl GameClient {
             13 => reality_types::RealityArchetype::SolarPunk,
             14 => reality_types::RealityArchetype::Biopunk,
             15 => reality_types::RealityArchetype::Tron,
+            16 => reality_types::RealityArchetype::ColdStorage,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1669,6 +1673,7 @@ impl GameClient {
             13 => reality_types::RealityArchetype::SolarPunk,
             14 => reality_types::RealityArchetype::Biopunk,
             15 => reality_types::RealityArchetype::Tron,
+            16 => reality_types::RealityArchetype::ColdStorage,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1700,6 +1705,7 @@ impl GameClient {
             13 => reality_types::RealityArchetype::SolarPunk,
             14 => reality_types::RealityArchetype::Biopunk,
             15 => reality_types::RealityArchetype::Tron,
+            16 => reality_types::RealityArchetype::ColdStorage,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1726,6 +1732,7 @@ impl GameClient {
                 reality_types::RealityArchetype::SolarPunk => 13,
                 reality_types::RealityArchetype::Biopunk => 14,
                 reality_types::RealityArchetype::Tron => 15,
+                reality_types::RealityArchetype::ColdStorage => 16,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

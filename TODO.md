@@ -78,6 +78,7 @@
 - [x] **New Archetypes**: Added ObraDinn archetype to Reality Engine with spherical dither mapping.
 - [x] **New Archetypes**: Added Biopunk archetype to Reality Engine.
 - [x] **New Archetypes**: Added ColdStorage archetype to Reality Engine.
+- [x] **New Archetypes**: Added LiminalSpace archetype to Reality Engine.
 
 ## Game Mechanics
 - [x] **Item Physics**: Added simple physics for dropped items with gravity and ground collision.

@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
@@ -18,6 +18,8 @@ pub enum Action {
     VoxelTimeReverse,
     VoxelDream,
     VoxelDiffuse,
+    DropItem,
+    PickupItem,
     // Add more actions as needed
 }
 
@@ -39,10 +41,11 @@ impl Action {
             "VoxelTimeReverse" => Some(Action::VoxelTimeReverse),
             "VoxelDream" => Some(Action::VoxelDream),
             "VoxelDiffuse" => Some(Action::VoxelDiffuse),
+            "DropItem" => Some(Action::DropItem),
+            "PickupItem" => Some(Action::PickupItem),
             _ => None,
         }
     }
-
 }
 
 impl std::fmt::Display for Action {
@@ -63,15 +66,23 @@ impl std::fmt::Display for Action {
             Action::VoxelTimeReverse => "VoxelTimeReverse",
             Action::VoxelDream => "VoxelDream",
             Action::VoxelDiffuse => "VoxelDiffuse",
+            Action::DropItem => "DropItem",
+            Action::PickupItem => "PickupItem",
         };
         write!(f, "{}", s)
     }
 }
 
+use crate::reality_types::RealityArchetype;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputConfig {
     pub bindings: HashMap<Action, String>, // Action -> KeyCode (e.g. "KeyW")
     pub reverse_bindings: HashMap<String, Action>, // KeyCode -> Action
+    #[serde(default)]
+    pub archetype_filters: HashMap<RealityArchetype, RealityArchetype>, // Blacklist -> Replacement
+    #[serde(default)]
+    pub custom_spell_bindings: HashMap<String, String>, // KeyCode -> Lambda String
 }
 
 impl Default for InputConfig {
@@ -92,10 +103,14 @@ impl Default for InputConfig {
         bindings.insert(Action::VoxelTimeReverse, "KeyT".to_string());
         bindings.insert(Action::VoxelDream, "KeyG".to_string());
         bindings.insert(Action::VoxelDiffuse, "KeyH".to_string());
+        bindings.insert(Action::DropItem, "KeyB".to_string());
+        bindings.insert(Action::PickupItem, "KeyQ".to_string());
 
         let mut config = Self {
             bindings,
             reverse_bindings: HashMap::new(),
+            archetype_filters: HashMap::new(),
+            custom_spell_bindings: HashMap::new(),
         };
         config.update_reverse_bindings();
         config
@@ -117,7 +132,7 @@ impl InputConfig {
 
         // If key is used by another action, remove that binding
         if let Some(existing_action) = self.reverse_bindings.get(&key_code) {
-             self.bindings.remove(existing_action);
+            self.bindings.remove(existing_action);
         }
 
         self.bindings.insert(action, key_code);

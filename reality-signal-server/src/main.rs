@@ -1,8 +1,8 @@
-use warp::Filter;
+use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use futures::{StreamExt, SinkExt};
 use tokio::sync::mpsc;
+use warp::Filter;
 
 /// Our global unique user id counter.
 static NEXT_USER_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
@@ -11,7 +11,8 @@ static NEXT_USER_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicU
 ///
 /// - Key is their id
 /// - Value is a sender of `warp::ws::Message`
-type Users = Arc<Mutex<HashMap<usize, mpsc::UnboundedSender<std::result::Result<warp::ws::Message, warp::Error>>>>>;
+type Users =
+    Arc<Mutex<HashMap<usize, mpsc::Sender<std::result::Result<warp::ws::Message, warp::Error>>>>>;
 
 #[tokio::main]
 async fn main() {
@@ -25,7 +26,9 @@ async fn main() {
     // GET /ws -> websocket upgrade
     let chat = warp::path("ws")
         // The `ws()` filter will prepare Websocket handshake...
+        // Security Enhancement: Prevent DoS by limiting message and frame size to 8KB
         .and(warp::ws())
+        .map(|ws: warp::ws::Ws| ws.max_message_size(8192).max_frame_size(8192))
         .and(users)
         .map(|ws: warp::ws::Ws, users| {
             // This will call our function if the handshake succeeds.
@@ -33,42 +36,58 @@ async fn main() {
         });
 
     // Serve static files from the parent directory (repo root)
-    let static_files = warp::fs::dir("..");
+    let static_files = warp::fs::dir("../reality-engine/dist");
 
     // Redirect root to the game's index.html
-    let root_redirect = warp::path::end().map(|| {
-        warp::redirect(warp::http::Uri::from_static("/reality-engine/index.html"))
-    });
+    let root_redirect =
+        warp::path::end().map(|| warp::redirect(warp::http::Uri::from_static("/index.html")));
 
-    let routes = chat.or(root_redirect).or(static_files);
-
-    let cors = warp::cors().allow_any_origin();
+    let routes = chat.or(root_redirect).or(static_files)
+        .with(warp::reply::with::header("X-Frame-Options", "DENY"))
+        .with(warp::reply::with::header("X-Content-Type-Options", "nosniff"))
+        .with(warp::reply::with::header("Referrer-Policy", "strict-origin-when-cross-origin"))
+        // Security Enhancement: Add Content-Security-Policy to mitigate XSS and restrict external resources
+        .with(warp::reply::with::header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' ws://localhost:9000 wss://localhost:9000 http://localhost:9000 https://localhost:9000 https://0.peerjs.com wss://0.peerjs.com; img-src 'self' data: blob:; media-src 'self' blob:;"))
+        // Security Enhancement: Add Strict-Transport-Security to enforce HTTPS
+        .with(warp::reply::with::header("Strict-Transport-Security", "max-age=31536000; includeSubDomains"));
 
     println!("Signaling server and static file server running on http://localhost:9000/");
 
-    warp::serve(routes.with(cors))
-        .run(([127, 0, 0, 1], 9000))
-        .await;
+    // No need for CORS as the frontend is served by the same origin
+    warp::serve(routes).run(([127, 0, 0, 1], 9000)).await;
 }
 
 async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
     // Use a counter to assign a new unique ID for this user.
     let my_id = NEXT_USER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
+    // Security Enhancement: Prevent DoS by limiting max connections
+    const MAX_CONNECTIONS: usize = 1000;
+    // Security Enhancement: Handle Mutex poisoning gracefully to prevent DoS
+    if users.lock().unwrap_or_else(|e| e.into_inner()).len() >= MAX_CONNECTIONS {
+        eprintln!(
+            "Security Warning: Max connections ({}) reached. Rejecting user {}.",
+            MAX_CONNECTIONS, my_id
+        );
+        let (mut user_ws_tx, _) = ws.split();
+        let _ = user_ws_tx.send(warp::ws::Message::close()).await;
+        return;
+    }
+
     // Split the socket into a sender and receiver of messages.
     let (mut user_ws_tx, mut user_ws_rx) = ws.split();
 
-    // Use an unbounded channel to handle buffering and flushing of messages
-    // to the websocket...
-    let (tx, rx) = mpsc::unbounded_channel::<std::result::Result<warp::ws::Message, warp::Error>>();
-    let mut rx = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    // Security Enhancement: Use a bounded channel to prevent memory exhaustion DoS
+    // from slow clients accumulating too many messages in memory.
+    let (tx, rx) = mpsc::channel::<std::result::Result<warp::ws::Message, warp::Error>>(100);
+    let mut rx = tokio_stream::wrappers::ReceiverStream::new(rx);
 
     tokio::task::spawn(async move {
         while let Some(message) = rx.next().await {
             user_ws_tx
-                .send(message.unwrap_or_else(|e| {
-                     // Convert error to string or close?
-                     warp::ws::Message::close()
+                .send(message.unwrap_or_else(|_e| {
+                    // Convert error to string or close?
+                    warp::ws::Message::close()
                 }))
                 .await
                 .unwrap_or_else(|e| {
@@ -78,13 +97,32 @@ async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
     });
 
     // Save the sender in our list of connected users.
-    users.lock().unwrap().insert(my_id, tx);
+    users.lock().unwrap_or_else(|e| e.into_inner()).insert(my_id, tx);
 
     println!("User {} connected", my_id);
+
+    // Security Enhancement: Rate limit incoming messages to prevent flood DoS
+    let mut message_count = 0;
+    let mut last_reset = std::time::Instant::now();
+    const MAX_MESSAGES_PER_SECOND: usize = 50;
 
     // Every time the user sends a message, broadcast it to
     // all other users...
     while let Some(result) = user_ws_rx.next().await {
+        if last_reset.elapsed().as_secs() >= 1 {
+            message_count = 0;
+            last_reset = std::time::Instant::now();
+        }
+
+        message_count += 1;
+        if message_count > MAX_MESSAGES_PER_SECOND {
+            eprintln!(
+                "Security Warning: User {} exceeded rate limit ({} msgs/sec). Disconnecting.",
+                my_id, MAX_MESSAGES_PER_SECOND
+            );
+            break;
+        }
+
         let msg = match result {
             Ok(msg) => msg,
             Err(e) => {
@@ -109,15 +147,26 @@ async fn user_message(my_id: usize, msg: warp::ws::Message, users: &Users) {
         return;
     };
 
+    // Security Enhancement: Prevent DoS by limiting message length to 8KB
+    const MAX_MESSAGE_LEN: usize = 8192;
+    if msg.len() > MAX_MESSAGE_LEN {
+        eprintln!(
+            "Security Warning: User {} sent a message exceeding the maximum length limit ({} bytes). Dropping message.",
+            my_id,
+            msg.len()
+        );
+        return;
+    }
+
     let new_msg = format!("{}", msg); // Just echo/relay the pollen
 
     // New message from this user, send it to everyone else (except same uid)...
-    for (&uid, tx) in users.lock().unwrap().iter() {
+    for (&uid, tx) in users.lock().unwrap_or_else(|e| e.into_inner()).iter() {
         if my_id != uid {
-            if let Err(_disconnected) = tx.send(Ok(warp::ws::Message::text(new_msg.clone()))) {
-                // The tx is disconnected, our `user_disconnected` code
-                // should be happening in another task, nothing more to
-                // do here.
+            if let Err(e) = tx.try_send(Ok(warp::ws::Message::text(new_msg.clone()))) {
+                // If the client is too slow or disconnected, drop the message.
+                // This prevents memory exhaustion on the server.
+                eprintln!("Failed to send message to user {}: {}", uid, e);
             }
         }
     }
@@ -126,5 +175,5 @@ async fn user_message(my_id: usize, msg: warp::ws::Message, users: &Users) {
 async fn user_disconnected(my_id: usize, users: &Users) {
     println!("User {} disconnected", my_id);
     // Stream closed up, so remove from the user list
-    users.lock().unwrap().remove(&my_id);
+    users.lock().unwrap_or_else(|e| e.into_inner()).remove(&my_id);
 }

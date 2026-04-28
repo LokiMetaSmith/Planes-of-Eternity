@@ -12,6 +12,22 @@ pub enum Primitive {
     Energy,
     Stable,
     Void,
+    Move,
+    Jump,
+    Drop,
+    Forward,
+    Backward,
+    Left,
+    Right,
+    SetArchetype,
+    Descend,
+    Stop,
+    Pickup,
+    Heal,
+    Acid,
+    Fog,
+    Cloud,
+    Rain,
 }
 
 impl fmt::Display for Primitive {
@@ -26,6 +42,22 @@ impl fmt::Display for Primitive {
             Primitive::Energy => write!(f, "ENERGY"),
             Primitive::Stable => write!(f, "STABLE"),
             Primitive::Void => write!(f, "VOID"),
+            Primitive::Move => write!(f, "MOVE"),
+            Primitive::Jump => write!(f, "JUMP"),
+            Primitive::Drop => write!(f, "DROP"),
+            Primitive::Forward => write!(f, "FORWARD"),
+            Primitive::Backward => write!(f, "BACKWARD"),
+            Primitive::Left => write!(f, "LEFT"),
+            Primitive::Right => write!(f, "RIGHT"),
+            Primitive::SetArchetype => write!(f, "SET_ARCHETYPE"),
+            Primitive::Descend => write!(f, "DESCEND"),
+            Primitive::Stop => write!(f, "STOP"),
+            Primitive::Pickup => write!(f, "PICKUP"),
+            Primitive::Heal => write!(f, "HEAL"),
+            Primitive::Acid => write!(f, "ACID"),
+            Primitive::Fog => write!(f, "FOG"),
+            Primitive::Cloud => write!(f, "CLOUD"),
+            Primitive::Rain => write!(f, "RAIN"),
         }
     }
 }
@@ -44,6 +76,22 @@ impl std::str::FromStr for Primitive {
             "ENERGY" => Ok(Primitive::Energy),
             "STABLE" => Ok(Primitive::Stable),
             "VOID" => Ok(Primitive::Void),
+            "MOVE" => Ok(Primitive::Move),
+            "JUMP" => Ok(Primitive::Jump),
+            "DROP" => Ok(Primitive::Drop),
+            "FORWARD" => Ok(Primitive::Forward),
+            "BACKWARD" => Ok(Primitive::Backward),
+            "LEFT" => Ok(Primitive::Left),
+            "RIGHT" => Ok(Primitive::Right),
+            "SET_ARCHETYPE" => Ok(Primitive::SetArchetype),
+            "DESCEND" => Ok(Primitive::Descend),
+            "STOP" => Ok(Primitive::Stop),
+            "PICKUP" => Ok(Primitive::Pickup),
+            "HEAL" => Ok(Primitive::Heal),
+            "ACID" => Ok(Primitive::Acid),
+            "FOG" => Ok(Primitive::Fog),
+            "CLOUD" => Ok(Primitive::Cloud),
+            "RAIN" => Ok(Primitive::Rain),
             _ => Err(()),
         }
     }
@@ -52,7 +100,7 @@ impl std::str::FromStr for Primitive {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Term {
     Var(String),
-    Abs(String, Rc<Term>), // \x. Body
+    Abs(String, Rc<Term>),   // \x. Body
     App(Rc<Term>, Rc<Term>), // (Function Argument)
     Prim(Primitive),
 }
@@ -95,12 +143,10 @@ impl Term {
                     Rc::new(Term::Var(name.clone()))
                 }
             }
-            Term::App(func, arg) => {
-                Rc::new(Term::App(
-                    func.substitute(var_name, val),
-                    arg.substitute(var_name, val)
-                ))
-            }
+            Term::App(func, arg) => Rc::new(Term::App(
+                func.substitute(var_name, val),
+                arg.substitute(var_name, val),
+            )),
             Term::Abs(param, body) => {
                 if param == var_name {
                     // Variable shadowed, stop substitution
@@ -111,13 +157,10 @@ impl Term {
                     let new_body = body.substitute(param, &Term::var(&new_param));
                     Rc::new(Term::Abs(
                         new_param.clone(),
-                        new_body.substitute(var_name, val)
+                        new_body.substitute(var_name, val),
                     ))
                 } else {
-                    Rc::new(Term::Abs(
-                        param.clone(),
-                        body.substitute(var_name, val)
-                    ))
+                    Rc::new(Term::Abs(param.clone(), body.substitute(var_name, val)))
                 }
             }
             Term::Prim(p) => Rc::new(Term::Prim(*p)),
@@ -159,7 +202,7 @@ impl Term {
                 } else {
                     Term::app(new_func, new_arg)
                 }
-            },
+            }
             Term::Abs(param, body) => {
                 let new_body = Term::replace(body, target, replacement);
                 if Rc::ptr_eq(&new_body, body) {
@@ -167,8 +210,8 @@ impl Term {
                 } else {
                     Term::abs(param, new_body)
                 }
-            },
-            _ => root.clone()
+            }
+            _ => root.clone(),
         }
     }
 
@@ -181,8 +224,8 @@ impl Term {
 
                 // If func is an abstraction, we BETA REDUCE!
                 if let Term::Abs(param, body) = &**func {
-                     // (\x.M) N -> M[N/x]
-                     return (body.substitute(param, arg), true);
+                    // (\x.M) N -> M[N/x]
+                    return (body.substitute(param, arg), true);
                 }
 
                 // If func is NOT an abstraction yet, try to reduce it.
@@ -217,7 +260,7 @@ impl Term {
 // Simple Parser
 pub fn parse(input: &str) -> Option<Rc<Term>> {
     let tokens = tokenize(input);
-    let (term, _) = parse_tokens(&tokens)?;
+    let (term, _) = parse_tokens(&tokens, 0)?;
     Some(term)
 }
 
@@ -267,20 +310,34 @@ fn tokenize(input: &str) -> Vec<Token> {
                 }
                 tokens.push(Token::Ident(ident));
             }
-            _ => { chars.next(); } // Skip unknown
+            _ => {
+                chars.next();
+            } // Skip unknown
         }
     }
     tokens
 }
 
-fn parse_tokens(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
-    if tokens.is_empty() { return None; }
+fn parse_tokens(tokens: &[Token], depth: usize) -> Option<(Rc<Term>, &[Token])> {
+    if tokens.is_empty() {
+        return None;
+    }
+
+    // Security Enhancement: Prevent Stack Overflow DoS from deeply nested expressions
+    const MAX_PARSE_DEPTH: usize = 64;
+    if depth > MAX_PARSE_DEPTH {
+        log::warn!(
+            "Security Warning: Lambda parse depth exceeded limit of {}. Aborting parse.",
+            MAX_PARSE_DEPTH
+        );
+        return None;
+    }
 
     // Parse one term (atom or parenthesized or lambda)
-    let (mut left, mut rest) = parse_atom(tokens)?;
+    let (mut left, mut rest) = parse_atom(tokens, depth)?;
 
     // Handle application: Term Term ...
-    while let Some((right, next_rest)) = parse_atom(rest) {
+    while let Some((right, next_rest)) = parse_atom(rest, depth) {
         left = Term::app(left, right);
         rest = next_rest;
     }
@@ -288,12 +345,14 @@ fn parse_tokens(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
     Some((left, rest))
 }
 
-fn parse_atom(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
-    if tokens.is_empty() { return None; }
+fn parse_atom(tokens: &[Token], depth: usize) -> Option<(Rc<Term>, &[Token])> {
+    if tokens.is_empty() {
+        return None;
+    }
 
     match &tokens[0] {
         Token::LParen => {
-            let (term, rest) = parse_tokens(&tokens[1..])?;
+            let (term, rest) = parse_tokens(&tokens[1..], depth + 1)?;
             if rest.first() == Some(&Token::RParen) {
                 Some((term, &rest[1..]))
             } else {
@@ -304,7 +363,7 @@ fn parse_atom(tokens: &[Token]) -> Option<(Rc<Term>, &[Token])> {
             // \x. Body
             if let Some(Token::Ident(param)) = tokens.get(1) {
                 if tokens.get(2) == Some(&Token::Dot) {
-                    let (body, rest) = parse_tokens(&tokens[3..])?;
+                    let (body, rest) = parse_tokens(&tokens[3..], depth + 1)?;
                     Some((Term::abs(param, body), rest))
                 } else {
                     None
@@ -333,7 +392,7 @@ mod tests {
     fn test_primitive_parse() {
         let term = parse("FIRE").unwrap();
         match *term {
-            Term::Prim(Primitive::Fire) => {},
+            Term::Prim(Primitive::Fire) => {}
             _ => panic!("Expected Prim(Fire)"),
         }
     }
@@ -341,7 +400,7 @@ mod tests {
     #[test]
     fn test_primitive_app() {
         let term = parse("GROWTH TREE").unwrap(); // TREE is var, GROWTH is prim
-        // "TREE" is not a known prim, so it's a Var("TREE")
+                                                  // "TREE" is not a known prim, so it's a Var("TREE")
         println!("{}", term);
         assert_eq!(term.to_string(), "(GROWTH TREE)");
     }

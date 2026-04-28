@@ -1,15 +1,26 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
 pub enum RealityArchetype {
     #[default]
-    Void,        // Default/Empty
+    Void, // Default/Empty
     Fantasy,     // High Fantasy
     SciFi,       // Cyber Punk
     Horror,      // Eldritch Horror
     Toon,        // Toon Logic
     HyperNature, // Procedural Nature
     Genie,       // Generative Dream
+    Glitch,      // Digital Distortion
+    Steampunk,   // Brass and Steam
+    Vaporwave,   // Synthwave / Outrun
+    Noir,        // Monochrome, High Contrast, Rain
+    CyberSpace,  // Matrix / Digital Grid
+    Dream,       // Soft Pastel Clouds
+    ObraDinn,    // 1-bit Dithered Sphere Mapping
+    SolarPunk,   // High-tech harmony with nature
+    Biopunk,     // Organic, fleshy, mutated structures
+    Tron,        // Geometric, neon grid
+    ColdStorage, // Offline, high-security host
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,9 +30,9 @@ pub struct RealityStyle {
     pub seed: i32,         // The deterministic random number for WFC generation
 
     // Generative Parameters (Stable Diffusion-like control)
-    pub roughness: f32,    // High frequency noise intensity
-    pub scale: f32,        // Frequency of the noise (Feature size)
-    pub distortion: f32,   // Domain warping intensity
+    pub roughness: f32,  // High frequency noise intensity
+    pub scale: f32,      // Frequency of the noise (Feature size)
+    pub distortion: f32, // Domain warping intensity
 }
 
 impl Default for RealityStyle {
@@ -74,8 +85,50 @@ impl Default for RealitySignature {
 pub struct BlendResult {
     pub dominant_archetype: RealityArchetype, // Who won?
     pub blend_alpha: f32,                     // 0.0 to 1.0 (How much "Bleed" is happening?)
-    pub is_conflict: bool,                    // True if genres are opposites (e.g., SciFi vs Fantasy)
-    pub total_strength: f32,                  // Total signal strength at this point
+    pub is_conflict: bool, // True if genres are opposites (e.g., SciFi vs Fantasy)
+    pub total_strength: f32, // Total signal strength at this point
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DroppedItem {
+    pub id: String,
+    pub position: cgmath::Point3<f32>,
+    pub velocity: cgmath::Vector3<f32>,
+    pub scale: f32,
+    pub color: [f32; 4],
+    #[serde(default)]
+    pub voxels: Vec<u8>, // Local voxel grid representing the item
+    #[serde(default)]
+    pub size: [usize; 3], // Dimensions of the local voxel grid
+}
+
+impl DroppedItem {
+    pub fn new_cube(
+        id: String,
+        position: cgmath::Point3<f32>,
+        velocity: cgmath::Vector3<f32>,
+        scale: f32,
+        color: [f32; 4],
+        size: usize,
+    ) -> Self {
+        let volume = size * size * size;
+        let mut voxels = vec![0; volume];
+
+        // Fill as a solid cube initially (ID 1 = solid)
+        for i in 0..volume {
+            voxels[i] = 1;
+        }
+
+        Self {
+            id,
+            position,
+            velocity,
+            scale,
+            color,
+            voxels,
+            size: [size, size, size],
+        }
+    }
 }
 
 impl Default for BlendResult {

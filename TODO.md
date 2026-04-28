@@ -1,6 +1,11 @@
 # Reality Engine Tasks
 
 ## 4D Voxel Engine
+- [x] **Multi-Archetype Blending**: Implement proper shader and state logic to support blending up to 5 reality projectors simultaneously based on proximity and fidelity.
+- [x] Added Acid liquid voxel type with particle physics
+- [x] Added Fog, Cloud, and Rain voxel types with weather particle physics
+- [x] **Player Reality Projection**: Associate the player character with their area and transmit their archetype outward.
+- [x] **Voxel Associations**: Add a method for associating voxels to other voxels.
 - [x] **Optimize Rendering**: Implement Greedy Meshing to reduce triangle count.
 - [x] **LOD System**: Implement Level of Detail for distant chunks (Octree or simplified mesh).
 - [x] **Enhance Visuals**: Add Shadows, Textures, and more complex shading (AO, reflections). (AO, Reflections Implemented)
@@ -55,9 +60,55 @@
 - [x] **Host Tests**: Refactor `lib.rs` to move platform-agnostic logic into a separate module to allow `cargo test` to run more coverage without WASM flags.
 - [x] **Fix Cargo Test**: Gate WASM-specific code (State, xr) to allow `cargo test` to run on host successfully.
 - [x] **Error Handling**: gracefully handle network failures (e.g., Signaling server down) without console spam.
+- [x] **Migrate to Trunk**: Replace deprecated `wasm-pack` build tool with `trunk` for compiling and bundling the web application.
 
 ## Documentation
 - [x] **Game Bible**: Create a comprehensive game bible (`GAME_BIBLE.md`) summarizing the game concept, core mechanics, archetypes, and technical architecture.
 
 ## End-to-End Testing
 - [x] **E2E Test Platform**: Implement an end-to-end verification platform using Playwright to test visual and UI/UX elements.
+- [x] **E2E Host Test Coverage**: Expanded host test coverage to correctly render 3D terrain via WebGPU in headless Playwright and perform visual snapshot assertions on various Reality archetypes.
+
+- [x] **New Archetypes**: Added Glitch archetype to Reality Engine.
+- [x] **New Archetypes**: Added Steampunk archetype to Reality Engine.
+- [x] **New Archetypes**: Added Vaporwave archetype to Reality Engine.
+- [x] **New Archetypes**: Added Noir archetype to Reality Engine.
+- [x] **New Archetypes**: Added CyberSpace archetype to Reality Engine.
+- [x] **New Archetypes**: Added Dream archetype to Reality Engine.
+- [x] **New Archetypes**: Added ObraDinn archetype to Reality Engine with spherical dither mapping.
+- [x] **New Archetypes**: Added Biopunk archetype to Reality Engine.
+- [x] **New Archetypes**: Added ColdStorage archetype to Reality Engine.
+
+## Game Mechanics
+- [x] **Item Physics**: Added simple physics for dropped items with gravity and ground collision.
+
+## UI/UX
+- [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.
+- [x] **Player Model**: Rendered a voxel sphere player model at the player's position colored by their active archetype to make the player dynamic and fit the game's voxel aesthetic.
+- [x] **Add AI or Non-Player Characters (NPCs)**: Added an array of NPCs to the WorldState, basic deterministic wandering logic to `Engine::update`, and updated rendering to use instanced drawing for the player and NPCs.
+
+## Dynamic 3D Voxel Model Generation
+- [x] **Programmatic Voxelizer**: Implement programmatic voxelization algorithm (OBJ to Voxel Chunk) in `reality-engine`.
+- [x] **Sparse Voxel Generator**: Expand `reality-genie` to include a Text-to-3D Sparse Voxel Generator (Sparc3D concept).
+- [x] **Advanced Voxel Physics**: Implement voxel terrain collision and destruction for dropped items, inspired by Starbase.
+- [x] **New Archetypes**: Added SolarPunk archetype to Reality Engine.
+- [x] **UI Improvement**: Added ability to hide UI menu bars using 'H' key for a cleaner experience.
+
+## Future Enhancements
+- [x] Add shaders to liquids, and gasses, as well as existing landscape.
+- [x] A specific spell-casting UI or particle effects for when spells hit the ground.
+- [x] A dedicated inventory system for picking up and storing dropped items.
+- [x] An expanded AI system where NPCs can be hostile and attack the player.
+- [x] Different terrain generation types based on the "base" reality of the area.
+
+## Full Lambda Scripting Integration
+- [x] **Extend Primitives**: Introduce new lambda primitives (e.g., `MOVE`, `JUMP`, `DROP`, `SET_ARCHETYPE`) to map game actions into the Lambda engine.
+- [x] **Engine Action Hook**: Replace hardcoded Rust state changes triggered by key-presses with evaluation of Lambda expressions.
+- [x] **Advanced Spells & Effects**: Expand `compile_spell` to allow spells to trigger side-effects (e.g. modify environment, heal player) based on complex function evaluation.
+- [x] **Custom Hotkeys UI**: Allow players to bind custom lambda spell expressions to specific hotkeys via the UI.
+- [x] **Visual Scripting Expansion**: Expand the 3D drag-and-drop bubble visual system / Inscribe overlay to facilitate building game logic directly within the UI.
+- [x] Extend scripting language to support the new weather and liquid system (Acid, Fog, Cloud, Rain primitives).
+- [x] **New Archetypes**: Added Tron archetype mappings to Reality Engine.
+
+## NPC Chat System
+- [x] Add NPC Chat bubbles to the UI via HTML Overlays.

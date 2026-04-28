@@ -1,10 +1,9 @@
-use serde::{Serialize, Deserialize};
 use crate::input::InputConfig;
 use crate::projector::RealityProjector;
 use crate::world::WorldState;
+use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use web_sys::Storage;
-use log::{info, error};
 
 pub const SAVE_VERSION: u32 = 2;
 
@@ -31,10 +30,16 @@ pub struct GameState {
 }
 
 pub fn get_save_key(slot: &str) -> String {
-    if slot == "default" || slot.is_empty() {
+    let sanitized_slot: String = slot
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+        .take(64)
+        .collect();
+
+    if sanitized_slot == "default" || sanitized_slot.is_empty() {
         "reality_engine_save".to_string()
     } else {
-        format!("reality_engine_save_{}", slot)
+        format!("reality_engine_save_{}", sanitized_slot)
     }
 }
 
@@ -89,7 +94,7 @@ pub fn save_to_local_storage(key: &str, state: &GameState) {
                 if let Err(e) = storage.set_item(key, &json) {
                     error!("Failed to save to local storage: {:?}", e);
                 }
-            },
+            }
             Err(e) => error!("Failed to serialize game state: {:?}", e),
         }
     }
@@ -105,28 +110,40 @@ pub fn load_from_local_storage(key: &str) -> Option<GameState> {
     if let Ok(Some(storage)) = get_local_storage() {
         match storage.get_item(key) {
             Ok(Some(json)) => {
+                // Security Enhancement: Prevent DoS by limiting save file length
+                // A maliciously large string in localStorage could cause memory exhaustion during parsing
+                const MAX_SAVE_LEN: usize = 10 * 1024 * 1024; // 10MB
+                if json.len() > MAX_SAVE_LEN {
+                    error!("Security Warning: Save file '{}' exceeded maximum length limit ({} bytes). Rejecting.", key, MAX_SAVE_LEN);
+                    return None;
+                }
+
                 match serde_json::from_str::<GameState>(&json) {
                     Ok(state) => {
                         if state.version != SAVE_VERSION {
                             if state.version == 0 {
                                 info!("Migrating legacy save (v0) to v{}", SAVE_VERSION);
                             } else {
-                                log::warn!("Version mismatch: save is v{}, current is v{}", state.version, SAVE_VERSION);
+                                log::warn!(
+                                    "Version mismatch: save is v{}, current is v{}",
+                                    state.version,
+                                    SAVE_VERSION
+                                );
                             }
                         }
                         info!("Loaded game state from local storage.");
                         Some(state)
-                    },
+                    }
                     Err(e) => {
                         error!("Failed to deserialize game state: {:?}", e);
                         None
                     }
                 }
-            },
+            }
             Ok(None) => {
                 info!("No save found for key: {}", key);
                 None
-            },
+            }
             Err(e) => {
                 error!("Failed to read from local storage: {:?}", e);
                 None

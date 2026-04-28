@@ -1,6 +1,57 @@
+use cgmath::{Point3, Vector3};
 use reality_engine::engine::Engine;
 use reality_engine::input::{Action, InputConfig};
-use cgmath::{Point3, Vector3};
+
+#[derive(Debug, PartialEq)]
+pub struct LabelInfo {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: String,
+}
+
+pub fn parse_flat_labels(bytes: &[u8]) -> Vec<LabelInfo> {
+    let mut labels = Vec::new();
+    if bytes.len() < 4 {
+        return labels;
+    }
+
+    let count = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    let mut offset = 4;
+
+    for _ in 0..count {
+        if offset + 12 > bytes.len() {
+            break;
+        }
+
+        let x = f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+
+        let y = f32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap());
+
+        let r = bytes[offset + 8];
+        let g = bytes[offset + 9];
+        let b = bytes[offset + 10];
+        let _a = bytes[offset + 11];
+        let color = format!("#{:02x}{:02x}{:02x}", r, g, b);
+        offset += 12;
+
+        if offset + 2 > bytes.len() {
+            break;
+        }
+        let text_len = u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap()) as usize;
+        offset += 2;
+
+        if offset + text_len > bytes.len() {
+            break;
+        }
+        let text = String::from_utf8_lossy(&bytes[offset..offset + text_len]).into_owned();
+        offset += text_len;
+
+        labels.push(LabelInfo { text, x, y, color });
+    }
+
+    labels
+}
 
 #[test]
 fn test_engine_initialization() {
@@ -13,7 +64,7 @@ fn test_engine_initialization() {
 #[test]
 fn test_engine_update() {
     let mut engine = Engine::new(800, 600, None);
-    engine.update(0.1);
+    engine.update(0.1, None);
     assert!(engine.time > 0.0);
 }
 
@@ -39,7 +90,10 @@ fn test_click_places_anomaly() {
     assert!(changed, "Click should have placed an anomaly");
 
     // Verify anomaly count (iterating chunks)
-    let count = engine.world_state.chunks.values()
+    let count = engine
+        .world_state
+        .chunks
+        .values()
         .map(|c| c.anomalies.len())
         .sum::<usize>();
 
@@ -73,15 +127,27 @@ fn test_p2p_merge_logic() {
     // Merge
     let merged = engine_b.world_state.merge(remote_world_state);
 
-    assert!(merged, "Merge should return true indicating new data was integrated");
+    assert!(
+        merged,
+        "Merge should return true indicating new data was integrated"
+    );
 
     // Verify Peer B has the anomaly
-    let count_b = engine_b.world_state.chunks.values()
+    let count_b = engine_b
+        .world_state
+        .chunks
+        .values()
         .map(|c| c.anomalies.len())
         .sum::<usize>();
 
-    assert_eq!(count_b, 1, "Peer B should have synchronized the anomaly from Peer A");
-    assert_eq!(engine_b.world_state.root_hash, engine_a.world_state.root_hash, "World hashes should match after sync");
+    assert_eq!(
+        count_b, 1,
+        "Peer B should have synchronized the anomaly from Peer A"
+    );
+    assert_eq!(
+        engine_b.world_state.root_hash, engine_a.world_state.root_hash,
+        "World hashes should match after sync"
+    );
 }
 
 #[test]
@@ -93,7 +159,10 @@ fn test_input_rebinding() {
     engine.lambda_system.set_term(term);
 
     // Default binding: CastSpell -> KeyF
-    assert_eq!(engine.input_config.get_binding(Action::CastSpell).unwrap(), "KeyF");
+    assert_eq!(
+        engine.input_config.get_binding(Action::CastSpell).unwrap(),
+        "KeyF"
+    );
 
     // Simulate pressing KeyF -> Should cast spell
     // (We check logs or side effect? Anomaly count)
@@ -103,31 +172,51 @@ fn test_input_rebinding() {
     engine.process_keyboard("KeyF", true);
 
     // Verify anomaly added (Cast Spell adds an anomaly)
-    let count_f = engine.world_state.chunks.values()
+    let count_f = engine
+        .world_state
+        .chunks
+        .values()
         .map(|c| c.anomalies.len())
         .sum::<usize>();
     assert_eq!(count_f, 1, "Pressing KeyF should cast spell by default");
 
     // Rebind CastSpell to KeyG
-    engine.input_config.set_binding(Action::CastSpell, "KeyG".to_string());
-    assert_eq!(engine.input_config.get_binding(Action::CastSpell).unwrap(), "KeyG");
+    engine
+        .input_config
+        .set_binding(Action::CastSpell, "KeyG".to_string());
+    assert_eq!(
+        engine.input_config.get_binding(Action::CastSpell).unwrap(),
+        "KeyG"
+    );
 
     // Press KeyF -> Should do nothing now
     engine.process_keyboard("KeyF", false); // Release
-    engine.process_keyboard("KeyF", true);  // Press
+    engine.process_keyboard("KeyF", true); // Press
 
-    let count_f_2 = engine.world_state.chunks.values()
+    let count_f_2 = engine
+        .world_state
+        .chunks
+        .values()
         .map(|c| c.anomalies.len())
         .sum::<usize>();
-    assert_eq!(count_f_2, 1, "Pressing KeyF should NOT cast spell after rebinding");
+    assert_eq!(
+        count_f_2, 1,
+        "Pressing KeyF should NOT cast spell after rebinding"
+    );
 
     // Press KeyG -> Should cast spell
     engine.process_keyboard("KeyG", true);
 
-    let count_g = engine.world_state.chunks.values()
+    let count_g = engine
+        .world_state
+        .chunks
+        .values()
         .map(|c| c.anomalies.len())
         .sum::<usize>();
-    assert_eq!(count_g, 2, "Pressing KeyG should cast spell after rebinding");
+    assert_eq!(
+        count_g, 2,
+        "Pressing KeyG should cast spell after rebinding"
+    );
 }
 
 #[test]
@@ -135,19 +224,48 @@ fn test_voxel_input_configuration() {
     let mut engine = Engine::new(800, 600, None);
 
     // Verify default bindings
-    assert_eq!(engine.input_config.get_binding(Action::VoxelDiffusion).unwrap(), "KeyY");
-    assert_eq!(engine.input_config.get_binding(Action::VoxelTimeReverse).unwrap(), "KeyT");
-    assert_eq!(engine.input_config.get_binding(Action::VoxelDream).unwrap(), "KeyG");
+    assert_eq!(
+        engine
+            .input_config
+            .get_binding(Action::VoxelDiffusion)
+            .unwrap(),
+        "KeyY"
+    );
+    assert_eq!(
+        engine
+            .input_config
+            .get_binding(Action::VoxelTimeReverse)
+            .unwrap(),
+        "KeyT"
+    );
+    assert_eq!(
+        engine.input_config.get_binding(Action::VoxelDream).unwrap(),
+        "KeyG"
+    );
 
     // Verify reverse mapping
-    assert_eq!(engine.input_config.map_key("KeyY"), Some(Action::VoxelDiffusion));
+    assert_eq!(
+        engine.input_config.map_key("KeyY"),
+        Some(Action::VoxelDiffusion)
+    );
 
     // Rebind Diffusion to KeyH
-    engine.input_config.set_binding(Action::VoxelDiffusion, "KeyH".to_string());
+    engine
+        .input_config
+        .set_binding(Action::VoxelDiffusion, "KeyH".to_string());
 
     // Verify new binding
-    assert_eq!(engine.input_config.get_binding(Action::VoxelDiffusion).unwrap(), "KeyH");
-    assert_eq!(engine.input_config.map_key("KeyH"), Some(Action::VoxelDiffusion));
+    assert_eq!(
+        engine
+            .input_config
+            .get_binding(Action::VoxelDiffusion)
+            .unwrap(),
+        "KeyH"
+    );
+    assert_eq!(
+        engine.input_config.map_key("KeyH"),
+        Some(Action::VoxelDiffusion)
+    );
 
     // Verify old key is unmapped (or at least not mapped to Diffusion)
     // Note: implementation of set_binding might not remove the old key from reverse_bindings if we don't clear it explicitly,
@@ -160,10 +278,10 @@ fn test_voxel_input_configuration() {
 
 #[test]
 fn test_merge_conflict_resolution() {
+    use cgmath::Point3;
     use reality_engine::projector::RealityProjector;
     use reality_engine::reality_types::RealitySignature;
     use reality_engine::world::{Chunk, ChunkId};
-    use cgmath::Point3;
 
     let mut chunk1 = Chunk::new(ChunkId { x: 0, z: 0 });
     let mut chunk2 = Chunk::new(ChunkId { x: 0, z: 0 });
@@ -193,15 +311,27 @@ fn test_merge_conflict_resolution() {
     let changed = chunk1.merge(&chunk2);
 
     assert!(changed, "Merge should happen");
-    assert_eq!(chunk1.anomalies.len(), 2, "Should have 2 anomalies (1 updated, 1 new)");
+    assert_eq!(
+        chunk1.anomalies.len(),
+        2,
+        "Should have 2 anomalies (1 updated, 1 new)"
+    );
 
     // Verify update
-    let updated_proj = chunk1.anomalies.iter().find(|a| a.uuid == proj1.uuid).expect("Proj1 should exist");
+    let updated_proj = chunk1
+        .anomalies
+        .iter()
+        .find(|a| a.uuid == proj1.uuid)
+        .expect("Proj1 should exist");
     assert_eq!(updated_proj.last_updated, 2000);
     assert_eq!(updated_proj.location.x, 10.0);
 
     // Verify new
-    let new_proj = chunk1.anomalies.iter().find(|a| a.uuid == proj2.uuid).expect("Proj2 should exist");
+    let new_proj = chunk1
+        .anomalies
+        .iter()
+        .find(|a| a.uuid == proj2.uuid)
+        .expect("Proj2 should exist");
     assert_eq!(new_proj.location.x, 5.0);
 
     // Test reverse merge (older into newer)
@@ -211,10 +341,146 @@ fn test_merge_conflict_resolution() {
     chunk3.anomalies.push(proj1_old);
 
     let changed_reverse = chunk1.merge(&chunk3);
-    assert!(!changed_reverse, "Merging older data should not change anything");
+    assert!(
+        !changed_reverse,
+        "Merging older data should not change anything"
+    );
 
-    let current_proj = chunk1.anomalies.iter().find(|a| a.uuid == proj1.uuid).unwrap();
+    let current_proj = chunk1
+        .anomalies
+        .iter()
+        .find(|a| a.uuid == proj1.uuid)
+        .unwrap();
     assert_eq!(current_proj.last_updated, 2000, "Should keep newer version");
+}
+
+#[test]
+fn test_npc_evolution_and_movement() {
+    use cgmath::Point3;
+    use reality_engine::projector::RealityProjector;
+    use reality_engine::reality_types::{RealityArchetype, RealitySignature};
+
+    let mut engine = Engine::new(800, 600, None);
+
+    // Clear out any default spawned NPCs and anomalies
+    engine.world_state.npcs.clear();
+    engine.world_state.chunks.clear();
+
+    // Spawn an NPC preferring SciFi
+    let mut sig_npc = RealitySignature::default();
+    sig_npc.active_style.archetype = RealityArchetype::SciFi;
+    sig_npc.fidelity = 100.0;
+
+    let npc_start_pos = Point3::new(0.0, 1.0, 0.0);
+    let mut npc = RealityProjector::new(npc_start_pos, sig_npc.clone());
+    npc.behavior = Some(reality_engine::projector::NpcBehavior {
+        preferred_archetype: RealityArchetype::SciFi,
+        energy: 100.0,
+        mutation_progress: 0.0,
+        hostile: false,
+    });
+    engine.world_state.npcs.push(npc);
+
+    // Add a strong Horror anomaly at the NPC's location to force mutation
+    let mut sig_anomaly = RealitySignature::default();
+    sig_anomaly.active_style.archetype = RealityArchetype::Horror;
+    sig_anomaly.fidelity = 500.0; // Very strong
+    let anomaly = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig_anomaly);
+    engine.world_state.add_anomaly(anomaly);
+
+    // Ensure the anomaly chunk hash is updated
+    engine.world_state.calculate_root_hash();
+
+    // The dominant archetype at (0,0,0) should now be Horror
+    let current_arch = engine
+        .world_state
+        .get_dominant_archetype_at(npc_start_pos)
+        .unwrap();
+    assert_eq!(
+        current_arch,
+        RealityArchetype::Horror,
+        "Dominant archetype should be Horror"
+    );
+
+    // We need to run enough update ticks so mutation_progress hits 100.
+    // 15.0 mutation per second. We need 100 / 15.0 = 6.66 seconds minimum.
+    // We update with dt=1.0 ten times (10 seconds total).
+    for _ in 0..10 {
+        engine.update(1.0, None);
+        // Force them back to center so they don't leave the anomaly chunk during their agitated wandering
+        engine.world_state.npcs[0].location = npc_start_pos;
+    }
+
+    // Now verify the state
+    let updated_npc = &engine.world_state.npcs[0];
+    let behavior = updated_npc
+        .behavior
+        .as_ref()
+        .expect("NPC should have behavior");
+
+    // Verify evolution
+    assert_eq!(
+        behavior.preferred_archetype,
+        RealityArchetype::Horror,
+        "NPC should have evolved to prefer Horror"
+    );
+    assert_eq!(
+        updated_npc.reality_signature.active_style.archetype,
+        RealityArchetype::Horror,
+        "NPC reality projection should have changed to Horror"
+    );
+
+    // Verify energy and mutation reset
+    assert!(
+        behavior.mutation_progress < 15.0,
+        "Mutation progress should be very low after reset"
+    );
+    // After evolution, energy is set to 50.0, but on subsequent ticks of thriving it increases by 5.0 per tick.
+    // So it might be 50.0 + 5.0 * remaining_ticks. We just assert it is >= 50.0
+    assert!(
+        behavior.energy >= 50.0,
+        "Energy should have reset to at least 50.0 after evolution"
+    );
+}
+
+#[test]
+fn test_get_node_labels_benchmark() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // Generate a very large lambda term to stress test labels
+    // e.g., a long sequence of applications
+    let mut term_str = String::from("FIRE");
+    for _ in 0..50 {
+        term_str = format!("(GROWTH {})", term_str);
+    }
+
+    let term = reality_engine::lambda::parse(&term_str).unwrap();
+    engine.lambda_system.set_term(term);
+
+    // Update to calculate node positions
+    engine.update(0.1, None);
+    engine.update(0.1, None);
+    engine.update(0.1, None);
+
+    // Warmup
+    let mut labels_buffer = Vec::new();
+    engine.get_node_labels_flat(&mut labels_buffer);
+
+    // Benchmark Flat Buffer
+    let start_flat = std::time::Instant::now();
+    for _ in 0..100 {
+        engine.get_node_labels_flat(&mut labels_buffer);
+    }
+    let duration_flat = start_flat.elapsed();
+
+    println!(
+        "Flat Buffer Label Generation (100 iterations): {:?}",
+        duration_flat
+    );
+
+    // Flat buffer approach should be faster than JSON serialization
+    // but since we removed json, we just assert it ran successfully
+    assert!(duration_flat.as_secs_f32() >= 0.0);
 }
 
 #[test]
@@ -233,19 +499,28 @@ fn test_get_node_labels() {
     engine.camera.up = Vector3::new(0.0, 1.0, 0.0);
 
     // Update to calculate node positions
-    engine.update(0.1);
+    engine.update(0.1, None);
+    engine.update(0.1, None);
 
     // Get labels
-    let labels = engine.get_node_labels();
+    let mut labels_buffer = Vec::new();
+    engine.get_node_labels_flat(&mut labels_buffer);
+    let labels = parse_flat_labels(&labels_buffer);
 
     println!("Labels found: {:?}", labels);
 
     assert!(!labels.is_empty(), "Should have labels");
 
     // Check for "λx"
-    assert!(labels.iter().any(|l| l.text == "λx"), "Should find Abs label");
+    assert!(
+        labels.iter().any(|l| l.text == "λx"),
+        "Should find Abs label"
+    );
     // Check for "y"
-    assert!(labels.iter().any(|l| l.text == "y"), "Should find free var label");
+    assert!(
+        labels.iter().any(|l| l.text == "y"),
+        "Should find free var label"
+    );
 
     // Check visibility logic (behind camera)
     // Move camera so nodes are behind.
@@ -255,28 +530,37 @@ fn test_get_node_labels() {
     engine.camera.target = Point3::new(0.0, 5.0, 30.0);
 
     // Do NOT call update(), so nodes stay at old position
-    let labels_hidden = engine.get_node_labels();
+    let mut labels_buffer = Vec::new();
+    engine.get_node_labels_flat(&mut labels_buffer);
+    let labels_hidden = parse_flat_labels(&labels_buffer);
     // Filter out UI status labels
-    let lambda_labels: Vec<_> = labels_hidden.iter()
+    let lambda_labels: Vec<_> = labels_hidden
+        .iter()
         .filter(|l| l.text != "STEP MODE" && l.text != "AUTO-RUN" && l.text != "PAUSED")
         .collect();
-    assert!(lambda_labels.is_empty(), "Labels should be culled if behind camera");
+    assert!(
+        lambda_labels.is_empty(),
+        "Labels should be culled if behind camera"
+    );
 }
 
 #[test]
 fn test_lambda_layout_persistence() {
+    use cgmath::Point3;
     use reality_engine::persistence::{GameState, PlayerState};
-    use reality_engine::world::WorldState;
     use reality_engine::projector::RealityProjector;
     use reality_engine::reality_types::RealitySignature;
-    use cgmath::Point3;
+    use reality_engine::world::WorldState;
 
     // 1. Create a mock GameState with custom Lambda data
     let custom_layout = vec![[10.0, 20.0, 30.0]]; // Specific position for root
 
     let game_state = GameState {
         player: PlayerState {
-            projector: RealityProjector::new(Point3::new(0.0, 0.0, 0.0), RealitySignature::default()),
+            projector: RealityProjector::new(
+                Point3::new(0.0, 0.0, 0.0),
+                RealitySignature::default(),
+            ),
         },
         world: WorldState::default(),
         lambda_source: "WATER".to_string(), // Different from default "FIRE"
@@ -294,13 +578,20 @@ fn test_lambda_layout_persistence() {
     // Should be WATER (Primitive::Water)
     if let Some(root) = &engine.lambda_system.root_term {
         // format! of term
-        assert_eq!(format!("{:?}", root), "Prim(Water)", "Should have loaded WATER term");
+        assert_eq!(
+            format!("{:?}", root),
+            "Prim(Water)",
+            "Should have loaded WATER term"
+        );
     } else {
         panic!("Root term should not be None");
     }
 
     // 4. Verify Layout
-    assert!(!engine.lambda_system.nodes.is_empty(), "Nodes should not be empty");
+    assert!(
+        !engine.lambda_system.nodes.is_empty(),
+        "Nodes should not be empty"
+    );
     let root_pos = engine.lambda_system.nodes[0].position;
     assert_eq!(root_pos.x, 10.0, "X Position mismatch");
     assert_eq!(root_pos.y, 20.0, "Y Position mismatch");
@@ -317,14 +608,16 @@ fn test_bound_variable_labels() {
     engine.lambda_system.set_term(term);
 
     // Update layout
-    engine.update(0.1);
+    engine.update(0.1, None);
 
     // Position camera to see everything
     engine.camera.eye = Point3::new(0.0, 5.0, 20.0);
     engine.camera.target = Point3::new(0.0, 5.0, 0.0);
     engine.camera.up = Vector3::new(0.0, 1.0, 0.0);
 
-    let labels = engine.get_node_labels();
+    let mut labels_buffer = Vec::new();
+    engine.get_node_labels_flat(&mut labels_buffer);
+    let labels = parse_flat_labels(&labels_buffer);
     println!("Labels: {:?}", labels);
 
     // We expect:

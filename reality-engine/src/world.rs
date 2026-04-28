@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use crate::projector::RealityProjector;
-use sha2::{Sha256, Digest};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 pub const ANOMALY_GRID_SIZE: f32 = 10.0;
@@ -17,7 +17,8 @@ impl Serialize for ChunkId {
     where
         S: Serializer,
     {
-        let s = format!("{}:{}", self.x, self.z);
+        let mut s = String::new();
+        let _ = write!(&mut s, "{}:{}", self.x, self.z);
         serializer.serialize_str(&s)
     }
 }
@@ -42,7 +43,10 @@ impl ChunkId {
     pub fn from_world_pos(x: f32, z: f32, chunk_size: f32) -> Self {
         let chunk_x = (x / chunk_size).floor() as i32;
         let chunk_z = (z / chunk_size).floor() as i32;
-        Self { x: chunk_x, z: chunk_z }
+        Self {
+            x: chunk_x,
+            z: chunk_z,
+        }
     }
 }
 
@@ -90,17 +94,28 @@ impl Chunk {
 
         for other_anomaly in &other.anomalies {
             // Find if we have an anomaly with same UUID
-            if let Some(existing_idx) = self.anomalies.iter().position(|a| a.uuid == other_anomaly.uuid) {
-                 // Check timestamp
-                 let existing = &mut self.anomalies[existing_idx];
-                 if other_anomaly.last_updated > existing.last_updated {
-                     *existing = other_anomaly.clone();
-                     changed = true;
-                 }
+            if let Some(existing_idx) = self
+                .anomalies
+                .iter()
+                .position(|a| a.uuid == other_anomaly.uuid)
+            {
+                // Check timestamp
+                let existing = &mut self.anomalies[existing_idx];
+                if other_anomaly.last_updated > existing.last_updated {
+                    *existing = other_anomaly.clone();
+                    changed = true;
+                }
             } else {
                 // New anomaly (or tombstone)
-                self.anomalies.push(other_anomaly.clone());
-                changed = true;
+                // Security Enhancement: Prevent DoS by limiting maximum anomalies per chunk.
+                // An attacker could send a chunk with thousands of anomalies to exhaust memory and CPU.
+                const MAX_ANOMALIES_PER_CHUNK: usize = 100;
+                if self.anomalies.len() < MAX_ANOMALIES_PER_CHUNK {
+                    self.anomalies.push(other_anomaly.clone());
+                    changed = true;
+                } else {
+                    log::warn!("Security Warning: Chunk reached maximum anomaly limit ({}). Rejecting new anomaly.", MAX_ANOMALIES_PER_CHUNK);
+                }
             }
         }
 
@@ -118,22 +133,16 @@ impl Chunk {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct WorldState {
     pub chunks: HashMap<ChunkId, Chunk>,
     pub root_hash: String,
     #[serde(skip, default)]
     pub dirty_chunks: HashSet<ChunkId>,
-}
-
-impl Default for WorldState {
-    fn default() -> Self {
-        Self {
-            chunks: HashMap::new(),
-            root_hash: String::new(),
-            dirty_chunks: HashSet::new(),
-        }
-    }
+    pub npcs: Vec<crate::projector::RealityProjector>,
+    pub dropped_items: Vec<crate::reality_types::DroppedItem>,
+    #[serde(default)]
+    pub player_inventory: Vec<crate::reality_types::DroppedItem>,
 }
 
 impl WorldState {
@@ -141,8 +150,79 @@ impl WorldState {
         self.chunks.entry(id).or_insert_with(|| Chunk::new(id))
     }
 
+    pub fn get_dominant_archetype_at(
+        &self,
+        loc: cgmath::Point3<f32>,
+    ) -> Option<crate::reality_types::RealityArchetype> {
+        use cgmath::InnerSpace;
+
+        let id = ChunkId::from_world_pos(loc.x, loc.z, ANOMALY_GRID_SIZE);
+        let mut strongest_archetype = None;
+        let mut max_strength_sq = 0.0;
+
+        if let Some(chunk) = self.chunks.get(&id) {
+            for anomaly in &chunk.anomalies {
+                if anomaly.deleted {
+                    continue;
+                }
+                let dist_sq = (anomaly.location - loc).magnitude2().max(1.0);
+                let fidelity = anomaly.reality_signature.fidelity;
+
+                // Optimization: Avoid expensive sqrt() by comparing squared strength values.
+                // strength = fidelity / dist_sq.sqrt()
+                // strength^2 = fidelity^2 / dist_sq
+                // Since fidelity is positive and dist_sq >= 1.0, the monotonic relationship holds.
+                let strength_sq = (fidelity * fidelity) / dist_sq;
+
+                if strength_sq > max_strength_sq {
+                    max_strength_sq = strength_sq;
+                    strongest_archetype = Some(anomaly.reality_signature.active_style.archetype);
+                }
+            }
+        }
+        strongest_archetype
+    }
+
+    pub fn apply_player_influence(&mut self, projector: &RealityProjector, dt: f32) {
+        let id = ChunkId::from_world_pos(
+            projector.location.x,
+            projector.location.z,
+            ANOMALY_GRID_SIZE,
+        );
+        let chunk = self.get_or_create_chunk(id);
+
+        use crate::reality_types::RealityArchetype;
+        let stability_cost = match projector.reality_signature.active_style.archetype {
+            RealityArchetype::Horror => 0.2,
+            RealityArchetype::SciFi => 0.1,
+            RealityArchetype::Fantasy => 0.05,
+            RealityArchetype::Void => 0.5,
+            RealityArchetype::HyperNature => -0.1, // Healing
+            RealityArchetype::Toon => 0.0,
+            RealityArchetype::Genie => 0.05,
+            RealityArchetype::Glitch => 0.3,
+            RealityArchetype::Steampunk => 0.1,
+            RealityArchetype::Vaporwave => 0.15,
+            RealityArchetype::Noir => 0.1,
+            RealityArchetype::CyberSpace => 0.15,
+            RealityArchetype::Dream => 0.05,
+            RealityArchetype::ObraDinn => 0.1,
+            RealityArchetype::SolarPunk => 0.1,
+            RealityArchetype::Biopunk => 0.15,
+            RealityArchetype::Tron => 0.15,
+            RealityArchetype::ColdStorage => 0.2,
+        };
+
+        // Player influence applies over time
+        chunk.stability = (chunk.stability - (stability_cost * dt * 0.1)).clamp(0.0, 1.0);
+    }
+
     pub fn add_anomaly(&mut self, projector: RealityProjector) {
-        let id = ChunkId::from_world_pos(projector.location.x, projector.location.z, ANOMALY_GRID_SIZE);
+        let id = ChunkId::from_world_pos(
+            projector.location.x,
+            projector.location.z,
+            ANOMALY_GRID_SIZE,
+        );
         let chunk = self.get_or_create_chunk(id);
 
         // Apply stability impact based on archetype
@@ -155,6 +235,17 @@ impl WorldState {
             RealityArchetype::HyperNature => -0.1, // Healing
             RealityArchetype::Toon => 0.0,
             RealityArchetype::Genie => 0.05,
+            RealityArchetype::Glitch => 0.3,
+            RealityArchetype::Steampunk => 0.1,
+            RealityArchetype::Vaporwave => 0.15,
+            RealityArchetype::Noir => 0.1,
+            RealityArchetype::CyberSpace => 0.15,
+            RealityArchetype::Dream => 0.05,
+            RealityArchetype::ObraDinn => 0.1,
+            RealityArchetype::SolarPunk => 0.1,
+            RealityArchetype::Biopunk => 0.15,
+            RealityArchetype::Tron => 0.15,
+            RealityArchetype::ColdStorage => 0.2,
         };
 
         chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);
@@ -184,7 +275,8 @@ impl WorldState {
     pub fn calculate_root_hash(&mut self) {
         let mut hasher = Sha256::new();
         // To ensure deterministic order, we must sort keys
-        let mut keys_and_hashes: Vec<(&ChunkId, &String)> = self.chunks.iter().map(|(k, c)| (k, &c.hash)).collect();
+        let mut keys_and_hashes: Vec<(&ChunkId, &String)> =
+            self.chunks.iter().map(|(k, c)| (k, &c.hash)).collect();
         keys_and_hashes.sort_unstable_by(|(a, _), (b, _)| {
             if a.z != b.z {
                 a.z.cmp(&b.z)
@@ -201,6 +293,14 @@ impl WorldState {
     }
 
     pub fn merge(&mut self, other: WorldState) -> bool {
+        // Security Enhancement: Prevent DoS by limiting maximum chunks per world merge.
+        // An attacker could send a massive WorldState payload to exhaust memory and CPU.
+        const MAX_CHUNKS_PER_MERGE: usize = 1000;
+        if other.chunks.len() > MAX_CHUNKS_PER_MERGE {
+            log::warn!("Security Warning: World merge exceeded maximum chunks limit ({}). Rejecting update.", MAX_CHUNKS_PER_MERGE);
+            return false;
+        }
+
         let mut changed = false;
         for (id, other_chunk) in other.chunks {
             let chunk = self.get_or_create_chunk(id);
@@ -218,6 +318,14 @@ impl WorldState {
     }
 
     pub fn merge_chunks(&mut self, chunks: Vec<Chunk>) -> bool {
+        // Security Enhancement: Prevent DoS by limiting maximum chunks per sync.
+        // An attacker could send a massive array of chunks to exhaust memory and CPU.
+        const MAX_CHUNKS_PER_SYNC: usize = 100;
+        if chunks.len() > MAX_CHUNKS_PER_SYNC {
+            log::warn!("Security Warning: Sync update exceeded maximum chunks limit ({}). Rejecting update.", MAX_CHUNKS_PER_SYNC);
+            return false;
+        }
+
         let mut changed = false;
         for other_chunk in chunks {
             let id = other_chunk.id;
@@ -258,7 +366,7 @@ pub struct WorldCommit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reality_types::{RealitySignature, RealityArchetype};
+    use crate::reality_types::{RealityArchetype, RealitySignature};
     use cgmath::Point3;
 
     #[test]
@@ -378,6 +486,9 @@ mod tests {
         chunk2.anomalies.push(proj1.clone());
         chunk2.calculate_hash();
 
-        assert_eq!(chunk1.hash, chunk2.hash, "Hashes should be identical regardless of insertion order");
+        assert_eq!(
+            chunk1.hash, chunk2.hash,
+            "Hashes should be identical regardless of insertion order"
+        );
     }
 }

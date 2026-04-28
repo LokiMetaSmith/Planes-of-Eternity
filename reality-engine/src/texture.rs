@@ -108,18 +108,15 @@ impl Texture {
         let img = match image::load_from_memory(bytes) {
             Ok(img) => img,
             Err(e) => {
-                 // Try forcing PNG if format detection failed
-                 image::load_from_memory_with_format(bytes, image::ImageFormat::Png).map_err(|_| e)?
+                // Try forcing PNG if format detection failed
+                image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+                    .map_err(|_| e)?
             }
         };
         Self::from_image(device, queue, &img, label)
     }
 
-    pub fn create_fallback(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        label: &str,
-    ) -> Self {
+    pub fn create_fallback(device: &wgpu::Device, queue: &wgpu::Queue, label: &str) -> Self {
         let size = wgpu::Extent3d {
             width: 1,
             height: 1,
@@ -231,10 +228,7 @@ impl Texture {
         })
     }
 
-    pub fn create_procedural_atlas(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) -> Self {
+    pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let size = 256;
         let mut pixels = vec![0u8; size * size * 4];
 
@@ -266,10 +260,9 @@ impl Texture {
                     let f = (val as f32 * edge) as u8;
 
                     pixels[idx] = f;
-                    pixels[idx+1] = f;
-                    pixels[idx+2] = f;
-                    pixels[idx+3] = 255;
-
+                    pixels[idx + 1] = f;
+                    pixels[idx + 2] = f;
+                    pixels[idx + 3] = 255;
                 } else if u >= 0.5 && v < 0.5 {
                     // TR: Lava
                     let lx = ((x - 128) % 128) as f32 * 0.05;
@@ -285,12 +278,11 @@ impl Texture {
                     let b = 0;
 
                     pixels[idx] = r;
-                    pixels[idx+1] = g;
-                    pixels[idx+2] = b;
-                    pixels[idx+3] = 255;
-
+                    pixels[idx + 1] = g;
+                    pixels[idx + 2] = b;
+                    pixels[idx + 3] = 255;
                 } else if u < 0.5 && v >= 0.5 {
-                     // BL: Fire
+                    // BL: Fire
                     let lx = (x % 128) as f32 * 0.05;
                     let ly = ((y - 128) % 128) as f32 * 0.1;
 
@@ -299,12 +291,11 @@ impl Texture {
                     let r = (200.0 + 55.0 * n) as u8;
                     let g = (100.0 + 100.0 * n) as u8;
                     pixels[idx] = r;
-                    pixels[idx+1] = g;
-                    pixels[idx+2] = 0;
-                    pixels[idx+3] = 255;
-
+                    pixels[idx + 1] = g;
+                    pixels[idx + 2] = 0;
+                    pixels[idx + 3] = 255;
                 } else {
-                     // BR: Wood
+                    // BR: Wood
                     let lx = ((x - 128) % 128) as f32 * 0.1;
                     let ly = ((y - 128) % 128) as f32 * 0.02; // Stretched
 
@@ -315,9 +306,9 @@ impl Texture {
                     let var = 40.0 * wave;
 
                     pixels[idx] = (base + var) as u8;
-                    pixels[idx+1] = ((base + var) * 0.6) as u8;
-                    pixels[idx+2] = ((base + var) * 0.3) as u8;
-                    pixels[idx+3] = 255;
+                    pixels[idx + 1] = ((base + var) * 0.6) as u8;
+                    pixels[idx + 2] = ((base + var) * 0.3) as u8;
+                    pixels[idx + 3] = 255;
                 }
             }
         }

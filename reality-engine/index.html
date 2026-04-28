@@ -9,7 +9,151 @@
     <!-- Cybercore CSS (or similar aesthetic) -->
     <link rel="stylesheet" href="https://unpkg.com/cybercore-css@latest/dist/cybercore.min.css">
     <style>
-        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Courier New', monospace; }
+
+        :root {
+            --theme-primary: #00f0ff;
+            --theme-primary-rgb: 0, 240, 255;
+            --theme-bg: #050505;
+            --theme-card-bg: rgba(10, 10, 15, 0.85);
+            --theme-text-muted: #ccc;
+            --theme-text-dim: #aaa;
+            --theme-text-dimmer: #888;
+            --theme-input-bg: #222;
+            --theme-input-border: #444;
+            --theme-scroll-track: #111;
+        }
+
+        /* Archetype Themes */
+        body.theme-scifi {
+            /* Default Cybercore */
+            --theme-primary: #00f0ff;
+            --theme-primary-rgb: 0, 240, 255;
+            --theme-bg: #050505;
+            --theme-card-bg: rgba(10, 10, 15, 0.85);
+        }
+
+        body.theme-fantasy {
+            --theme-primary: #ffd700;
+            --theme-primary-rgb: 255, 215, 0;
+            --theme-bg: #1a0f14;
+            --theme-card-bg: rgba(30, 20, 25, 0.85);
+            --theme-text-muted: #e6c2ff;
+        }
+
+        body.theme-horror {
+            --theme-primary: #ff0000;
+            --theme-primary-rgb: 255, 0, 0;
+            --theme-bg: #0a0000;
+            --theme-card-bg: rgba(15, 0, 0, 0.9);
+            --theme-text-muted: #cc8888;
+            --theme-input-bg: #110000;
+            --theme-input-border: #330000;
+        }
+
+        body.theme-toon {
+            --theme-primary: #ffaa00;
+            --theme-primary-rgb: 255, 170, 0;
+            --theme-bg: #112233;
+            --theme-card-bg: rgba(20, 40, 60, 0.9);
+            --theme-text-muted: #ffffff;
+        }
+
+        body.theme-hypernature {
+            --theme-primary: #00ff66;
+            --theme-primary-rgb: 0, 255, 102;
+            --theme-bg: #001a00;
+            --theme-card-bg: rgba(0, 25, 10, 0.85);
+            --theme-text-muted: #aaffcc;
+        }
+
+        body.theme-genie {
+            --theme-primary: #ff00ff;
+            --theme-primary-rgb: 255, 0, 255;
+            --theme-bg: #1a0033;
+            --theme-card-bg: rgba(30, 0, 50, 0.85);
+            --theme-text-muted: #e6b3ff;
+        }
+
+        body.theme-glitch {
+            --theme-primary: #00ff00;
+            --theme-primary-rgb: 0, 255, 0;
+            --theme-bg: #000000;
+            --theme-card-bg: rgba(10, 10, 10, 0.85);
+            --theme-text-muted: #cccccc;
+        }
+
+        body.theme-steampunk {
+            --theme-primary: #d4a373;
+            --theme-primary-rgb: 212, 163, 115;
+            --theme-bg: #2b1d14;
+            --theme-card-bg: rgba(43, 29, 20, 0.9);
+            --theme-text-muted: #eaddcf;
+            --theme-input-bg: #3e2723;
+            --theme-input-border: #5d4037;
+        }
+
+        body.theme-vaporwave {
+            --theme-primary: #00ffff;
+            --theme-primary-rgb: 0, 255, 255;
+            --theme-bg: #2b00ff;
+            --theme-card-bg: rgba(40, 0, 100, 0.85);
+            --theme-text-muted: #ff99ff;
+            --theme-input-bg: #220044;
+            --theme-input-border: #ff00ff;
+        }
+
+        body.theme-noir {
+            --theme-primary: #ffffff;
+            --theme-primary-rgb: 255, 255, 255;
+            --theme-bg: #000000;
+            --theme-card-bg: rgba(15, 15, 15, 0.9);
+            --theme-text-muted: #aaaaaa;
+            --theme-input-bg: #111111;
+            --theme-input-border: #333333;
+        }
+
+        body.theme-cyberspace {
+            --theme-primary: #39ff14;
+            --theme-primary-rgb: 57, 255, 20;
+            --theme-bg: #001100;
+            --theme-card-bg: rgba(0, 20, 0, 0.85);
+            --theme-text-muted: #ccffcc;
+            --theme-input-bg: #002200;
+            --theme-input-border: #004400;
+        }
+
+        body.theme-dream {
+            --theme-primary: #b399ff;
+            --theme-primary-rgb: 179, 153, 255;
+            --theme-bg: #1a1a3a;
+            --theme-card-bg: rgba(30, 30, 60, 0.85);
+            --theme-text-muted: #e6e6ff;
+            --theme-input-bg: #222244;
+            --theme-input-border: #444466;
+        }
+
+        body.theme-obradinn {
+            --theme-primary: #e6e6c8;
+            --theme-primary-rgb: 230, 230, 200;
+            --theme-bg: #000000;
+            --theme-card-bg: rgba(10, 10, 5, 0.9);
+            --theme-text-muted: #ccccb3;
+            --theme-input-bg: #11110a;
+            --theme-input-border: #33332a;
+        }
+
+        body.theme-solarpunk {
+            --theme-primary: #ffcc00;
+            --theme-primary-rgb: 255, 204, 0;
+            --theme-bg: #003311;
+            --theme-card-bg: rgba(0, 40, 20, 0.85);
+            --theme-text-muted: #ccffcc;
+            --theme-input-bg: #004d1a;
+            --theme-input-border: #00802b;
+        }
+
+
+        body { margin: 0; overflow: hidden; background-color: var(--theme-bg); font-family: 'Courier New', monospace; }
         canvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 0; }
 
         #ui-layer {
@@ -23,9 +167,9 @@
 
         .cyber-card {
             pointer-events: auto; /* Re-enable clicks on the card */
-            background: rgba(10, 10, 15, 0.85);
-            border: 1px solid #00f0ff;
-            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+            background: var(--theme-card-bg);
+            border: 1px solid var(--theme-primary);
+            box-shadow: 0 0 15px rgba(var(--theme-primary-rgb), 0.2);
             padding: 20px;
             margin-bottom: 15px;
             backdrop-filter: blur(5px);
@@ -39,13 +183,13 @@
         }
 
         .cyber-header {
-            color: #00f0ff;
+            color: var(--theme-primary);
             font-size: 1.2rem;
             text-transform: uppercase;
-            border-bottom: 1px solid #00f0ff;
+            border-bottom: 1px solid var(--theme-primary);
             padding-bottom: 10px;
             margin-bottom: 20px;
-            text-shadow: 0 0 5px #00f0ff;
+            text-shadow: 0 0 5px var(--theme-primary);
             letter-spacing: 2px;
             font-weight: bold;
         }
@@ -57,7 +201,7 @@
         label {
             display: flex;
             justify-content: space-between;
-            color: #ccc;
+            color: var(--theme-text-muted);
             margin-bottom: 8px;
             font-size: 0.9rem;
             text-transform: uppercase;
@@ -66,10 +210,10 @@
         input[type="range"] {
             width: 100%;
             -webkit-appearance: none;
-            background: #222;
+            background: var(--theme-input-bg);
             height: 4px;
             outline: none;
-            border: 1px solid #444;
+            border: 1px solid var(--theme-input-border);
         }
 
         input[type="range"]::-webkit-slider-thumb {
@@ -77,25 +221,56 @@
             appearance: none;
             width: 15px;
             height: 15px;
-            background: #00f0ff;
+            background: var(--theme-primary);
             cursor: pointer;
             border: 2px solid #fff;
-            box-shadow: 0 0 10px #00f0ff;
+            box-shadow: 0 0 10px var(--theme-primary);
+            transition: all 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover,
+        input[type="range"]:focus-visible::-webkit-slider-thumb {
+            background: #fff;
+            box-shadow: 0 0 15px #fff, 0 0 5px var(--theme-primary) inset;
         }
 
         select {
             width: 100%;
-            background: #222;
-            color: #00f0ff;
-            border: 1px solid #444;
+            background: var(--theme-input-bg);
+            color: var(--theme-primary);
+            border: 1px solid var(--theme-input-border);
             padding: 5px;
             font-family: 'Courier New', monospace;
             outline: none;
             cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        select:hover,
+        select:focus-visible {
+            border-color: var(--theme-primary);
+            box-shadow: 0 0 5px rgba(var(--theme-primary-rgb), 0.5);
+        }
+
+        input[type="text"] {
+            width: 100%;
+            background: var(--theme-input-bg);
+            color: var(--theme-primary);
+            border: 1px solid var(--theme-input-border);
+            padding: 5px;
+            font-family: 'Courier New', monospace;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        input[type="text"]:hover,
+        input[type="text"]:focus-visible {
+            border-color: var(--theme-primary);
+            box-shadow: 0 0 5px rgba(var(--theme-primary-rgb), 0.5);
         }
 
         .value-display {
-            color: #00f0ff;
+            color: var(--theme-primary);
             font-family: monospace;
             font-weight: bold;
         }
@@ -119,10 +294,16 @@
             box-shadow: 0 0 10px rgba(5, 255, 161, 0.2);
         }
 
+        #log-area:focus-visible {
+            outline: 2px solid #fff;
+            outline-offset: 2px;
+            box-shadow: 0 0 15px rgba(5, 255, 161, 0.8);
+        }
+
         /* Scrollbar styling */
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #111; }
-        ::-webkit-scrollbar-thumb { background: #00f0ff; }
+        ::-webkit-scrollbar-track { background: var(--theme-scroll-track); }
+        ::-webkit-scrollbar-thumb { background: var(--theme-primary); }
 
         .scanline {
             position: fixed;
@@ -156,9 +337,9 @@
 
         .cyber-button {
             width: 100%;
-            background: rgba(0, 240, 255, 0.1);
-            color: #00f0ff;
-            border: 1px solid #00f0ff;
+            background: rgba(var(--theme-primary-rgb), 0.1);
+            color: var(--theme-primary);
+            border: 1px solid var(--theme-primary);
             padding: 10px;
             font-family: 'Courier New', monospace;
             font-weight: bold;
@@ -168,10 +349,56 @@
             margin-top: 5px;
         }
 
-        .cyber-button:hover {
-            background: #00f0ff;
+        .cyber-button:not(:disabled):hover,
+        .cyber-button:not(:disabled):focus-visible {
+            background: var(--theme-primary);
             color: #000;
-            box-shadow: 0 0 10px #00f0ff;
+            box-shadow: 0 0 10px var(--theme-primary);
+            outline: 2px solid #fff;
+            outline-offset: 2px;
+        }
+
+        .cyber-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+            filter: grayscale(100%);
+        }
+
+        .close-btn {
+            cursor: pointer;
+            background: none;
+            border: none;
+            color: inherit;
+            font: inherit;
+            padding: 2px 5px;
+            transition: color 0.2s, text-shadow 0.2s;
+        }
+
+        .close-btn:hover,
+        .close-btn:focus-visible {
+            color: #ff2a6d;
+            text-shadow: 0 0 5px #ff2a6d;
+            outline: 1px solid #ff2a6d;
+            outline-offset: 2px;
+        }
+
+        .keybind-btn {
+            background: var(--theme-input-bg);
+            border: 1px solid var(--theme-input-border);
+            color: var(--theme-primary);
+            padding: 2px 8px;
+            cursor: pointer;
+            font-family: monospace;
+            transition: all 0.2s;
+        }
+
+        .keybind-btn:hover,
+        .keybind-btn:focus-visible {
+            background: var(--theme-primary);
+            color: #000;
+            box-shadow: 0 0 5px var(--theme-primary);
+            outline: 2px solid #fff;
+            outline-offset: 1px;
         }
 
         .node-label {
@@ -205,24 +432,24 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background-color: #050505;
+            background-color: var(--theme-bg);
             z-index: 9999;
             display: flex;
             justify-content: center;
             align-items: center;
             flex-direction: column;
-            color: #00f0ff;
+            color: var(--theme-primary);
             font-family: 'Courier New', monospace;
             font-size: 1.5rem;
-            text-shadow: 0 0 10px #00f0ff;
+            text-shadow: 0 0 10px var(--theme-primary);
         }
 
         .loading-spinner {
             width: 50px;
             height: 50px;
-            border: 5px solid rgba(0, 240, 255, 0.3);
+            border: 5px solid rgba(var(--theme-primary-rgb), 0.3);
             border-radius: 50%;
-            border-top-color: #00f0ff;
+            border-top-color: var(--theme-primary);
             animation: spin 1s ease-in-out infinite;
             margin-bottom: 20px;
         }
@@ -230,24 +457,66 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 10px;
+            height: 10px;
+            border: 2px solid rgba(var(--theme-primary-rgb), 0.8);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 100;
+            box-shadow: 0 0 5px var(--theme-primary);
+        }
+
+        .npc-chat-bubble {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            pointer-events: none;
+            transform: translate(-50%, -100%);
+            white-space: nowrap;
+            z-index: 1000;
+            box-shadow: 0px 4px 6px rgba(0,0,0,0.5);
+            transition: left 0.1s linear, top 0.1s linear;
+        }
+        .npc-chat-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px 6px 0;
+            border-style: solid;
+            border-color: rgba(0, 0, 0, 0.7) transparent transparent transparent;
+        }
+
     </style>
 </head>
 <body>
-    <div id="loading-overlay">
-        <div class="loading-spinner"></div>
+    <div id="loading-overlay" role="status" aria-busy="true">
+        <div class="loading-spinner" aria-hidden="true"></div>
         <div>INITIALIZING REALITY ENGINE...</div>
     </div>
-    <video id="ar-feed" autoplay playsinline></video>
-    <div class="scanline"></div>
-    <canvas id="reality-canvas"></canvas>
-    <div id="labels-layer"></div>
+    <div id="crosshair" aria-hidden="true"></div>
+    <video id="ar-feed" autoplay playsinline aria-hidden="true"></video>
+    <div class="scanline" aria-hidden="true"></div>
+    <canvas id="reality-canvas" role="img" aria-label="Interactive Reality Engine Viewport"></canvas>
+    <div id="labels-layer" aria-hidden="true"></div>
 
     <div id="ui-layer">
         <div class="cyber-card">
-            <div class="cyber-header">Anomaly Projector</div>
+            <div class="cyber-header" role="heading" aria-level="2">Anomaly Projector</div>
 
             <div class="control-group">
-                <label>Archetype</label>
+                <label for="param-archetype">Archetype</label>
                 <select id="param-archetype">
                     <option value="1" selected>SciFi</option>
                     <option value="0">Fantasy</option>
@@ -255,21 +524,31 @@
                     <option value="3">Toon</option>
                     <option value="4">HyperNature</option>
                     <option value="5">Genie (Dream)</option>
+                    <option value="6">Glitch</option>
+                    <option value="7">Steampunk</option>
+                    <option value="8">Vaporwave</option>
+                    <option value="9">Noir</option>
+                    <option value="10">CyberSpace</option>
+                    <option value="11">Dream</option>
+                    <option value="12">Obra Dinn</option>
+                    <option value="13">SolarPunk</option>
+                    <option value="14">Biopunk</option>
+                    <option value="15">Tron</option>
                 </select>
             </div>
 
             <div class="control-group">
-                <label>Roughness <span id="val-rough" class="value-display">0.80</span></label>
+                <label for="param-roughness">Roughness <span id="val-rough" class="value-display">0.80</span></label>
                 <input type="range" id="param-roughness" min="0" max="1" step="0.01" value="0.8">
             </div>
 
             <div class="control-group">
-                <label>Scale <span id="val-scale" class="value-display">5.0</span></label>
+                <label for="param-scale">Scale <span id="val-scale" class="value-display">5.0</span></label>
                 <input type="range" id="param-scale" min="0.1" max="10" step="0.1" value="5.0">
             </div>
 
             <div class="control-group">
-                <label>Distortion <span id="val-dist" class="value-display">0.80</span></label>
+                <label for="param-distortion">Distortion <span id="val-dist" class="value-display">0.80</span></label>
                 <input type="range" id="param-distortion" min="0" max="1" step="0.01" value="0.8">
             </div>
 
@@ -279,33 +558,82 @@
         </div>
 
         <div id="network-status-panel" class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 5px;">Network Uplink</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 5px;" role="heading" aria-level="2">Network Uplink</div>
             <div style="font-size: 0.8rem; color: #888;">
                 SIGNAL: <span id="status-signal" style="color: #555;">OFFLINE</span><br>
-                PEER ID: <span id="status-peer-id" style="color: #555;">---</span><br>
-                PEERS: <span id="status-peers-count" style="color: #00f0ff;">0</span>
+                PEER ID: <span id="status-peer-id" style="color: #555;">---</span>
+                <button id="btn-copy-peer" class="keybind-btn" aria-label="Copy Peer ID" title="Copy Peer ID" aria-live="polite" style="display:none; font-size: 0.7rem; margin-left: 5px; padding: 0px 4px;">COPY</button><br>
+                PEERS: <span id="status-peers-count" style="color: var(--theme-primary);">0</span>
             </div>
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Save Manager</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Safety Filters</div>
             <div class="control-group">
-                <label>Slot Name</label>
-                <input type="text" id="input-save-name" placeholder="default" style="width: 100%; background: #222; color: #00f0ff; border: 1px solid #444; padding: 5px; font-family: monospace;">
+                <label for="filter-block">Block Archetype</label>
+                <select id="filter-block">
+                    <option value="-1">None</option>
+                    <option value="0">Fantasy</option>
+                    <option value="1">SciFi</option>
+                    <option value="2">Horror</option>
+                    <option value="3">Toon</option>
+                    <option value="4">HyperNature</option>
+                    <option value="5">Genie (Dream)</option>
+                    <option value="6">Glitch</option>
+                    <option value="7">Steampunk</option>
+                    <option value="8">Vaporwave</option>
+                    <option value="9">Noir</option>
+                    <option value="10">CyberSpace</option>
+                    <option value="11">Dream</option>
+                    <option value="12">Obra Dinn</option>
+                    <option value="13">SolarPunk</option>
+                    <option value="14">Biopunk</option>
+                    <option value="15">Tron</option>
+                </select>
             </div>
             <div class="control-group">
-                 <label>Existing Saves</label>
+                <label for="filter-replace">Replace With</label>
+                <select id="filter-replace">
+                    <option value="0">Fantasy</option>
+                    <option value="1">SciFi</option>
+                    <option value="2">Horror</option>
+                    <option value="3">Toon</option>
+                    <option value="4">HyperNature</option>
+                    <option value="5" selected>Genie (Dream)</option>
+                    <option value="6">Glitch</option>
+                    <option value="7">Steampunk</option>
+                    <option value="8">Vaporwave</option>
+                    <option value="9">Noir</option>
+                    <option value="10">CyberSpace</option>
+                    <option value="11">Dream</option>
+                    <option value="12">Obra Dinn</option>
+                    <option value="13">SolarPunk</option>
+                    <option value="14">Biopunk</option>
+                    <option value="15">Tron</option>
+                </select>
+            </div>
+            <button id="btn-apply-filter" class="cyber-button" style="width: 100%;" aria-live="polite">APPLY FILTER</button>
+        </div>
+
+        <div class="cyber-card" style="margin-top: 10px;">
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Save Manager</div>
+            <div class="control-group">
+                <label for="input-save-name">Slot Name</label>
+                <input type="text" id="input-save-name" placeholder="default">
+            </div>
+            <div class="control-group">
+                 <label for="select-save-slot">Existing Saves</label>
                  <select id="select-save-slot">
                      <option value="default">default</option>
                  </select>
             </div>
             <div style="display: flex; gap: 5px;">
-                <button id="btn-save" class="cyber-button" style="flex: 1;">SAVE</button>
-                <button id="btn-load" class="cyber-button" style="flex: 1;">LOAD</button>
+                <button id="btn-save" class="cyber-button" style="flex: 1;" aria-live="polite">SAVE</button>
+                <button id="btn-load" class="cyber-button" style="flex: 1;" aria-live="polite">LOAD</button>
             </div>
             <div style="display: flex; gap: 5px; margin-top: 5px;">
-                <button id="btn-delete" class="cyber-button" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">DEL</button>
-                <button id="btn-reset" class="cyber-button" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;">RESET</button>
+                <button id="btn-delete" class="cyber-button" aria-label="Delete selected save" title="Delete selected save" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;" aria-live="polite">DEL</button>
+                <button id="btn-reset" class="cyber-button" aria-label="Reset world" title="Reset world" style="flex: 1; border-color: #ff2a6d; color: #ff2a6d;" aria-live="polite">RESET</button>
             </div>
         </div>
 
@@ -314,26 +642,60 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;">Controls</div>
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 5px;" role="heading" aria-level="2">Inventory Subspace</div>
+            <div id="inventory-list" style="font-size: 0.8rem; color: #aaa; max-height: 100px; overflow-y: auto;">
+                [EMPTY]
+            </div>
+            <div id="inventory-announcer" aria-live="polite" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0;"></div>
+        </div>
+
+        <div class="cyber-card" style="margin-top: 10px;">
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">Controls</div>
             <div style="margin-bottom: 10px;">
-                <button id="btn-keybinds" class="cyber-button" style="font-size: 0.8rem;">CONFIGURE CONTROLS</button>
+                <button id="btn-keybinds" class="cyber-button" style="font-size: 0.8rem;" aria-haspopup="dialog" aria-expanded="false">CONFIGURE CONTROLS</button>
+                <button id="btn-toggle-ai" class="cyber-button" style="font-size: 0.8rem; margin-top: 5px;" aria-pressed="false">ENABLE BROWSER AI</button>
             </div>
             <div style="font-size: 0.85rem; color: #aaa; line-height: 1.4;">
                 [WASD] Move Camera<br>
                 [Mouse] Click to Move Anomaly<br>
                 [Click Node] Reduce Lambda<br>
                 [F] Cast Spell (Lambda)<br>
-                [Sliders] Adjust Reality Params
+                [Sliders] Adjust Reality Params<br>
+                [H] Toggle UI
             </div>
         </div>
     </div>
 
     <!-- Keybinds Overlay -->
-    <div id="keybind-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
+    <!-- Inscribe Overlay -->
+    <div id="inscribe-overlay" role="dialog" aria-modal="true" aria-labelledby="inscribe-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 2500; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
+        <div class="cyber-card" style="width: 500px; max-width: 90vw; padding: 30px;">
+            <h2 id="inscribe-header" class="cyber-header" style="text-align: center; margin-bottom: 20px;">INSCRIBE REALITY</h2>
+
+            <div class="control-group">
+                <label for="inscribe-input">SPELL (LAMBDA TERM)</label>
+                <input type="text" id="inscribe-input" placeholder="e.g. FIRE, JUMP, (\x.x) y" style="font-size: 1.2rem; padding: 10px; margin-bottom: 15px; width: 100%; box-sizing: border-box;" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="control-group">
+                <label>PRIMITIVES PALETTE</label>
+                <div id="primitives-palette" style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 20px;">
+                    <!-- Primitive buttons will be generated here -->
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; gap: 10px;">
+                <button id="btn-cancel-inscribe" style="flex: 1; padding: 10px; background: #222; border: 1px solid #444; color: #ccc; cursor: pointer; font-family: monospace; font-size: 1.1rem; transition: all 0.2s;">CANCEL (ESC)</button>
+                <button id="btn-submit-inscribe" style="flex: 1; padding: 10px; background: rgba(0, 240, 255, 0.2); border: 1px solid #00f0ff; color: #00f0ff; cursor: pointer; font-family: monospace; font-size: 1.1rem; transition: all 0.2s;">CAST (ENTER)</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="keybind-overlay" role="dialog" aria-modal="true" aria-labelledby="keybind-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
         <div class="cyber-card" style="width: 400px; max-width: 90%;">
-            <div class="cyber-header" style="display: flex; justify-content: space-between;">
-                <span>NEURAL LINK CONFIG</span>
-                <span id="btn-close-keybinds" style="cursor: pointer;">[X]</span>
+            <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;" role="heading" aria-level="2">
+                <span id="keybind-header">NEURAL LINK CONFIG</span>
+                <button id="btn-close-keybinds" class="close-btn" aria-label="Close configuration" title="Close configuration">[X]</button>
             </div>
             <div id="keybind-list" style="margin-bottom: 20px;">
                 <!-- Bindings populated by JS -->
@@ -342,10 +704,22 @@
             <div style="text-align: center; color: #888; font-size: 0.8rem;">
                 Click a binding, then press a key to rebind.
             </div>
+
+            <div class="cyber-header" style="font-size: 1rem; margin-top: 20px; border-bottom: none; margin-bottom: 10px;" role="heading" aria-level="3">CUSTOM SPELLS</div>
+            <div id="custom-spell-list" style="margin-bottom: 10px;">
+            </div>
+            <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                <input type="text" id="custom-spell-key" placeholder="Key (e.g. Digit1)" style="flex: 1; padding: 5px;" aria-label="Key Code">
+                <input type="text" id="custom-spell-term" placeholder="Lambda (e.g. FIRE)" style="flex: 2; padding: 5px;" aria-label="Lambda Expression">
+                <button id="btn-add-custom-spell" class="cyber-button" style="width: auto; padding: 5px 10px;">ADD</button>
+            </div>
+            <div style="text-align: center; color: #888; font-size: 0.8rem;">
+                Bind keys to custom Lambda expressions.
+            </div>
         </div>
     </div>
 
-    <div id="log-area">
+    <div id="log-area" aria-live="polite" role="log" tabindex="0" aria-label="System Log">
         <div>> SYSTEM BOOT_SEQUENCE_INIT</div>
         <div>> CHECKING_REALITY_INTEGRITY...</div>
         <div>> WARNING: ANOMALY DETECTED</div>
@@ -357,15 +731,22 @@
             50% { opacity: 0.3; }
             100% { opacity: 1; }
         }
+
+
+
     </style>
 
+    <!-- Add data-type=module to rust link to generate modular bindings that we can import -->
+    <link data-trunk rel="rust" data-target-name="reality_engine" data-wasm-opt="z" data-type="main" />
     <script type="module">
-        import init, { start, is_ar_supported } from './pkg/reality_engine.js';
-
         async function run() {
             try {
-                log("> LOADING WASM MODULES...");
-                await init();
+                log("> WAITING FOR TRUNK INITIALIZATION...");
+                // Trunk injects code that creates window.wasmBindings, let's wait for it.
+                while (!window.wasmBindings) {
+                    await new Promise(r => setTimeout(r, 10));
+                }
+                const { start, is_ar_supported } = window.wasmBindings;
                 log("> WASM INITIALIZED OK");
 
                 // Check WebXR Support
@@ -383,6 +764,7 @@
 
                 log("> STARTING ENGINE...");
                 const gameClient = await start("reality-canvas");
+                window.gameClient = gameClient;
 
                 // Hide loading overlay
                 document.getElementById('loading-overlay').style.display = 'none';
@@ -394,15 +776,70 @@
                 const labelsLayer = document.getElementById('labels-layer');
                 const labelPool = []; // Pool of DOM elements
 
+                const textDecoder = new TextDecoder('utf-8');
+
+
+                // Throttled NPC Chat Bubbles Logic
+                let chatBubbleFrameCounter = 0;
+                const chatBubbles = {};
+                function updateChatBubbles() {
+                    chatBubbleFrameCounter++;
+                    if (chatBubbleFrameCounter % 5 !== 0) return; // Update every 5 frames (~12fps) for performance
+                    try {
+                        const npcs = JSON.parse(gameClient.get_all_npcs_json() || '[]');
+                        const activeUuids = new Set();
+
+                        for (const uuid of npcs) {
+                            try {
+                                const state = JSON.parse(gameClient.get_npc_state_json(uuid) || '{}');
+                                if (state.chat_message && state.player_distance < 5000) {
+                                    activeUuids.add(uuid);
+
+                                    let el = chatBubbles[uuid];
+                                    if (!el) {
+                                        el = document.createElement('div');
+                                        el.className = 'npc-chat-bubble';
+                                        document.getElementById('ui-layer').appendChild(el);
+                                        chatBubbles[uuid] = el;
+                                    }
+                                    el.innerText = state.chat_message;
+
+                                    const screenPos = gameClient.world_to_screen(state.x, state.y + 2.0, state.z);
+                                    if (screenPos[2] > 0 && screenPos[2] < 1.0) {
+                                        el.style.left = (screenPos[0] * 100) + '%';
+                                        el.style.top = (screenPos[1] * 100) + '%';
+                                        el.style.display = 'block';
+                                    } else {
+                                        el.style.display = 'none';
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+
+                        // Remove inactive
+                        for (const uuid in chatBubbles) {
+                            if (!activeUuids.has(uuid)) {
+                                chatBubbles[uuid].remove();
+                                delete chatBubbles[uuid];
+                            }
+                        }
+                    } catch (e) {}
+                }
+
                 function updateLabels() {
                     requestAnimationFrame(updateLabels);
+                    updateChatBubbles();
 
                     try {
-                        const json = gameClient.get_node_labels();
-                        const labels = JSON.parse(json);
+                        const uint8Array = gameClient.get_node_labels_flat();
+                        const dataView = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
+
+                        // Parse flat buffer
+                        const count = dataView.getUint32(0, true);
+                        let offset = 4;
 
                         // Pool management: Ensure we have enough elements
-                        while (labelPool.length < labels.length) {
+                        while (labelPool.length < count) {
                             const el = document.createElement('div');
                             el.className = 'node-label';
                             labelsLayer.appendChild(el);
@@ -410,21 +847,34 @@
                         }
 
                         // Update active labels
-                        for (let i = 0; i < labels.length; i++) {
-                            const info = labels[i];
+                        for (let i = 0; i < count; i++) {
+                            const x = dataView.getFloat32(offset, true); offset += 4;
+                            const y = dataView.getFloat32(offset, true); offset += 4;
+
+                            const r = dataView.getUint8(offset++);
+                            const g = dataView.getUint8(offset++);
+                            const b = dataView.getUint8(offset++);
+                            const a = dataView.getUint8(offset++);
+                            const color = `rgba(${r}, ${g}, ${b}, ${a / 255.0})`;
+
+                            const textLen = dataView.getUint16(offset, true); offset += 2;
+                            const textBytes = new Uint8Array(uint8Array.buffer, offset, textLen);
+                            const text = textDecoder.decode(textBytes);
+                            offset += textLen;
+
                             const el = labelPool[i];
 
                             el.style.display = 'block';
-                            el.innerText = info.text;
-                            el.style.color = info.color;
+                            el.innerText = text;
+                            el.style.color = color;
 
                             // Convert 0..1 to percentages
-                            el.style.left = (info.x * 100) + '%';
-                            el.style.top = (info.y * 100) + '%';
+                            el.style.left = (x * 100) + '%';
+                            el.style.top = (y * 100) + '%';
                         }
 
                         // Hide unused
-                        for (let i = labels.length; i < labelPool.length; i++) {
+                        for (let i = count; i < labelPool.length; i++) {
                             labelPool[i].style.display = 'none';
                         }
 
@@ -457,11 +907,28 @@
                 }
 
                 // Listeners
+                                function applyThemeFromArchetype() {
+                     const selectedOption = archetypeSelect.options[archetypeSelect.selectedIndex];
+                     if (selectedOption) {
+                         const rawText = selectedOption.text.toLowerCase();
+                         let themeName = rawText.replace(/[^a-z0-9]/g, '');
+                         if (rawText.includes('genie')) {
+                             themeName = 'genie';
+                         }
+                         document.body.className = `theme-${themeName}`;
+                         log(`> UI_THEME_UPDATE: ${themeName.toUpperCase()}`);
+                     }
+                }
+
                 archetypeSelect.addEventListener('change', () => {
                      const val = parseInt(archetypeSelect.value);
                      log(`> PARAM_UPDATE: ARCHETYPE_ID = ${val}`);
                      gameClient.set_anomaly_archetype(val);
+                     applyThemeFromArchetype();
                 });
+
+                // Apply theme initially
+                applyThemeFromArchetype();
 
                 roughSlider.addEventListener('input', () => {
                     updateParams();
@@ -482,6 +949,50 @@
                      log(`> PARAM_UPDATE: DISTORTION = ${distSlider.value}`);
                 });
 
+                // Safety Filters
+                const filterBlock = document.getElementById('filter-block');
+                const filterReplace = document.getElementById('filter-replace');
+                const btnApplyFilter = document.getElementById('btn-apply-filter');
+
+                function refreshFilterUI() {
+                    const blocked = parseInt(filterBlock.value, 10);
+                    if (blocked >= 0) {
+                        const replaced = gameClient.get_archetype_filter(blocked);
+                        if (replaced >= 0) {
+                            filterReplace.value = replaced;
+                        }
+                    }
+                }
+
+                filterBlock.addEventListener('change', refreshFilterUI);
+
+                btnApplyFilter.addEventListener('click', () => {
+                    if (btnApplyFilter.dataset.isProcessing === 'true') return;
+                    btnApplyFilter.dataset.isProcessing = 'true';
+
+                    const blocked = parseInt(filterBlock.value, 10);
+                    const replaced = parseInt(filterReplace.value, 10);
+                    if (blocked >= 0 && replaced >= 0) {
+                        gameClient.set_archetype_filter(blocked, replaced);
+                        log(`> SAFETY FILTER APPLIED: Blocked [${filterBlock.options[filterBlock.selectedIndex].text}], Replaced with [${filterReplace.options[filterReplace.selectedIndex].text}]`);
+
+                        const originalText = btnApplyFilter.innerText;
+                        btnApplyFilter.innerText = "FILTER APPLIED";
+                        btnApplyFilter.style.background = "#05ffa1";
+                        btnApplyFilter.style.color = "#000";
+
+                        setTimeout(() => {
+                            btnApplyFilter.innerText = originalText;
+                            btnApplyFilter.style.background = "";
+                            btnApplyFilter.style.color = "";
+                            btnApplyFilter.dataset.isProcessing = 'false';
+                        }, 2000);
+                    } else {
+                        log("> FILTER ERROR: Invalid selection.");
+                        btnApplyFilter.dataset.isProcessing = 'false';
+                    }
+                });
+
                 // Save Management
                 const inputSaveName = document.getElementById('input-save-name');
                 const selectSaveSlot = document.getElementById('select-save-slot');
@@ -495,12 +1006,21 @@
                         const savesJson = gameClient.list_saves();
                         const saves = JSON.parse(savesJson);
                         selectSaveSlot.innerHTML = '';
-                        saves.forEach(s => {
+                        if (saves.length === 0) {
                             const opt = document.createElement('option');
-                            opt.value = s;
-                            opt.innerText = s;
+                            opt.value = "";
+                            opt.innerText = "-- NO SAVES --";
+                            opt.disabled = true;
+                            opt.selected = true;
                             selectSaveSlot.appendChild(opt);
-                        });
+                        } else {
+                            saves.forEach(s => {
+                                const opt = document.createElement('option');
+                                opt.value = s;
+                                opt.innerText = s;
+                                selectSaveSlot.appendChild(opt);
+                            });
+                        }
                     } catch (e) {
                         log("> ERROR LISTING SAVES: " + e);
                     }
@@ -514,43 +1034,185 @@
                 });
 
                 btnSave.addEventListener('click', () => {
+                    if (btnSave.dataset.isProcessing === 'true') return;
+                    btnSave.dataset.isProcessing = 'true';
+
                     const name = inputSaveName.value.trim() || "default";
                     log(`> SAVING GAME TO SLOT: ${name}`);
                     gameClient.save_game(name);
                     updateSaveList();
+
+                    const originalText = btnSave.innerText;
+                    btnSave.innerText = "SAVED";
+                    btnSave.style.background = "#05ffa1";
+                    btnSave.style.color = "#000";
+
+                    setTimeout(() => {
+                        btnSave.innerText = originalText;
+                        btnSave.style.background = "";
+                        btnSave.style.color = "";
+                        btnSave.dataset.isProcessing = 'false';
+                    }, 2000);
                 });
 
                 btnLoad.addEventListener('click', () => {
+                     if (btnLoad.dataset.isProcessing === 'true') return;
+                     btnLoad.dataset.isProcessing = 'true';
+
                      const name = inputSaveName.value.trim() || selectSaveSlot.value || "default";
                      log(`> LOADING GAME FROM SLOT: ${name}`);
                      gameClient.load_game(name);
                      // Also update input to match
                      inputSaveName.value = name;
+
+                     const originalText = btnLoad.innerText;
+                     btnLoad.innerText = "LOADED";
+                     btnLoad.style.background = "#05ffa1";
+                     btnLoad.style.color = "#000";
+
+                     setTimeout(() => {
+                         btnLoad.innerText = originalText;
+                         btnLoad.style.background = "";
+                         btnLoad.style.color = "";
+                         btnLoad.dataset.isProcessing = 'false';
+                     }, 2000);
                 });
 
                 btnDelete.addEventListener('click', () => {
+                     if (btnDelete.dataset.isProcessing === 'true') return;
+
                      const name = inputSaveName.value.trim() || selectSaveSlot.value;
                      if (name) {
                          if(confirm(`Delete save slot '${name}'?`)) {
+                             btnDelete.dataset.isProcessing = 'true';
                              log(`> DELETING SLOT: ${name}`);
                              gameClient.delete_save(name);
                              updateSaveList();
                              inputSaveName.value = "";
+
+                             const originalText = btnDelete.innerText;
+                             btnDelete.innerText = "DELETED";
+                             btnDelete.style.background = "#ff2a6d";
+                             btnDelete.style.color = "#000";
+
+                             setTimeout(() => {
+                                 btnDelete.innerText = originalText;
+                                 btnDelete.style.background = "";
+                                 btnDelete.style.color = "#ff2a6d";
+                                 btnDelete.dataset.isProcessing = 'false';
+                             }, 2000);
                          }
                      }
                 });
 
                 btnReset.addEventListener('click', () => {
+                     if (btnReset.dataset.isProcessing === 'true') return;
+
                      if(confirm("RESET WORLD? ALL UNSAVED PROGRESS WILL BE LOST.")) {
+                         btnReset.dataset.isProcessing = 'true';
                          log("> SYSTEM RESET INITIATED...");
                          gameClient.reset_world();
                          log("> WORLD STATE CLEARED.");
+
+                         const originalText = btnReset.innerText;
+                         btnReset.innerText = "CLEARED";
+                         btnReset.style.background = "#ff2a6d";
+                         btnReset.style.color = "#000";
+
+                         setTimeout(() => {
+                             btnReset.innerText = originalText;
+                             btnReset.style.background = "";
+                             btnReset.style.color = "#ff2a6d";
+                             btnReset.dataset.isProcessing = 'false';
+                         }, 2000);
                      }
                 });
 
+                // Add 'H' key listener to toggle UI visibility
+                window.addEventListener('keydown', (e) => {
+                    // Ignore if typing in input
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-                // Network Polling
+                    if (e.code === 'KeyH') {
+                        const uiLayer = document.getElementById('ui-layer');
+                        const logContainer = document.getElementById('log-area');
+                        if (uiLayer.style.opacity === '0') {
+                            uiLayer.style.opacity = '1';
+                            uiLayer.style.visibility = 'visible';
+                            const cards = uiLayer.querySelectorAll('.cyber-card');
+                            cards.forEach(c => c.style.pointerEvents = 'auto');
+                            if (logContainer) {
+                                logContainer.style.opacity = '1';
+                                logContainer.style.visibility = 'visible';
+                                logContainer.style.pointerEvents = 'auto';
+                            }
+                        } else {
+                            uiLayer.style.opacity = '0';
+                            uiLayer.style.visibility = 'hidden';
+                            const cards = uiLayer.querySelectorAll('.cyber-card');
+                            cards.forEach(c => c.style.pointerEvents = 'none');
+                            if (logContainer) {
+                                logContainer.style.opacity = '0';
+                                logContainer.style.visibility = 'hidden';
+                                logContainer.style.pointerEvents = 'none';
+                            }
+                        }
+                    }
+                });
+
+
+                // Inventory Polling
+                let lastInventoryCount = -1;
+
                 setInterval(() => {
+                    if (window.gameClient) {
+                        try {
+                            const invJson = window.gameClient.get_inventory_json();
+                            const inventory = JSON.parse(invJson);
+                            const inventoryList = document.getElementById('inventory-list');
+                            const announcer = document.getElementById('inventory-announcer');
+
+                            if (inventory.length !== lastInventoryCount) {
+                                if (inventory.length === 0) {
+                                    inventoryList.innerHTML = '[EMPTY]';
+                                    if (lastInventoryCount !== -1) announcer.textContent = 'Inventory is now empty.';
+                                } else {
+                                    inventoryList.innerHTML = '';
+                                    inventory.forEach((item, index) => {
+                                        const div = document.createElement('div');
+                                        div.style.marginBottom = '2px';
+
+                                        const colorBox = document.createElement('span');
+                                        colorBox.style.display = 'inline-block';
+                                        colorBox.style.width = '10px';
+                                        colorBox.style.height = '10px';
+                                        colorBox.style.marginRight = '5px';
+                                        colorBox.style.backgroundColor = `rgba(${item.color[0]*255}, ${item.color[1]*255}, ${item.color[2]*255}, ${item.color[3]})`;
+                                        colorBox.style.border = '1px solid #fff';
+
+                                        const text = document.createElement('span');
+                                        text.innerText = `Item-${item.id.substring(0,4)}`;
+
+                                        div.appendChild(colorBox);
+                                        div.appendChild(text);
+                                        inventoryList.appendChild(div);
+                                    });
+
+                                    if (lastInventoryCount !== -1) {
+                                        if (inventory.length > lastInventoryCount) {
+                                            announcer.textContent = 'Picked up item.';
+                                        } else {
+                                            announcer.textContent = 'Dropped item.';
+                                        }
+                                    }
+                                }
+                                lastInventoryCount = inventory.length;
+                            }
+                        } catch (e) {
+                            // Suppress
+                        }
+                    }
+
                     try {
                         const statusJson = gameClient.get_network_status();
                         if (statusJson && statusJson !== "{}") {
@@ -576,12 +1238,45 @@
                             }
 
                             elPeerId.innerText = status.peer_id || "---";
+                            const btnCopyPeer = document.getElementById('btn-copy-peer');
+                            if (status.peer_id && status.signaling_state === 1) {
+                                btnCopyPeer.style.display = "inline-block";
+                            } else {
+                                btnCopyPeer.style.display = "none";
+                            }
+
                             elPeers.innerText = status.connected_peers;
                         }
                     } catch (e) {
                         // Ignore parse errors or if status is not ready
                     }
                 }, 1000);
+
+                let isCopying = false;
+                document.getElementById('btn-copy-peer').addEventListener('click', () => {
+                    if (isCopying) return;
+                    isCopying = true;
+                    const peerId = document.getElementById('status-peer-id').innerText;
+                    navigator.clipboard.writeText(peerId).then(() => {
+                        const btn = document.getElementById('btn-copy-peer');
+                        btn.innerText = "COPIED";
+                        btn.setAttribute('aria-label', 'Peer ID Copied');
+                        btn.title = 'Peer ID Copied';
+                        btn.style.background = "#05ffa1";
+                        btn.style.color = "#000";
+                        setTimeout(() => {
+                            btn.innerText = "COPY";
+                            btn.setAttribute('aria-label', 'Copy Peer ID');
+                            btn.title = 'Copy Peer ID';
+                            btn.style.background = "";
+                            btn.style.color = "";
+                            isCopying = false;
+                        }, 2000);
+                    }).catch(err => {
+                        log("> FAILED TO COPY PEER ID: " + err);
+                        isCopying = false;
+                    });
+                });
 
                 // AR Button Logic
                 // Keybinds UI
@@ -598,8 +1293,64 @@
                     "VoxelDiffusion", "VoxelTimeReverse", "VoxelDream"
                 ];
                 let currentlyRebinding = null;
+                let currentRebindHandler = null;
+
+                const customSpellList = document.getElementById('custom-spell-list');
+                const btnAddCustomSpell = document.getElementById('btn-add-custom-spell');
+                const customSpellKey = document.getElementById('custom-spell-key');
+                const customSpellTerm = document.getElementById('custom-spell-term');
+
+                function renderCustomSpells() {
+                    customSpellList.innerHTML = '';
+                    try {
+                        const json = gameClient.get_all_custom_spell_bindings_json();
+                        const spells = JSON.parse(json);
+                        for (const [key, term] of Object.entries(spells)) {
+                            const row = document.createElement('div');
+                            row.style.display = 'flex';
+                            row.style.justifyContent = 'space-between';
+                            row.style.padding = '8px 0';
+                            row.style.borderBottom = '1px solid #333';
+                            row.style.color = '#ccc';
+                            row.style.fontFamily = 'monospace';
+
+                            const label = document.createElement('span');
+                            label.innerText = `${key}: ${term}`;
+
+                            const btnRemove = document.createElement('button');
+                            btnRemove.innerText = 'X';
+                            btnRemove.style.background = '#440000';
+                            btnRemove.style.color = '#fff';
+                            btnRemove.style.border = '1px solid #ff0000';
+                            btnRemove.style.cursor = 'pointer';
+                            btnRemove.onclick = () => {
+                                gameClient.remove_custom_spell_binding(key);
+                                renderCustomSpells();
+                            };
+
+                            row.appendChild(label);
+                            row.appendChild(btnRemove);
+                            customSpellList.appendChild(row);
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse custom spells", e);
+                    }
+                }
+
+                btnAddCustomSpell.addEventListener('click', () => {
+                    const key = customSpellKey.value.trim();
+                    const term = customSpellTerm.value.trim();
+                    if (key && term) {
+                        gameClient.set_custom_spell_binding(key, term);
+                        customSpellKey.value = '';
+                        customSpellTerm.value = '';
+                        renderCustomSpells();
+                    }
+                });
 
                 function renderKeybinds() {
+                    renderCustomSpells();
+                    const focusedAction = document.activeElement?.getAttribute('data-action');
                     keybindList.innerHTML = '';
                     actions.forEach(action => {
                         const row = document.createElement('div');
@@ -615,19 +1366,21 @@
 
                         const btn = document.createElement('button');
                         const currentKey = gameClient.get_key_binding(action);
+                        btn.className = 'keybind-btn';
+                        btn.setAttribute('data-action', action);
+                        btn.setAttribute('aria-label', `Rebind ${action}, currently ${currentKey || "UNBOUND"}`);
                         btn.innerText = currentKey || "UNBOUND";
-                        btn.style.background = '#222';
-                        btn.style.border = '1px solid #444';
-                        btn.style.color = '#00f0ff';
-                        btn.style.padding = '2px 8px';
-                        btn.style.cursor = 'pointer';
-                        btn.style.fontFamily = 'monospace';
 
                         if (currentlyRebinding === action) {
                              btn.innerText = "PRESS KEY...";
+                             btn.setAttribute('aria-label', `Press a key to bind to ${action}`);
                              btn.style.background = '#440000';
                              btn.style.borderColor = '#ff0000';
                              btn.style.color = '#fff';
+                        } else {
+                             btn.style.background = '';
+                             btn.style.borderColor = '';
+                             btn.style.color = '';
                         }
 
                         btn.onclick = () => {
@@ -636,34 +1389,146 @@
                             renderKeybinds();
 
                             // One-time listener
-                            const handler = (e) => {
+                            currentRebindHandler = (e) => {
                                 e.preventDefault();
                                 log(`> REBIND: ${action} -> ${e.code}`);
                                 gameClient.set_key_binding(action, e.code);
                                 currentlyRebinding = null;
-                                window.removeEventListener('keydown', handler);
+                                window.removeEventListener('keydown', currentRebindHandler);
+                                currentRebindHandler = null;
                                 renderKeybinds();
                             };
-                            window.addEventListener('keydown', handler);
+                            window.addEventListener('keydown', currentRebindHandler);
                         };
 
                         row.appendChild(label);
                         row.appendChild(btn);
                         keybindList.appendChild(row);
                     });
+                    if (focusedAction) {
+                        const toFocus = keybindList.querySelector(`[data-action="${focusedAction}"]`);
+                        if (toFocus) toFocus.focus();
+                    }
                 }
 
                 btnKeybinds.addEventListener('click', () => {
                     renderKeybinds();
                     keybindOverlay.style.display = 'flex';
+                    btnKeybinds.setAttribute('aria-expanded', 'true');
+                    btnCloseKeybinds.focus();
                 });
 
-                btnCloseKeybinds.addEventListener('click', () => {
+                const closeKeybindsModal = () => {
                     keybindOverlay.style.display = 'none';
+                    btnKeybinds.setAttribute('aria-expanded', 'false');
                     if (currentlyRebinding) {
                         currentlyRebinding = null; // Cancel pending?
-                        // Remove listeners? Complex without ref.
+                        if (currentRebindHandler) {
+                            window.removeEventListener('keydown', currentRebindHandler);
+                            currentRebindHandler = null;
+                        }
                         // Just reload list next time.
+                    }
+                    btnKeybinds.focus();
+                };
+
+                btnCloseKeybinds.addEventListener('click', closeKeybindsModal);
+
+                keybindOverlay.addEventListener('click', (e) => {
+                    if (e.target === keybindOverlay) {
+                        closeKeybindsModal();
+                    }
+                });
+
+                window.addEventListener('keydown', (e) => {
+                    if (e.code === 'Escape') {
+                        if (window.showInscribeOverlay && document.getElementById('inscribe-overlay').style.display === 'flex') {
+                            e.preventDefault();
+                            document.getElementById('inscribe-overlay').style.display = 'none';
+                            return;
+                        }
+                        if (currentlyRebinding) {
+                            e.preventDefault();
+                            currentlyRebinding = null;
+                            if (currentRebindHandler) {
+                                window.removeEventListener('keydown', currentRebindHandler);
+                                currentRebindHandler = null;
+                            }
+                            renderKeybinds();
+                        } else if (keybindOverlay.style.display === 'flex') {
+                            e.preventDefault();
+                            closeKeybindsModal();
+                        }
+                    }
+                });
+
+                // Inscribe Overlay Logic
+                const inscribeOverlay = document.getElementById('inscribe-overlay');
+                const inscribeInput = document.getElementById('inscribe-input');
+                const btnCancelInscribe = document.getElementById('btn-cancel-inscribe');
+                const btnSubmitInscribe = document.getElementById('btn-submit-inscribe');
+                const primitivesPalette = document.getElementById('primitives-palette');
+
+                const availablePrimitives = [
+                    "FIRE", "WATER", "EARTH", "AIR", "GROWTH", "DECAY", "ENERGY", "STABLE", "VOID",
+                    "MOVE", "JUMP", "DROP", "FORWARD", "BACKWARD", "LEFT", "RIGHT", "SET_ARCHETYPE",
+                    "DESCEND", "STOP", "PICKUP", "HEAL"
+                ];
+
+                availablePrimitives.forEach(prim => {
+                    const btn = document.createElement('button');
+                    btn.innerText = prim;
+                    btn.style.padding = '5px 8px';
+                    btn.style.background = '#111';
+                    btn.style.border = '1px solid #333';
+                    btn.style.color = 'var(--theme-primary)';
+                    btn.style.cursor = 'pointer';
+                    btn.style.fontFamily = 'monospace';
+                    btn.style.fontSize = '0.8rem';
+
+                    btn.addEventListener('mouseenter', () => {
+                        btn.style.background = 'var(--theme-input-bg)';
+                        btn.style.borderColor = 'var(--theme-primary)';
+                    });
+                    btn.addEventListener('mouseleave', () => {
+                        btn.style.background = '#111';
+                        btn.style.borderColor = '#333';
+                    });
+
+                    btn.addEventListener('click', () => {
+                        inscribeInput.value = (inscribeInput.value + " " + prim).trim() + " ";
+                        inscribeInput.focus();
+                    });
+
+                    primitivesPalette.appendChild(btn);
+                });
+
+                window.showInscribeOverlay = function() {
+                    inscribeOverlay.style.display = 'flex';
+                    inscribeInput.value = '';
+                    inscribeInput.focus();
+                };
+
+                function closeInscribeOverlay() {
+                    inscribeOverlay.style.display = 'none';
+                }
+
+                function submitInscription() {
+                    const text = inscribeInput.value.trim();
+                    if (text && window.gameClient) {
+                        window.gameClient.process_inscription(text);
+                        log("> INSCRIBED: " + text);
+                    }
+                    closeInscribeOverlay();
+                }
+
+                btnCancelInscribe.addEventListener('click', closeInscribeOverlay);
+                btnSubmitInscribe.addEventListener('click', submitInscription);
+
+                inscribeInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        submitInscription();
                     }
                 });
 
@@ -673,16 +1538,28 @@
                 btnAR.addEventListener('click', async () => {
                     log("> INITIALIZING AR UPLINK...");
 
+                    const originalText = btnAR.innerText;
+                    btnAR.disabled = true;
+                    btnAR.innerText = "WAITING FOR PERMISSION...";
+                    btnAR.setAttribute('aria-busy', 'true');
+                    btnAR.style.opacity = '0.7';
+                    btnAR.style.cursor = 'wait';
+
                     // Attempt WebXR first if supported
                     if (arSupported) {
                          try {
                              log("> REQUESTING WEBXR SESSION...");
                              await gameClient.enter_ar_session();
                              log("> WEBXR SESSION STARTED");
+                             btnAR.innerText = "UPLINK ESTABLISHED";
+                             btnAR.removeAttribute('aria-busy');
+                             btnAR.style.opacity = '';
+                             btnAR.style.cursor = '';
                              return; // Skip Magic Window fallback if WebXR works
                          } catch (e) {
                              log("> WEBXR ERROR: " + e);
                              log("> FALLING BACK TO MAGIC WINDOW...");
+                             // Will fall through to magic window, keep loading state
                          }
                     }
 
@@ -696,6 +1573,11 @@
                         log("> VIDEO FEED ESTABLISHED");
 
                         // iOS 13+ DeviceOrientation permission
+                        btnAR.innerText = "UPLINK ESTABLISHED";
+                        btnAR.removeAttribute('aria-busy');
+                        btnAR.style.opacity = '';
+                        btnAR.style.cursor = '';
+
                         if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                              log("> REQUESTING SENSOR PERMISSION...");
                              const response = await DeviceOrientationEvent.requestPermission();
@@ -708,6 +1590,28 @@
                     } catch (e) {
                         console.error(e);
                         log("> AR FAILURE: " + e.message);
+
+                        btnAR.innerText = "UPLINK FAILED";
+                        btnAR.removeAttribute('aria-busy');
+                        btnAR.style.borderColor = "#ff2a6d";
+                        btnAR.style.color = "#ff2a6d";
+                        btnAR.style.background = "rgba(255, 42, 109, 0.1)";
+
+                        setTimeout(() => {
+                            btnAR.disabled = false;
+                            btnAR.innerText = originalText;
+                            btnAR.style.opacity = '';
+                            btnAR.style.cursor = '';
+                            if (arSupported) {
+                                btnAR.style.borderColor = "#00ff00";
+                                btnAR.style.color = "#00ff00";
+                                btnAR.style.background = "rgba(0, 255, 0, 0.1)";
+                            } else {
+                                btnAR.style.borderColor = "";
+                                btnAR.style.color = "";
+                                btnAR.style.background = "";
+                            }
+                        }, 3000);
                     }
                 });
 
@@ -731,3 +1635,88 @@
     </script>
 </body>
 </html>
+
+
+<!-- MCP / LLM Hook Integration -->
+<script>
+    // This exposes a global window object that an MCP server can poll via CDP/Playwright
+    // or an external script can access to puppet NPCs.
+    window.GenieAI = {
+        getAllNPCs: function() {
+            if (window.gameClient) {
+                return JSON.parse(window.gameClient.get_all_npcs_json());
+            }
+            return [];
+        },
+        getNPCState: function(uuid) {
+            if (window.gameClient) {
+                return JSON.parse(window.gameClient.get_npc_state_json(uuid));
+            }
+            return null;
+        },
+        commandNPC: function(uuid, actionObj) {
+            if (window.gameClient) {
+                let json = JSON.stringify(actionObj);
+                return window.gameClient.execute_npc_action_json(uuid, json);
+            }
+            return false;
+        }
+    };
+
+    // Browser AI Director
+    window.isAIEnabled = false;
+    window.aiInterval = null;
+
+    document.addEventListener("DOMContentLoaded", () => {
+        const btnToggleAI = document.getElementById('btn-toggle-ai');
+        if (btnToggleAI) {
+            btnToggleAI.addEventListener('click', () => {
+                window.isAIEnabled = !window.isAIEnabled;
+                if (window.isAIEnabled) {
+                    btnToggleAI.innerText = "DISABLE BROWSER AI";
+                    btnToggleAI.style.background = "rgba(255, 42, 109, 0.2)";
+                    btnToggleAI.style.borderColor = "#ff2a6d";
+                    btnToggleAI.style.color = "#ff2a6d";
+                    btnToggleAI.setAttribute("aria-pressed", "true");
+
+                    window.aiInterval = setInterval(() => {
+                        const npcs = window.GenieAI.getAllNPCs();
+                        for (const uuid of npcs) {
+                            const state = window.GenieAI.getNPCState(uuid);
+                            if (state) {
+                                let tx, tz, msg;
+                                if (state.player_distance > 10.0) {
+                                    // Wander
+                                    tx = state.x + (Math.random() * 20 - 10);
+                                    tz = state.z + (Math.random() * 20 - 10);
+                                    window.GenieAI.commandNPC(uuid, { target_x: tx, target_z: tz });
+                                } else {
+                                    // Approach and chat
+                                    tx = state.x + (Math.random() * 5 - 2.5);
+                                    tz = state.z + (Math.random() * 5 - 2.5);
+                                    if (state.archetype === "Tron") {
+                                        msg = Math.random() > 0.5 ? "yes" : "no";
+                                    } else {
+                                        msg = "Hello, traveler!";
+                                    }
+                                    window.GenieAI.commandNPC(uuid, { target_x: tx, target_z: tz, chat_message: msg });
+                                }
+                            }
+                        }
+                    }, 3000);
+                } else {
+                    btnToggleAI.innerText = "ENABLE BROWSER AI";
+                    btnToggleAI.style.background = "";
+                    btnToggleAI.style.borderColor = "";
+                    btnToggleAI.style.color = "";
+                    btnToggleAI.setAttribute("aria-pressed", "false");
+
+                    if (window.aiInterval) {
+                        clearInterval(window.aiInterval);
+                        window.aiInterval = null;
+                    }
+                }
+            });
+        }
+    });
+</script>

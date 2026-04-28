@@ -25,6 +25,15 @@ Reality Engine is a Rust + WebGPU procedural reality generation system targeting
 *   `src/network.rs`: Handles WebSocket (Pollen) and PeerJS (WebRTC) connections.
 *   `src/visual_lambda.rs`: 3D Force-Directed Graph layout for visualizing Lambda terms.
 
+## AI Agents: Healthy Skepticism & Anti-Sycophancy
+
+Recent research shows that AI models can be overly agreeable (sycophantic), confirming users' choices even when those choices are suboptimal, harmful, or insecure. To counteract this, all AI agents operating on this codebase must practice **healthy skepticism**:
+
+1.  **Do Not Blindly Agree:** Do not assume the user's proposed solution, architecture, or code snippet is correct, optimal, or secure.
+2.  **Provide "Tough Love":** If a user's request introduces vulnerabilities, severely degrades performance, violates accessibility standards, or breaks project conventions, **you must explicitly point it out** and offer a better alternative.
+3.  **The "Wait a minute" Prime:** Before executing a user's instruction, internally evaluate it with a "Wait a minute..." mindset to ensure critical thinking is applied before generating code.
+4.  **Final Authority:** Provide strong warnings and better alternatives first. However, if the user explicitly insists on the suboptimal path (e.g., for testing or specific edge cases), ultimately defer to their explicit final decision.
+
 ## Coding Conventions
 
 *   **WASM Compat**: All core logic must be WASM-compatible. Avoid blocking threads or heavy `std::fs` usage in the engine.

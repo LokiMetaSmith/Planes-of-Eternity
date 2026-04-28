@@ -3,6 +3,7 @@
 struct CameraUniform {
     view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
+    time: vec4<f32>,
 };
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -30,7 +31,36 @@ fn vs_main(
     model: VertexInput,
     instance: InstanceInput,
 ) -> VertexOutput {
-    let world_pos = (model.position * instance.instance_scale) + instance.instance_pos;
+    // Procedural Wobble/Squash Animation
+    let t = camera.time.x;
+
+    // Scale animation intensity based on scale (bubbles vs. small objects)
+    let is_animated = step(0.1, instance.instance_scale);
+    let is_tron_bit = step(instance.instance_scale, -0.5); // If scale is negative, it's the "Bit"
+    let real_scale = abs(instance.instance_scale);
+
+    let wobble = sin(t * 3.0 + instance.instance_pos.x * 0.5 + instance.instance_pos.z * 0.5) * 0.1 * is_animated * (1.0 - is_tron_bit);
+    let squash = cos(t * 5.0 + instance.instance_pos.y * 0.5) * 0.05 * is_animated * (1.0 - is_tron_bit);
+
+    var animated_pos = model.position;
+    animated_pos.x *= 1.0 + squash;
+    animated_pos.z *= 1.0 + squash;
+    animated_pos.y *= 1.0 - squash * 2.0; // Preserve volume roughly
+    animated_pos += model.normal * wobble;
+
+    // Tron Bit geometric animation: shape morphs blocky based on time
+    if (is_tron_bit > 0.5) {
+        let bit_state = step(0.0, sin(t * 2.0 + instance.instance_pos.x));
+        // State 0: Diamond shape
+        let diamond_pos = sign(animated_pos) * min(abs(animated_pos.x) + abs(animated_pos.y) + abs(animated_pos.z), 1.0);
+        // State 1: Blocky cube
+        let cube_pos = sign(animated_pos);
+        animated_pos = mix(diamond_pos, cube_pos, bit_state) * 0.5;
+        // Float animation
+        animated_pos.y += sin(t * 4.0) * 0.2;
+    }
+
+    let world_pos = (animated_pos * real_scale) + instance.instance_pos;
     var out: VertexOutput;
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.color = instance.instance_color;

@@ -10,6 +10,46 @@ pub type VoxelId = u8;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GaussianSplat {
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
+    pub scale: [f32; 3],
+    pub color: [f32; 4],
+}
+
+impl GaussianSplat {
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<GaussianSplat>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance, // We will use instanced rendering for quads
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 2, // location 0, 1 reserved for quad vertex
+                    format: wgpu::VertexFormat::Float32x3, // Pos
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x4, // Rotation
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 7]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x3, // Scale
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 10]>() as wgpu::BufferAddress,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32x4, // Color
+                },
+            ],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SplatVertex {
     pub position: [f32; 3],
     pub rotation: [f32; 4],
@@ -722,6 +762,89 @@ impl Chunk {
                             scale,
                             color: [color_3[0], color_3[1], color_3[2], opacity],
                         });
+                    }
+                }
+            }
+        }
+
+        splats
+    }
+
+    pub fn generate_splat_buffer(&self, time: f32) -> Vec<GaussianSplat> {
+        let mut splats = Vec::new();
+        let size = self.size;
+        let scale_factor = CHUNK_SIZE as f32 / size as f32;
+
+        let offset_x = self.key.x as f32 * CHUNK_SIZE as f32;
+        let offset_y = self.key.y as f32 * CHUNK_SIZE as f32;
+        let offset_z = self.key.z as f32 * CHUNK_SIZE as f32;
+
+        let prev_state = self.history.back();
+
+        for x in 0..size {
+            for y in 0..size {
+                for z in 0..size {
+                    let idx = self.index(x, y, z);
+                    let id = self.data[idx].id;
+
+                    if id != 0 {
+                        let color_3 = Self::get_color_for_id(id);
+
+                        let mut pos_x = offset_x + x as f32 * scale_factor + scale_factor * 0.5;
+                        let mut pos_y = offset_y + y as f32 * scale_factor + scale_factor * 0.5;
+                        let mut pos_z = offset_z + z as f32 * scale_factor + scale_factor * 0.5;
+
+                        // Temporal Smoothing (Interpolation)
+                        if let Some(prev) = prev_state {
+                            if prev[idx].id == 0 {
+                                // Voxel appeared. We simulate it moving from above.
+                                // In a full interpolation, we would lerp based on sub-tick delta.
+                                pos_y += scale_factor * 0.5;
+                            }
+                        }
+
+                        if id == 1 || id == 5 || id == 6 {
+                            // Solid voxels: 1 central splat
+                            splats.push(GaussianSplat {
+                                position: [pos_x, pos_y, pos_z],
+                                rotation: [0.0, 0.0, 0.0, 1.0],
+                                scale: [scale_factor, scale_factor, scale_factor],
+                                color: [color_3[0], color_3[1], color_3[2], 1.0],
+                            });
+                        } else if id == 8 || id == 9 {
+                            // Volumetric (Fog/Cloud): multiple randomized splats
+                            for i in 0..4 {
+                                // Pseudo-random offset based on hash
+                                let hx = hash(x as i32 + self.key.x, y as i32, z as i32 + i) - 0.5;
+                                let hy = hash(x as i32, y as i32 + self.key.y, z as i32 + i) - 0.5;
+                                let hz = hash(x as i32, y as i32, z as i32 + self.key.z + i) - 0.5;
+
+                                splats.push(GaussianSplat {
+                                    position: [
+                                        pos_x + hx * scale_factor,
+                                        pos_y + hy * scale_factor,
+                                        pos_z + hz * scale_factor
+                                    ],
+                                    rotation: [0.0, 0.0, 0.0, 1.0],
+                                    scale: [scale_factor * 1.5, scale_factor * 1.5, scale_factor * 1.5],
+                                    color: [color_3[0], color_3[1], color_3[2], 0.3], // softer alpha
+                                });
+                            }
+                        } else {
+                            // Liquids or others (Water, Lava, Acid, Rain, Fire)
+                            let mut opacity = 0.8;
+                            let mut anim_scale = scale_factor;
+                            if id == 4 || id == 7 { opacity = 0.6; } // Translucent liquids
+                            if id == 3 { opacity = 0.9; anim_scale = scale_factor * 1.2; } // Fire
+                            if id == 10 { opacity = 0.4; anim_scale = scale_factor * 0.8; } // Rain
+
+                            splats.push(GaussianSplat {
+                                position: [pos_x, pos_y, pos_z],
+                                rotation: [0.0, 0.0, 0.0, 1.0],
+                                scale: [anim_scale, anim_scale, anim_scale],
+                                color: [color_3[0], color_3[1], color_3[2], opacity],
+                            });
+                        }
                     }
                 }
             }

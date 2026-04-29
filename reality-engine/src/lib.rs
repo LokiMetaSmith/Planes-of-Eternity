@@ -256,6 +256,13 @@ pub struct ChunkMesh {
     pub aabb_max: cgmath::Point3<f32>,
 }
 
+pub struct SplatMesh {
+    pub instance_buffer: wgpu::Buffer,
+    pub instance_count: u32,
+    pub aabb_min: cgmath::Point3<f32>,
+    pub aabb_max: cgmath::Point3<f32>,
+}
+
 #[derive(Serialize)]
 struct ChunkData {
     position: cgmath::Vector3<f32>,
@@ -306,6 +313,8 @@ pub struct State {
     pub voxel_world: voxel::VoxelWorld,
     pub voxel_pipeline: wgpu::RenderPipeline,
     pub voxel_meshes: HashMap<voxel::ChunkKey, ChunkMesh>,
+    pub splat_pipeline: wgpu::RenderPipeline,
+    pub splat_meshes: HashMap<voxel::ChunkKey, SplatMesh>,
     pub voxel_dirty: bool,
     pub last_lod_update_pos: cgmath::Point3<f32>,
     pub voxel_atlas: texture::Texture,
@@ -807,6 +816,64 @@ impl State {
             multiview: None,
         });
 
+        // Setup Gaussian Splat Pipeline
+        let splat_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Splat Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader_splat.wgsl"
+            ))),
+        });
+
+        let splat_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Splat Pipeline Layout"),
+            bind_group_layouts: &[
+                &camera_bind_group_layout,
+                &voxel_bind_group_layout,   // Group 1 (Density for Shadows)
+                &reality_bind_group_layout, // Group 2 (Time for Shadows)
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let splat_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Splat Render Pipeline"),
+            layout: Some(&splat_pipeline_layout),
+            cache: None,
+            vertex: wgpu::VertexState {
+                module: &splat_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[voxel::GaussianSplat::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &splat_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, // No culling for flat quads pointing at camera
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: false, // Transparent splats do not write depth
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
         let mut state = Self {
             surface,
             device,
@@ -835,6 +902,8 @@ impl State {
             voxel_world,
             voxel_pipeline,
             voxel_meshes: HashMap::new(),
+            splat_pipeline,
+            splat_meshes: HashMap::new(),
             voxel_dirty: false,
             last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
             voxel_atlas,
@@ -1110,11 +1179,14 @@ impl State {
         // Optimization: Use O(1) hash map lookup instead of O(N) vector scan to make retain O(M) instead of O(N*M)
         self.voxel_meshes
             .retain(|k, _| self.voxel_world.chunks.contains_key(k));
+        self.splat_meshes
+            .retain(|k, _| self.voxel_world.chunks.contains_key(k));
 
         for (key, lod) in to_update {
             if let Some(chunk) = self.voxel_world.chunks.get(&key) {
                 let mesh_chunk = chunk.create_lod(lod);
                 let (v, i) = mesh_chunk.generate_mesh();
+                let splats = chunk.generate_splat_buffer(self.engine.time);
 
                 if !i.is_empty() {
                     let v_buf = self
@@ -1154,6 +1226,34 @@ impl State {
                 } else {
                     self.voxel_meshes.remove(&key);
                 }
+
+                if !splats.is_empty() {
+                    let instance_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Splat Instance Buffer"),
+                        contents: bytemuck::cast_slice(&splats),
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    });
+
+                    let size = voxel::CHUNK_SIZE as f32;
+                    let min_x = key.x as f32 * size;
+                    let min_y = key.y as f32 * size;
+                    let min_z = key.z as f32 * size;
+
+                    let aabb_min = cgmath::Point3::new(min_x, min_y, min_z);
+                    let aabb_max = cgmath::Point3::new(min_x + size, min_y + size, min_z + size);
+
+                    self.splat_meshes.insert(
+                        *key,
+                        SplatMesh {
+                            instance_buffer,
+                            instance_count: splats.len() as u32,
+                            aabb_min,
+                            aabb_max,
+                        },
+                    );
+                } else {
+                    self.splat_meshes.remove(&key);
+                }
             }
         }
 
@@ -1187,6 +1287,29 @@ impl State {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+
+        // Pre-sorting Splats Back-To-Front per frame to ensure correct alpha blending
+        // We retrieve all splat data, sort it, and update the instance buffers
+        let cam_pos = self.engine.camera.eye;
+        for (key, mesh) in &self.splat_meshes {
+            if let Some(chunk) = self.voxel_world.chunks.get(key) {
+                let mut splats = chunk.generate_splat_buffer(self.engine.time);
+
+                splats.sort_by(|a, b| {
+                    let dist_a = (a.position[0] - cam_pos.x).powi(2) + (a.position[1] - cam_pos.y).powi(2) + (a.position[2] - cam_pos.z).powi(2);
+                    let dist_b = (b.position[0] - cam_pos.x).powi(2) + (b.position[1] - cam_pos.y).powi(2) + (b.position[2] - cam_pos.z).powi(2);
+                    dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                if splats.len() == mesh.instance_count as usize {
+                    self.queue.write_buffer(
+                        &mesh.instance_buffer,
+                        0,
+                        bytemuck::cast_slice(&splats),
+                    );
+                }
+            }
+        }
 
         // Helper to map archetype to ID and Color
         fn get_archetype_data(archetype: reality_types::RealityArchetype) -> (f32, [f32; 4]) {
@@ -1526,6 +1649,30 @@ impl State {
                 render_pass
                     .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+
+            // Draw Gaussian Splats (Alpha Blended, Sorted Back-to-Front)
+            render_pass.set_pipeline(&self.splat_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
+
+            // To be perfectly correct with depth sorting, all chunks' splats should be mixed
+            // and sorted together. Here we sort per-chunk and draw back-to-front chunks.
+            let mut sorted_splat_meshes: Vec<&SplatMesh> = self.splat_meshes.values().collect();
+            let cam_pos = self.engine.camera.eye;
+            sorted_splat_meshes.sort_by(|a, b| {
+                let dist_a = (a.aabb_min.x - cam_pos.x).powi(2) + (a.aabb_min.y - cam_pos.y).powi(2) + (a.aabb_min.z - cam_pos.z).powi(2);
+                let dist_b = (b.aabb_min.x - cam_pos.x).powi(2) + (b.aabb_min.y - cam_pos.y).powi(2) + (b.aabb_min.z - cam_pos.z).powi(2);
+                dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            for mesh in sorted_splat_meshes {
+                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &frustum_planes) {
+                    continue;
+                }
+                render_pass.set_vertex_buffer(0, mesh.instance_buffer.slice(..));
+                render_pass.draw(0..6, 0..mesh.instance_count); // 6 vertices per quad, instanced
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {

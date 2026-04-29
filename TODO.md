@@ -113,4 +113,4 @@
 
 ## NPC Chat System
 - [x] Add NPC Chat bubbles to the UI via HTML Overlays.
-- [x] Explore 4D Gaussian Splatting: Implemented via Hybrid Voxel-Splatting. Used animated vertex offsets for fluids and spherical dither mapping, preserving Greedy Meshing optimizations and resolving depth-sorting conflicts.
+- [x] Explore 4D Gaussian Splatting: Implemented via a hybrid feature for volumetric and liquid voxel types, combining Greedy Meshing with specialized Gaussian Splat rendering.

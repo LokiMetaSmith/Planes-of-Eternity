@@ -60,3 +60,6 @@ This execution plan outlines the steps necessary to prototype and potentially in
 10. **Benchmark Performance**
     *   **Goal:** Compare the performance of the Splat pipeline vs. the existing Greedy Meshing pipeline.
     *   **Action:** Run the game with a large number of chunks. Measure FPS and WebGPU memory usage. Evaluate if the visual improvement justifies the performance cost.
+
+## Conclusion (Implemented via Hybrid Voxel-Splatting)
+The exploration phase concluded that a full point-cloud replacement is incompatible with the engine. Instead, the concepts explored here were successfully adapted into a Hybrid Voxel-Splatting approach. Gaussian-like visual fidelity for translucent and fluid materials (liquids, weather, abstractions) is now achieved through specialized shaders and vertex animations, while solid geometry retains the performant Greedy-Meshed voxel architecture.

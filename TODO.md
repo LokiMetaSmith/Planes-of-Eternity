@@ -113,4 +113,4 @@
 
 ## NPC Chat System
 - [x] Add NPC Chat bubbles to the UI via HTML Overlays.
-- [ ] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
+- [x] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine. (Implemented via Hybrid Voxel-Splatting)

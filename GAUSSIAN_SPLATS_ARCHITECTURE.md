@@ -75,3 +75,9 @@ Gaussian Splatting requires projecting the 3D ellipsoid into 2D screen space.
 - **Performance Loss:** Dropping Greedy Meshing drastically increases the number of primitives sent to the GPU. A solid 32x32x32 chunk generates 6 quads with Greedy Meshing, but would generate 32,768 splats.
 - **Sorting Overhead:** Sorting thousands of splats per frame per chunk is computationally expensive.
 - **Art Style:** Soft, photorealistic splats conflict directly with the discrete, retro-aesthetic of the 4D Voxel Engine and Lambda interaction nets.
+
+## 6. Conclusion
+After further architectural review, integrating pure Gaussian Splats has been **adapted into a Hybrid Voxel-Splatting approach**. A full point-cloud rendering paradigm is incompatible with Reality Engine's core 4D Voxel architecture. However, the exploration was successfully integrated as specialized features:
+- **Volumetric Weather and Liquids:** Fluid motion and soft edges are simulated using animated vertex offsets in `shader_voxel.wgsl` for specific materials (e.g., Acid, Fog, Rain) rather than replacing the voxel grid.
+- **Hybrid Rendering:** Greedy Meshing is retained for solid terrain performance. The "Gaussian" aspect is achieved visually through specialized archetype shaders (like Spherical Dither Mapping) and Fresnel-shaded abstractions.
+This approach preserves core optimizations and voxel-based logic while achieving the desired visual fidelity for dynamic elements.

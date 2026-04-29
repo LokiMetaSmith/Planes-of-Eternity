@@ -75,3 +75,6 @@ Gaussian Splatting requires projecting the 3D ellipsoid into 2D screen space.
 - **Performance Loss:** Dropping Greedy Meshing drastically increases the number of primitives sent to the GPU. A solid 32x32x32 chunk generates 6 quads with Greedy Meshing, but would generate 32,768 splats.
 - **Sorting Overhead:** Sorting thousands of splats per frame per chunk is computationally expensive.
 - **Art Style:** Soft, photorealistic splats conflict directly with the discrete, retro-aesthetic of the 4D Voxel Engine and Lambda interaction nets.
+
+## 6. Conclusion
+After further architectural review, integrating Gaussian Splats has been **rejected**. Point-cloud rendering paradigms (like Gaussian Splatting) are fundamentally incompatible with Reality Engine's core 4D Voxel architecture. Pursuing this would break critical optimizations like Greedy Meshing, complicate voxel destruction and terrain editing, and cause severe depth sorting conflicts between opaque depth-buffered voxels and translucent splats, resulting in massive VRAM and computational overhead. The engine will remain focused on its highly optimized 4D Voxel pipeline.

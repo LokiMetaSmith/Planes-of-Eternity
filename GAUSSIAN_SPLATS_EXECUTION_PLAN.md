@@ -60,3 +60,6 @@ This execution plan outlines the steps necessary to prototype and potentially in
 10. **Benchmark Performance**
     *   **Goal:** Compare the performance of the Splat pipeline vs. the existing Greedy Meshing pipeline.
     *   **Action:** Run the game with a large number of chunks. Measure FPS and WebGPU memory usage. Evaluate if the visual improvement justifies the performance cost.
+
+## Conclusion (Rejected)
+Execution of this plan has been halted. The exploration concluded that Gaussian Splatting is fundamentally incompatible with the engine's core features. It requires massive architectural rewrites that would break Greedy Meshing, voxel editing, and introduce severe depth sorting conflicts. The Reality Engine will continue to utilize its performant, Greedy-Meshed voxel architecture.

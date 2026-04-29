@@ -77,4 +77,7 @@ Gaussian Splatting requires projecting the 3D ellipsoid into 2D screen space.
 - **Art Style:** Soft, photorealistic splats conflict directly with the discrete, retro-aesthetic of the 4D Voxel Engine and Lambda interaction nets.
 
 ## 6. Conclusion
-After further architectural review, integrating Gaussian Splats has been **rejected**. Point-cloud rendering paradigms (like Gaussian Splatting) are fundamentally incompatible with Reality Engine's core 4D Voxel architecture. Pursuing this would break critical optimizations like Greedy Meshing, complicate voxel destruction and terrain editing, and cause severe depth sorting conflicts between opaque depth-buffered voxels and translucent splats, resulting in massive VRAM and computational overhead. The engine will remain focused on its highly optimized 4D Voxel pipeline.
+After further architectural review, integrating pure Gaussian Splats has been **adapted into a Hybrid Voxel-Splatting approach**. A full point-cloud rendering paradigm is incompatible with Reality Engine's core 4D Voxel architecture. However, the exploration was successfully integrated as specialized features:
+- **Volumetric Weather and Liquids:** Fluid motion and soft edges are simulated using animated vertex offsets in `shader_voxel.wgsl` for specific materials (e.g., Acid, Fog, Rain) rather than replacing the voxel grid.
+- **Hybrid Rendering:** Greedy Meshing is retained for solid terrain performance. The "Gaussian" aspect is achieved visually through specialized archetype shaders (like Spherical Dither Mapping) and Fresnel-shaded abstractions.
+This approach preserves core optimizations and voxel-based logic while achieving the desired visual fidelity for dynamic elements.

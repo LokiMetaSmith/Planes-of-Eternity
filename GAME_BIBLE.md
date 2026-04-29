@@ -69,12 +69,11 @@ The engine supports immersive Augmented Reality via WebXR.
 *   **Language:** Rust.
 *   **Graphics API:** WebGPU via `wgpu` crate.
 *   **Math:** `cgmath` (Note: Uses column-major memory layout).
-*   **Target:** WebAssembly (`wasm32-unknown-unknown`) built with `wasm-pack`.
+*   **Target:** WebAssembly (`wasm32-unknown-unknown`) built with Trunk.
 *   **Shaders:** WGSL (`shader_voxel.wgsl`, `shader_lambda.wgsl`, etc.).
 
 ## Future Roadmap & TODOs
 *(Sourced from `TODO.md`)*
 Currently, all major milestones (Voxel rendering, LOD, shadows, AR, Lambda interactions, Net-sync, persistence) are marked as complete. Future additions could include:
 *   Expanding Host Test Coverage for platform-specific rendering logic.
-*   Migrating from `wasm-pack` to Trunk if maintenance mode issues arise.
 *   Further expansion of the Reality Archetype logic and emergent genre conflicts.

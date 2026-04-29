@@ -39,17 +39,16 @@ chmod +x setup_dev.sh
     *   **Windows:**
         Download and run [rustup-init.exe](https://win.rustup.rs/).
 
-2.  **Install wasm-pack:**
+2.  **Install trunk:**
     ```bash
-    cargo install wasm-pack
+    cargo install trunk
     ```
-    *Note: `wasm-pack` is currently in maintenance mode following the sunsetting of the `rustwasm` organization. It is still the recommended build tool for this project, but migration to `Trunk` may be considered in the future.*
 
 3.  **Build (Web):**
-    Navigate to the engine directory and build for the web target:
+    Navigate to the engine directory and build using trunk:
     ```bash
     cd reality-engine
-    wasm-pack build --target web
+    trunk build
     ```
 
 4.  **Test (Host):**
@@ -61,7 +60,14 @@ chmod +x setup_dev.sh
     This verifies engine initialization, interaction logic, and P2P state synchronization.
 
 5.  **Run Signaling Server & Web Server:**
-    For the engine to serve files and multiplayer features to work, the signaling server must be running locally:
+    For the engine to serve files and multiplayer features to work, the signaling server must be running locally. We provide a `start.sh` script to build the engine and start the server automatically:
+
+    **macOS / Linux:**
+    ```bash
+    ./start.sh
+    ```
+
+    Alternatively, you can run the signaling server manually (ensure you have built the engine first):
     ```bash
     cd reality-signal-server
     cargo run

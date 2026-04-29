@@ -12,11 +12,11 @@ fi
 
 echo "Rust is installed."
 
-if ! command -v wasm-pack &> /dev/null; then
-    echo "wasm-pack is missing. Installing..."
-    cargo install wasm-pack
+if ! command -v trunk &> /dev/null; then
+    echo "trunk is missing. Installing..."
+    cargo install trunk
 else
-    echo "wasm-pack is already installed."
+    echo "trunk is already installed."
 fi
 
 echo "Environment setup complete!"

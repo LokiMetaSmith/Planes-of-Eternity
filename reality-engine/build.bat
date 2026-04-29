@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-REM Build script that sets up Visual Studio environment and builds with wasm-pack
+REM Build script that sets up Visual Studio environment and builds with trunk
 
 echo Setting up Visual Studio environment...
 
@@ -88,8 +88,8 @@ if "!SDK_FOUND!"=="0" (
     exit /b 1
 )
 
-echo Building with wasm-pack...
-wasm-pack build --target web
+echo Building with trunk...
+trunk build
 
 if errorlevel 1 (
     echo Build failed

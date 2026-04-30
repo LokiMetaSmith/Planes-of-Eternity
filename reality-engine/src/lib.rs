@@ -1,4 +1,5 @@
-use cgmath::{InnerSpace, SquareMatrix};
+use cgmath::{InnerSpace, SquareMatrix, Rotation};
+use wgpu::util::DeviceExt;
 
 use serde::Serialize;
 #[cfg(target_arch = "wasm32")]
@@ -27,6 +28,7 @@ pub mod projector;
 pub mod reality_types;
 mod texture;
 pub mod visual_lambda;
+pub mod splat;
 pub mod voxel;
 pub mod voxelizer;
 pub mod world;
@@ -1165,6 +1167,14 @@ impl State {
         if self.engine.update(0.016, Some(&mut self.voxel_world)) {
             self.voxel_dirty = true;
         }
+
+        // Handle pending dreams from the engine
+        for prompt in self.engine.pending_dreams.drain(..) {
+            self.voxel_world.genie.request_splat_generation(prompt);
+        }
+
+        // Apply generated splats to the world
+        self.voxel_world.process_pending_splats();
 
         // Rebuild meshes if dirty or if camera moved significantly (LOD update trigger)
         let cam_pos = self.engine.camera.eye;

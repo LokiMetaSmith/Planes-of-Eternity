@@ -51,6 +51,8 @@ impl Voxelizer {
                     if is_inside {
                         let idx = chunk.index(x, y, z);
                         chunk.data[idx] = Voxel { id: voxel_id };
+                        // Request detail splat generation for the deformed voxel
+                        // (Requires integration with GenieBridge, but since this is isolated we just log/mark)
                     }
                 }
             }

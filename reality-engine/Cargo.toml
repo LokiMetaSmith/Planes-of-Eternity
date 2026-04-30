@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "0.2"
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 wgpu = { version = "23.0.0", features = ["webgl"] }
 log = "0.4"
 console_log = "1"
@@ -70,6 +70,11 @@ features = [
   "XrRigidTransform",
   "DomPoint",
   "DomPointReadOnly",
+  "Response",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Headers",
   "AudioContext",
   "AudioDestinationNode",
   "AudioNode",

@@ -114,3 +114,6 @@
 ## NPC Chat System
 - [x] Add NPC Chat bubbles to the UI via HTML Overlays.
 - [ ] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
+
+## Build / Technical Debt
+- [ ] **WASM Compilation Errors**: Fix missing trait imports (`wgpu::util::DeviceExt`, `cgmath::Rotation`) and `NpcStateView` struct initialization errors when compiling for `wasm32-unknown-unknown`.

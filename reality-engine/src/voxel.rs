@@ -311,6 +311,8 @@ pub struct Chunk {
     pub size: usize, // Dynamic size for LOD
     #[serde(skip)]
     pub history: VecDeque<Vec<Voxel>>,
+    #[serde(skip)]
+    pub splats: Vec<crate::splat::SplatVertex>,
 }
 
 fn hash(x: i32, y: i32, z: i32) -> f32 {
@@ -328,6 +330,7 @@ impl Chunk {
             data: vec![Voxel::default(); vol],
             size,
             history: VecDeque::with_capacity(HISTORY_DEPTH),
+            splats: Vec::new(),
         }
     }
 
@@ -443,6 +446,7 @@ impl Chunk {
             data: new_data,
             size: new_size,
             history: VecDeque::new(), // LODs don't need history
+            splats: self.splats.clone(),
         }
     }
 
@@ -684,7 +688,7 @@ impl Chunk {
     }
 
     // --- Greedy Meshing Implementation ---
-    pub fn generate_splats(&self) -> Vec<SplatVertex> {
+    pub fn generate_splats(&self) -> Vec<crate::splat::SplatVertex> {
         let mut splats = Vec::new();
         let size = self.size;
         let scale_factor = CHUNK_SIZE as f32 / size as f32;
@@ -716,7 +720,7 @@ impl Chunk {
                         let pos_y = offset_y + y as f32 * scale_factor + scale_factor * 0.5;
                         let pos_z = offset_z + z as f32 * scale_factor + scale_factor * 0.5;
 
-                        splats.push(SplatVertex {
+                        splats.push(crate::splat::SplatVertex {
                             position: [pos_x, pos_y, pos_z],
                             rotation: [0.0, 0.0, 0.0, 1.0], // Identity quaternion
                             scale,
@@ -1159,6 +1163,28 @@ impl VoxelWorld {
     pub fn update_dynamics(&mut self) {
         for chunk in self.chunks.values_mut() {
             chunk.diffuse();
+        }
+    }
+
+    pub fn process_pending_splats(&mut self) {
+        let mut groups = Vec::new();
+        if let Ok(mut pending) = self.genie.pending_splats.lock() {
+            groups.extend(pending.drain(..));
+        }
+
+        for splat_group in groups {
+            let mut chunk_key = ChunkKey { x: 0, y: 0, z: 0 };
+            if let Some(first) = splat_group.first() {
+                let pos = first.position;
+                chunk_key = ChunkKey {
+                    x: (pos[0] / CHUNK_SIZE as f32).floor() as i32,
+                    y: (pos[1] / CHUNK_SIZE as f32).floor() as i32,
+                    z: (pos[2] / CHUNK_SIZE as f32).floor() as i32,
+                };
+            }
+
+            let chunk = self.create_chunk(chunk_key);
+            chunk.splats.extend(splat_group);
         }
     }
 

@@ -42,6 +42,7 @@ pub struct Engine {
     pub width: u32,
     pub height: u32,
     pub spell_effects: Vec<SpellEffect>,
+    pub pending_dreams: Vec<String>,
 }
 
 impl Engine {
@@ -188,6 +189,7 @@ impl Engine {
             width,
             height,
             spell_effects: Vec::new(),
+            pending_dreams: Vec::new(),
         }
     }
 
@@ -955,6 +957,19 @@ impl Engine {
                                 Primitive::Left => self.camera_controller.process_action(Action::MoveLeft, pressed),
                                 Primitive::Right => self.camera_controller.process_action(Action::MoveRight, pressed),
                                 _ => ()
+                            }
+                        }
+                        return None;
+                    }
+
+                    if *op == Primitive::Dream {
+                        if pressed {
+                            if let Term::Var(prompt) = &**arg {
+                                log::info!("Triggering DREAM with prompt: {}", prompt);
+                                self.pending_dreams.push(prompt.clone());
+                            } else if let Term::Prim(prim_prompt) = &**arg {
+                                log::info!("Triggering DREAM with primitive prompt: {}", prim_prompt);
+                                self.pending_dreams.push(prim_prompt.to_string());
                             }
                         }
                         return None;

@@ -665,6 +665,57 @@ impl State {
             multiview: None,
         });
 
+        let splat_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Splat Render Pipeline"),
+            layout: Some(&voxel_pipeline_layout),
+            cache: None,
+            vertex: wgpu::VertexState {
+                module: &splat_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[voxel::SplatVertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &splat_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, // Disable backface culling for splats since they are billboards
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: false, // Don't write to depth buffer to allow blending over each other correctly
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
+        let initial_splats: Vec<voxel::SplatVertex> = Vec::new();
+        let splat_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Splats Buffer"),
+            contents: bytemuck::cast_slice(&initial_splats),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
         let lambda_renderer =
             visual_lambda::LambdaRenderer::new(&device, config.format, &camera_bind_group_layout);
 
@@ -835,6 +886,9 @@ impl State {
             voxel_world,
             voxel_pipeline,
             voxel_meshes: HashMap::new(),
+            splat_pipeline,
+            splats: initial_splats,
+            splat_buffer,
             voxel_dirty: false,
             last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
             voxel_atlas,
@@ -1110,6 +1164,13 @@ impl State {
         // Optimization: Use O(1) hash map lookup instead of O(N) vector scan to make retain O(M) instead of O(N*M)
         self.voxel_meshes
             .retain(|k, _| self.voxel_world.chunks.contains_key(k));
+
+        // We rebuild the entire splats array to simplify for now
+        self.splats.clear();
+
+        for (_key, chunk) in &self.voxel_world.chunks {
+            self.splats.extend(chunk.generate_splats());
+        }
 
         for (key, lod) in to_update {
             if let Some(chunk) = self.voxel_world.chunks.get(&key) {
@@ -1445,6 +1506,31 @@ impl State {
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let view_proj = self.engine.camera.build_view_projection_matrix();
+        let camera_pos = self.engine.camera.eye;
+
+        // Depth sort splats back-to-front
+        self.splats.sort_by(|a, b| {
+            let dist_a = (a.position[0] - camera_pos.x).powi(2)
+                + (a.position[1] - camera_pos.y).powi(2)
+                + (a.position[2] - camera_pos.z).powi(2);
+            let dist_b = (b.position[0] - camera_pos.x).powi(2)
+                + (b.position[1] - camera_pos.y).powi(2)
+                + (b.position[2] - camera_pos.z).powi(2);
+            // Reverse sort for back-to-front
+            dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Write sorted splats to buffer. We might need a larger buffer if we have more splats now.
+        // For a real engine, we'd dynamically resize the buffer. For the prototype, we recreate it if needed.
+        if self.splats.len() * std::mem::size_of::<voxel::SplatVertex>() > self.splat_buffer.size() as usize {
+            self.splat_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Splats Buffer (Resized)"),
+                contents: bytemuck::cast_slice(&self.splats),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        } else if !self.splats.is_empty() {
+            self.queue.write_buffer(&self.splat_buffer, 0, bytemuck::cast_slice(&self.splats));
+        }
 
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -1526,6 +1612,19 @@ impl State {
                 render_pass
                     .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+
+            // Draw Splats
+            if !self.splats.is_empty() {
+                render_pass.set_pipeline(&self.splat_pipeline);
+                // Bind groups from voxel pipeline are the same
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
+
+                render_pass.set_vertex_buffer(0, self.splat_buffer.slice(..));
+                // We draw 6 vertices (2 triangles) per splat instance
+                render_pass.draw(0..6, 0..self.splats.len() as u32);
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {

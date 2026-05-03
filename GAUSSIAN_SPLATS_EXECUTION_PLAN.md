@@ -52,7 +52,7 @@ This execution plan outlines the steps necessary to prototype and potentially in
 
 ## Phase 5: Testing and Benchmarking
 
-9.  **Write Tests**
+9.  [x] **Write Tests**
     *   **Goal:** Verify data structures and generation logic.
     *   **File:** `reality-engine/tests/host_test.rs`
     *   **Action:** Write unit tests to ensure `SplatVertex` alignment is correct and `generate_splats` produces the expected number of vertices based on chunk contents.

@@ -1,4 +1,5 @@
-use cgmath::{InnerSpace, SquareMatrix};
+use cgmath::{InnerSpace, SquareMatrix, Rotation};
+use wgpu::util::DeviceExt;
 
 use serde::Serialize;
 #[cfg(target_arch = "wasm32")]
@@ -27,6 +28,7 @@ pub mod projector;
 pub mod reality_types;
 mod texture;
 pub mod visual_lambda;
+pub mod splat;
 pub mod voxel;
 pub mod voxelizer;
 pub mod world;
@@ -305,7 +307,10 @@ pub struct State {
     pub depth_texture: texture::Texture,
     pub voxel_world: voxel::VoxelWorld,
     pub voxel_pipeline: wgpu::RenderPipeline,
-    pub voxel_meshes: HashMap<voxel::ChunkKey, ChunkMesh>,
+    pub splat_pipeline: wgpu::RenderPipeline,
+    pub splat_buffer: wgpu::Buffer,
+    pub num_splats: u32,
+    pub voxel_meshes: std::collections::HashMap<voxel::ChunkKey, ChunkMesh>,
     pub voxel_dirty: bool,
     pub last_lod_update_pos: cgmath::Point3<f32>,
     pub voxel_atlas: texture::Texture,
@@ -768,6 +773,74 @@ impl State {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
 
+        let splat_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Splat Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader_splat.wgsl"
+            ))),
+        });
+
+        let splat_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Splat Pipeline Layout"),
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,  // Group 0
+                    &reality_bind_group_layout, // Group 1
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let splat_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Splat Render Pipeline"),
+            layout: Some(&splat_pipeline_layout),
+            cache: None,
+            vertex: wgpu::VertexState {
+                module: &splat_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[splat::SplatVertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &splat_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, // Disable culling for splats
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: false, // Transparent splats shouldn't write to depth
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
+        let splat_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Splat Instance Buffer"),
+            contents: bytemuck::cast_slice(&[splat::SplatVertex {
+                position: [0.0, 0.0, 0.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [0.0, 0.0, 0.0],
+                color: [0.0, 0.0, 0.0, 0.0],
+            }]),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
         let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Voxel Render Pipeline"),
             layout: Some(&voxel_pipeline_layout),
@@ -835,7 +908,10 @@ impl State {
             depth_texture,
             voxel_world,
             voxel_pipeline,
-            voxel_meshes: HashMap::new(),
+            splat_pipeline,
+            splat_buffer,
+            num_splats: 0,
+            voxel_meshes: std::collections::HashMap::new(),
             voxel_dirty: false,
             last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
             voxel_atlas,
@@ -1167,6 +1243,14 @@ impl State {
             self.voxel_dirty = true;
         }
 
+        // Handle pending dreams from the engine
+        for prompt in self.engine.pending_dreams.drain(..) {
+            self.voxel_world.genie.request_splat_generation(prompt);
+        }
+
+        // Apply generated splats to the world
+        self.voxel_world.process_pending_splats();
+
         // Rebuild meshes if dirty or if camera moved significantly (LOD update trigger)
         let cam_pos = self.engine.camera.eye;
         let dx = cam_pos.x - self.last_lod_update_pos.x;
@@ -1210,6 +1294,7 @@ impl State {
                 reality_types::RealityArchetype::Biopunk => (14.0, [0.8, 0.2, 0.4, 1.0]), // Fleshy Red
                 reality_types::RealityArchetype::Tron => (15.0, [0.0, 1.0, 1.0, 1.0]), // Cyan Neon
                 reality_types::RealityArchetype::ColdStorage => (16.0, [0.6, 0.9, 1.0, 1.0]), // Icy Blue
+                reality_types::RealityArchetype::LiminalSpace => (17.0, [0.95, 0.95, 0.8, 1.0]), // Fluorescent yellow-white
             }
         }
 
@@ -1312,6 +1397,7 @@ impl State {
                 crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
                 crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
                 crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
             };
             let scale = if npc.reality_signature.active_style.archetype == crate::reality_types::RealityArchetype::Tron {
                 -1.0 // negative scale triggers the bit geometry logic in shader_lambda if added
@@ -1456,6 +1542,51 @@ impl State {
                 label: Some("Render Encoder"),
             });
 
+        let mut active_splats = Vec::new();
+        let frustum_planes = extract_frustum_planes(&view_proj);
+        let cam_pos = self.engine.camera.eye;
+
+        for chunk in self.voxel_world.chunks.values() {
+            let size = voxel::CHUNK_SIZE as f32;
+            let min_x = chunk.key.x as f32 * size;
+            let min_y = chunk.key.y as f32 * size;
+            let min_z = chunk.key.z as f32 * size;
+
+            let aabb_min = cgmath::Point3::new(min_x, min_y, min_z);
+            let aabb_max = cgmath::Point3::new(min_x + size, min_y + size, min_z + size);
+
+            if is_aabb_visible(aabb_min, aabb_max, &frustum_planes) {
+                active_splats.extend(chunk.splats.iter().cloned());
+            }
+        }
+
+        // Sort splats back-to-front
+        active_splats.sort_by(|a, b| {
+            let dist_a = (a.position[0] - cam_pos.x).powi(2)
+                + (a.position[1] - cam_pos.y).powi(2)
+                + (a.position[2] - cam_pos.z).powi(2);
+            let dist_b = (b.position[0] - cam_pos.x).powi(2)
+                + (b.position[1] - cam_pos.y).powi(2)
+                + (b.position[2] - cam_pos.z).powi(2);
+            dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        self.num_splats = active_splats.len() as u32;
+
+        if self.num_splats > 0 {
+            // Reallocate buffer if necessary, or just write
+            let new_size = (self.num_splats as usize * std::mem::size_of::<splat::SplatVertex>()) as wgpu::BufferAddress;
+            if self.splat_buffer.size() < new_size {
+                self.splat_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Splat Instance Buffer"),
+                    contents: bytemuck::cast_slice(&active_splats),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                });
+            } else {
+                self.queue.write_buffer(&self.splat_buffer, 0, bytemuck::cast_slice(&active_splats));
+            }
+        }
+
         {
             let clear_color = if self.in_xr {
                 wgpu::Color {
@@ -1516,7 +1647,7 @@ impl State {
             render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
 
             // Optimization: Extract frustum planes once per frame instead of per-chunk
-            let frustum_planes = extract_frustum_planes(&view_proj);
+            // Note: frustum_planes already calculated above for splats
             for mesh in self.voxel_meshes.values() {
                 if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &frustum_planes) {
                     continue;
@@ -1525,6 +1656,15 @@ impl State {
                 render_pass
                     .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+
+            // Draw Splats
+            if self.num_splats > 0 {
+                render_pass.set_pipeline(&self.splat_pipeline);
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.reality_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.splat_buffer.slice(..));
+                render_pass.draw(0..6, 0..self.num_splats);
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {
@@ -1625,6 +1765,7 @@ impl GameClient {
             14 => reality_types::RealityArchetype::Biopunk,
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
+            17 => reality_types::RealityArchetype::LiminalSpace,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -1654,6 +1795,7 @@ impl GameClient {
             14 => reality_types::RealityArchetype::Biopunk,
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
+            17 => reality_types::RealityArchetype::LiminalSpace,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1675,6 +1817,7 @@ impl GameClient {
             14 => reality_types::RealityArchetype::Biopunk,
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
+            17 => reality_types::RealityArchetype::LiminalSpace,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1707,6 +1850,7 @@ impl GameClient {
             14 => reality_types::RealityArchetype::Biopunk,
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
+            17 => reality_types::RealityArchetype::LiminalSpace,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1734,6 +1878,7 @@ impl GameClient {
                 reality_types::RealityArchetype::Biopunk => 14,
                 reality_types::RealityArchetype::Tron => 15,
                 reality_types::RealityArchetype::ColdStorage => 16,
+                reality_types::RealityArchetype::LiminalSpace => 17,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

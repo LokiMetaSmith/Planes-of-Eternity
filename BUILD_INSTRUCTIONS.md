@@ -39,13 +39,13 @@ This should return `True`.
 Once the Windows SDK is installed, build the project:
 ```powershell
 cd reality-engine
-.\build.ps1
+trunk build
 ```
 
-Or use the batch file:
-```cmd
+Or use the build scripts if necessary:
+```powershell
 cd reality-engine
-build.bat
+.\build.ps1
 ```
 
 ## Alternative: Use GNU Toolchain (Not Recommended)

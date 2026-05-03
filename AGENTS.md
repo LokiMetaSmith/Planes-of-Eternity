@@ -43,9 +43,9 @@ Recent research shows that AI models can be overly agreeable (sycophantic), conf
 
 ## Setup & Verification
 
-*   **Build**: `wasm-pack build --target web` in `reality-engine/`.
+*   **Build**: `trunk build` in `reality-engine/`.
 *   **Test**: `cargo test` runs host-based logic tests. Note that some WASM-specific code (e.g., `web-sys` calls) is gated and won't run in standard `cargo test`.
-*   **Run**: Use a static file server (e.g., `python3 -m http.server`) to serve the root directory.
+*   **Run**: Use the `reality-signal-server` to serve the application and provide signaling for WebRTC.
 
 ## Known Issues / Gotchas
 
@@ -55,7 +55,6 @@ Recent research shows that AI models can be overly agreeable (sycophantic), conf
 
 ## Toolchain Status
 
-*   **`wasm-pack` Archival**: As of July 2025, the `rustwasm` organization (maintainers of `wasm-pack`) has been sunset. `wasm-pack` is currently archived but functional.
-*   **Future Migration**: If `wasm-pack` ceases to function, the project should migrate to **[Trunk](https://trunkrs.dev/)**.
-*   **Windows Setup**: `setup_dev.ps1` downloads a pre-built binary (v0.13.0) of `wasm-pack` to avoid compilation issues with `link.exe` on some Windows environments.
+*   **Trunk**: The project uses **[Trunk](https://trunkrs.dev/)** to build and bundle the web application, replacing the archived `wasm-pack`.
+*   **Windows Setup**: `setup_dev.ps1` automatically installs `trunk` via Cargo.
 *   **Dependencies**: `wasm-bindgen` and related crates (`web-sys`, `js-sys`) have moved to the `wasm-bindgen` organization and remain actively maintained. We have removed dependencies on archived `rustwasm` crates (e.g., `console_error_panic_hook`) to mitigate risks.

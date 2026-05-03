@@ -58,8 +58,8 @@ if (Test-Path $vcvarsPath) {
     }
 }
 
-Write-Host "Building with wasm-pack..."
-wasm-pack build --target web
+Write-Host "Building with trunk..."
+trunk build
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build successful!"

@@ -78,6 +78,7 @@
 - [x] **New Archetypes**: Added ObraDinn archetype to Reality Engine with spherical dither mapping.
 - [x] **New Archetypes**: Added Biopunk archetype to Reality Engine.
 - [x] **New Archetypes**: Added ColdStorage archetype to Reality Engine.
+- [x] **New Archetypes**: Added LiminalSpace archetype to Reality Engine.
 
 ## Game Mechanics
 - [x] **Item Physics**: Added simple physics for dropped items with gravity and ground collision.
@@ -112,3 +113,7 @@
 
 ## NPC Chat System
 - [x] Add NPC Chat bubbles to the UI via HTML Overlays.
+- [x] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
+
+## Build / Technical Debt
+- [x] **WASM Compilation Errors**: Fix missing trait imports (`wgpu::util::DeviceExt`, `cgmath::Rotation`) and `NpcStateView` struct initialization errors when compiling for `wasm32-unknown-unknown`.

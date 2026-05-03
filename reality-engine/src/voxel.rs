@@ -10,6 +10,46 @@ pub type VoxelId = u8;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SplatVertex {
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
+    pub scale: [f32; 3],
+    pub color: [f32; 4],
+}
+
+impl SplatVertex {
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<SplatVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3, // Pos
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x4, // Rotation
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 7]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x3, // Scale
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 10]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x4, // Color
+                },
+            ],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VoxelVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
@@ -271,6 +311,8 @@ pub struct Chunk {
     pub size: usize, // Dynamic size for LOD
     #[serde(skip)]
     pub history: VecDeque<Vec<Voxel>>,
+    #[serde(skip)]
+    pub splats: Vec<crate::splat::SplatVertex>,
 }
 
 fn hash(x: i32, y: i32, z: i32) -> f32 {
@@ -288,6 +330,7 @@ impl Chunk {
             data: vec![Voxel::default(); vol],
             size,
             history: VecDeque::with_capacity(HISTORY_DEPTH),
+            splats: Vec::new(),
         }
     }
 
@@ -403,6 +446,7 @@ impl Chunk {
             data: new_data,
             size: new_size,
             history: VecDeque::new(), // LODs don't need history
+            splats: self.splats.clone(),
         }
     }
 
@@ -627,7 +671,69 @@ impl Chunk {
         self.data = next_data;
     }
 
+    pub fn get_color_for_id(id: VoxelId) -> [f32; 3] {
+        match id {
+            1 => [0.5, 0.5, 0.5], // Stone
+            2 => [1.0, 0.3, 0.0], // Lava
+            3 => [1.0, 0.8, 0.0], // Fire
+            4 => [0.0, 0.0, 1.0], // Water
+            5 => [0.4, 0.2, 0.0], // Wood
+            6 => [0.2, 0.6, 0.2], // Leaves
+            7 => [0.2, 1.0, 0.2], // Acid
+            8 => [0.7, 0.7, 0.8], // Fog
+            9 => [0.9, 0.9, 0.95], // Cloud
+            10 => [0.4, 0.5, 0.8], // Rain
+            _ => [1.0, 0.0, 1.0], // Magenta error
+        }
+    }
+
     // --- Greedy Meshing Implementation ---
+    pub fn generate_splats(&self) -> Vec<crate::splat::SplatVertex> {
+        let mut splats = Vec::new();
+        let size = self.size;
+        let scale_factor = CHUNK_SIZE as f32 / size as f32;
+
+        let offset_x = self.key.x as f32 * CHUNK_SIZE as f32;
+        let offset_y = self.key.y as f32 * CHUNK_SIZE as f32;
+        let offset_z = self.key.z as f32 * CHUNK_SIZE as f32;
+
+        for x in 0..size {
+            for y in 0..size {
+                for z in 0..size {
+                    let id = self.get(x, y, z).id;
+                    if id != 0 {
+                        let color_3 = Self::get_color_for_id(id);
+
+                        // Default properties
+                        let mut opacity = 1.0;
+                        let mut scale = [scale_factor, scale_factor, scale_factor];
+
+                        // Modify based on material type for demonstration
+                        if id == 8 || id == 9 { // Fog, Cloud
+                            opacity = 0.5;
+                            scale = [scale_factor * 1.5, scale_factor * 1.5, scale_factor * 1.5];
+                        } else if id == 4 || id == 7 { // Water, Acid
+                            opacity = 0.8;
+                        }
+
+                        let pos_x = offset_x + x as f32 * scale_factor + scale_factor * 0.5;
+                        let pos_y = offset_y + y as f32 * scale_factor + scale_factor * 0.5;
+                        let pos_z = offset_z + z as f32 * scale_factor + scale_factor * 0.5;
+
+                        splats.push(crate::splat::SplatVertex {
+                            position: [pos_x, pos_y, pos_z],
+                            rotation: [0.0, 0.0, 0.0, 1.0], // Identity quaternion
+                            scale,
+                            color: [color_3[0], color_3[1], color_3[2], opacity],
+                        });
+                    }
+                }
+            }
+        }
+
+        splats
+    }
+
     pub fn generate_mesh(&self) -> (Vec<VoxelVertex>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
@@ -1057,6 +1163,28 @@ impl VoxelWorld {
     pub fn update_dynamics(&mut self) {
         for chunk in self.chunks.values_mut() {
             chunk.diffuse();
+        }
+    }
+
+    pub fn process_pending_splats(&mut self) {
+        let mut groups = Vec::new();
+        if let Ok(mut pending) = self.genie.pending_splats.lock() {
+            groups.extend(pending.drain(..));
+        }
+
+        for splat_group in groups {
+            let mut chunk_key = ChunkKey { x: 0, y: 0, z: 0 };
+            if let Some(first) = splat_group.first() {
+                let pos = first.position;
+                chunk_key = ChunkKey {
+                    x: (pos[0] / CHUNK_SIZE as f32).floor() as i32,
+                    y: (pos[1] / CHUNK_SIZE as f32).floor() as i32,
+                    z: (pos[2] / CHUNK_SIZE as f32).floor() as i32,
+                };
+            }
+
+            let chunk = self.create_chunk(chunk_key);
+            chunk.splats.extend(splat_group);
         }
     }
 

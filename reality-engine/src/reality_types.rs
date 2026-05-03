@@ -21,6 +21,7 @@ pub enum RealityArchetype {
     Biopunk,     // Organic, fleshy, mutated structures
     Tron,        // Geometric, neon grid
     ColdStorage, // Offline, high-security host
+    LiminalSpace, // Infinite empty hallways and backrooms
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

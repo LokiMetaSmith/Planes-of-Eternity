@@ -324,6 +324,12 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
     } else if (id < 15.5) {
         // Tron (Geometric flat grid)
         return 0.0;
+    } else if (id < 16.5) {
+        // ColdStorage
+        return 0.0;
+    } else if (id < 17.5) {
+        // LiminalSpace (Flat indoor hallways)
+        return 0.0;
     }
 
     return 0.0;
@@ -752,6 +758,20 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let pulse = (sin(time * 3.0 + (p.x + p.y)) * 0.5 + 0.5) * 0.5 + 0.5;
 
         return mix(dark_bg, bright_cyan * pulse, clamp(g, 0.0, 1.0));
+    } else if (id < 16.5) {
+        // ColdStorage
+        let p = pos_in.xz * scale;
+        let n = fbm(p, 4, roughness);
+        return mix(vec3<f32>(0.6, 0.9, 1.0), vec3<f32>(0.8, 0.95, 1.0), n);
+    } else if (id < 17.5) {
+        // LiminalSpace (Fluorescent yellow-white tile/carpet)
+        let p = pos_in.xz * scale * 10.0;
+        let n = fbm(p, 3, roughness);
+        let base = vec3<f32>(0.95, 0.95, 0.8);
+
+        // Faint carpet pattern or ceiling tile lines
+        let pattern = (sin(p.x * 3.14) * sin(p.y * 3.14)) * 0.1;
+        return base - vec3<f32>(pattern) + vec3<f32>(n * 0.05);
     }
 
     return base_color;

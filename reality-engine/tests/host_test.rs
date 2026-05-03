@@ -637,3 +637,33 @@ fn test_bound_variable_labels() {
     assert!(has_free_y, "Missing Free Var label");
     assert!(has_port_x, "Missing Bound Var (Port) label");
 }
+
+#[test]
+fn test_splat_vertex_alignment() {
+    use reality_engine::splat::SplatVertex;
+    assert_eq!(std::mem::size_of::<SplatVertex>(), 56, "SplatVertex should be exactly 56 bytes");
+    assert_eq!(std::mem::align_of::<SplatVertex>(), 4, "SplatVertex should be 4-byte aligned");
+}
+
+#[test]
+fn test_generate_splats() {
+    use reality_engine::voxel::{Chunk, ChunkKey};
+    let mut chunk = Chunk::new(ChunkKey { x: 0, y: 0, z: 0 });
+
+    // Set some non-air voxels
+    chunk.set(0, 0, 0, reality_engine::voxel::Voxel { id: 8 }); // Fog
+    chunk.set(1, 1, 1, reality_engine::voxel::Voxel { id: 4 }); // Water
+
+    let splats = chunk.generate_splats();
+
+    // Each non-air block generates 1 splat
+    assert_eq!(splats.len(), 2, "Should generate exactly 2 splats");
+
+    // Verify Fog properties (id == 8)
+    let fog_splat = splats.iter().find(|s| s.color[3] == 0.5).expect("Should have a fog splat with opacity 0.5");
+    assert_eq!(fog_splat.scale[0], 1.5, "Fog scale should be 1.5");
+
+    // Verify Water properties (id == 4)
+    let water_splat = splats.iter().find(|s| s.color[3] == 0.8).expect("Should have a water splat with opacity 0.8");
+    assert_eq!(water_splat.scale[0], 1.0, "Water scale should be 1.0");
+}

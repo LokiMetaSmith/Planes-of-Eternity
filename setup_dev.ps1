@@ -27,8 +27,22 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 Write-Host "Rust is installed."
 
 if (-not (Get-Command trunk -ErrorAction SilentlyContinue)) {
-    Write-Host "trunk is missing. Installing via cargo..."
-    cargo install trunk
+    Write-Host "trunk is missing. Downloading pre-compiled release..."
+
+    $trunkVersion = "v0.21.14"
+    $trunkUrl = "https://github.com/trunk-rs/trunk/releases/download/$trunkVersion/trunk-x86_64-pc-windows-msvc.zip"
+    $zipPath = "$env:TEMP\trunk.zip"
+    $cargoBinPath = "$env:USERPROFILE\.cargo\bin"
+
+    Invoke-WebRequest -Uri $trunkUrl -OutFile $zipPath
+
+    if (-not (Test-Path $cargoBinPath)) {
+        New-Item -ItemType Directory -Force -Path $cargoBinPath | Out-Null
+    }
+
+    Expand-Archive -Path $zipPath -DestinationPath $cargoBinPath -Force
+    Remove-Item $zipPath
+
     Write-Host "trunk installed successfully!"
 } else {
     Write-Host "trunk is already installed."

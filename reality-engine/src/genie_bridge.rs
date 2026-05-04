@@ -97,6 +97,7 @@ impl GenieBridge {
                 rotation: [s[3], s[4], s[5], s[6]],
                 scale: [s[7], s[8], s[9]],
                 color: [s[10], s[11], s[12], s[13]],
+                previous_position: [s[0], s[1], s[2]],
             });
         }
 

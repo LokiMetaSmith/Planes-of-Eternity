@@ -45,7 +45,7 @@ This execution plan outlines the steps necessary to prototype and potentially in
     *   **File:** `reality-engine/src/voxel.rs` & `lib.rs`
     *   **Action:** Verify that `Chunk::diffuse` correctly triggers a geometry rebuild (calling `generate_splats`) when voxel states change.
 
-8.  [ ] **Implement Temporal Smoothing**
+8.  [x] **Implement Temporal Smoothing**
     *   **Goal:** Interpolate splat positions between discrete voxel ticks for smooth 4D motion.
     *   **File:** `reality-engine/src/lib.rs`
     *   **Action:** Modify the `generate_splats` logic to calculate the splat's `position` and `scale` by linearly interpolating between the current state and a previous state stored in the history buffer, based on a sub-tick delta time.

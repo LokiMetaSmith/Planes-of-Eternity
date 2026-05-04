@@ -50,6 +50,7 @@ struct SplatVertexInput {
     @location(1) rotation: vec4<f32>,
     @location(2) scale: vec3<f32>,
     @location(3) color: vec4<f32>,
+    @location(4) previous_position: vec3<f32>,
 };
 
 struct SplatOutput {
@@ -100,7 +101,10 @@ fn vs_main(
     // (A more accurate implementation would compute 2D covariance projection, but
     //  a simple billboarded quad scaled by projected covariance is sufficient for prototype)
 
-    let camera_dir = normalize(camera.camera_pos.xyz - instance.position);
+    let tick_alpha = clamp(reality.global_offset.w, 0.0, 1.0);
+    let interpolated_pos = mix(instance.previous_position, instance.position, tick_alpha);
+
+    let camera_dir = normalize(camera.camera_pos.xyz - interpolated_pos);
     var up = vec3<f32>(0.0, 1.0, 0.0);
     if (abs(dot(camera_dir, up)) > 0.99) {
         up = vec3<f32>(1.0, 0.0, 0.0);
@@ -112,7 +116,7 @@ fn vs_main(
     // apply scaling based on rotation/scale (approximate)
     let local_pos = (right * uv.x + final_up * uv.y) * max(max(instance.scale.x, instance.scale.y), instance.scale.z);
 
-    let world_pos = instance.position + local_pos;
+    let world_pos = interpolated_pos + local_pos;
 
     out.world_pos = world_pos;
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);

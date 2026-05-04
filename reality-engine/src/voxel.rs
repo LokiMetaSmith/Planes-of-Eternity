@@ -697,6 +697,8 @@ impl Chunk {
         let offset_y = self.key.y as f32 * CHUNK_SIZE as f32;
         let offset_z = self.key.z as f32 * CHUNK_SIZE as f32;
 
+        let prev_state = self.history.back();
+
         for x in 0..size {
             for y in 0..size {
                 for z in 0..size {
@@ -719,12 +721,44 @@ impl Chunk {
                         let pos_x = offset_x + x as f32 * scale_factor + scale_factor * 0.5;
                         let pos_y = offset_y + y as f32 * scale_factor + scale_factor * 0.5;
                         let pos_z = offset_z + z as f32 * scale_factor + scale_factor * 0.5;
+                        let current_pos = [pos_x, pos_y, pos_z];
+
+                        let mut previous_position = current_pos;
+
+                        if let Some(prev) = prev_state {
+                            let idx = self.index(x, y, z);
+                            if prev[idx].id != id {
+                                // Find where it came from (adjacent neighbors)
+                                let neighbors = [
+                                    (x as i32 + 1, y as i32, z as i32),
+                                    (x as i32 - 1, y as i32, z as i32),
+                                    (x as i32, y as i32 + 1, z as i32),
+                                    (x as i32, y as i32 - 1, z as i32),
+                                    (x as i32, y as i32, z as i32 + 1),
+                                    (x as i32, y as i32, z as i32 - 1),
+                                ];
+                                for (nx, ny, nz) in neighbors {
+                                    if nx >= 0 && nx < size as i32 && ny >= 0 && ny < size as i32 && nz >= 0 && nz < size as i32 {
+                                        let nidx = self.index(nx as usize, ny as usize, nz as usize);
+                                        if prev[nidx].id == id {
+                                            previous_position = [
+                                                offset_x + nx as f32 * scale_factor + scale_factor * 0.5,
+                                                offset_y + ny as f32 * scale_factor + scale_factor * 0.5,
+                                                offset_z + nz as f32 * scale_factor + scale_factor * 0.5,
+                                            ];
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         splats.push(crate::splat::SplatVertex {
-                            position: [pos_x, pos_y, pos_z],
+                            position: current_pos,
                             rotation: [0.0, 0.0, 0.0, 1.0], // Identity quaternion
                             scale,
                             color: [color_3[0], color_3[1], color_3[2], opacity],
+                            previous_position,
                         });
                     }
                 }

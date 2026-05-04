@@ -154,19 +154,21 @@
 
 
         body { margin: 0; overflow: hidden; background-color: var(--theme-bg); font-family: 'Courier New', monospace; }
-        canvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 0; }
+        canvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 0; touch-action: none; outline: none; }
 
         #ui-layer {
             position: absolute;
             top: 20px;
             right: 20px;
             width: 320px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
             z-index: 10;
-            pointer-events: none; /* Let clicks pass through to canvas where not on controls */
+            pointer-events: auto; /* Allow scrolling on the layer itself */
         }
 
         .cyber-card {
-            pointer-events: auto; /* Re-enable clicks on the card */
+            pointer-events: auto;
             background: var(--theme-card-bg);
             border: 1px solid var(--theme-primary);
             box-shadow: 0 0 15px rgba(var(--theme-primary-rgb), 0.2);

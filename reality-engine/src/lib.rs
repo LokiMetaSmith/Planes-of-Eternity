@@ -574,7 +574,7 @@ impl State {
             });
 
         // Generate single chunk mesh (template)
-        let chunk_size = 10.0;
+        let chunk_size = voxel::CHUNK_SIZE as f32;
         let chunk_res = 60;
         let (vertices, indices) = create_grid_mesh(chunk_size, chunk_res);
 
@@ -602,11 +602,12 @@ impl State {
             for x in 0..grid_count {
                 let x_pos = (x as f32 * chunk_size) - half_grid + offset;
                 let z_pos = (z as f32 * chunk_size) - half_grid + offset;
+                let half_size = chunk_size / 2.0;
 
                 chunk_data.push(ChunkData {
                     position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
-                    aabb_min: cgmath::Point3::new(x_pos - 5.0, -10.0, z_pos - 5.0),
-                    aabb_max: cgmath::Point3::new(x_pos + 5.0, 10.0, z_pos + 5.0),
+                    aabb_min: cgmath::Point3::new(x_pos - half_size, -10.0, z_pos - half_size),
+                    aabb_max: cgmath::Point3::new(x_pos + half_size, 10.0, z_pos + half_size),
                 });
             }
         }
@@ -1483,7 +1484,7 @@ impl State {
                     let model = cgmath::Matrix4::from_translation(chunk_data.position);
 
                     // Get Stability from World State
-                    let chunk_size = 10.0;
+                    let chunk_size = voxel::CHUNK_SIZE as f32;
                     let id = world::ChunkId::from_world_pos(
                         chunk_data.position.x,
                         chunk_data.position.z,

@@ -86,6 +86,3 @@ features = [
   "WebGl2RenderingContext"
 ]
 
-[[bin]]
-name = "math_benchmarks"
-path = "benches/math_benchmarks.rs"

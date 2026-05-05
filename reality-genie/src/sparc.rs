@@ -4,7 +4,7 @@ use std::collections::HashMap;
 pub struct SparseVoxelGenerator {
     // In a real implementation, this would hold model weights, diffusion config, etc.
     // e.g., pub diffusion_model: DiscreteDiffusion,
-    vocab_size: u8,
+    _vocab_size: u8,
 }
 
 impl Default for SparseVoxelGenerator {
@@ -16,7 +16,7 @@ impl Default for SparseVoxelGenerator {
 impl SparseVoxelGenerator {
     pub fn new() -> Self {
         Self {
-            vocab_size: 10, // Max mock voxel ID
+            _vocab_size: 10, // Max mock voxel ID
         }
     }
 

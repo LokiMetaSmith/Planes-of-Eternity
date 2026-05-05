@@ -307,7 +307,7 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
     } else if (id < 13.5) {
         // SolarPunk
         let time = reality.global_offset.z;
-        let pos_scaled = pos.xz * scale;
+        let pos_scaled = pos * scale;
         // Voronoi cells mixed with organic noise
         let cells = voronoi(pos_scaled);
         let organic = fbm(pos_scaled * 2.0 + time * 0.1, 3, roughness);

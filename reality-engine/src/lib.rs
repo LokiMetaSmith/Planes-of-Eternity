@@ -836,6 +836,7 @@ impl State {
                 position: [0.0, 0.0, 0.0],
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 scale: [0.0, 0.0, 0.0],
+                previous_position: [0.0, 0.0, 0.0],
                 color: [0.0, 0.0, 0.0, 0.0],
             }]),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,

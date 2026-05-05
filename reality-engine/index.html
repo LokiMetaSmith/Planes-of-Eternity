@@ -801,7 +801,7 @@
                                     if (!el) {
                                         el = document.createElement('div');
                                         el.className = 'npc-chat-bubble';
-                                        document.getElementById('ui-layer').appendChild(el);
+                                        document.getElementById('labels-layer').appendChild(el);
                                         chatBubbles[uuid] = el;
                                     }
                                     el.innerText = state.chat_message;

@@ -34,7 +34,7 @@ This execution plan outlines the steps necessary to prototype and potentially in
     *   **Action:** Before uploading the vertex buffer in `render()`, sort the `SplatVertex` array based on distance to `camera.eye`.
     *   *Note: This will be extremely slow for large numbers of splats but is necessary for the initial prototype.*
 
-6.  [ ] **Evaluate Compute Shader Sorting (Optional/Future)**
+6.  [x] **Evaluate Compute Shader Sorting (Optional/Future)**
     *   **Goal:** Move sorting to the GPU using a bitonic sort compute shader to improve performance.
     *   **Action:** If CPU sorting is a bottleneck, research and implement a wgpu compute pass for sorting.
 

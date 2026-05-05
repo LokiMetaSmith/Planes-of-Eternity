@@ -7,6 +7,7 @@ pub struct SplatVertex {
     pub rotation: [f32; 4],
     pub scale: [f32; 3],
     pub color: [f32; 4],
+    pub previous_position: [f32; 3],
 }
 
 impl SplatVertex {
@@ -34,6 +35,11 @@ impl SplatVertex {
                     offset: (std::mem::size_of::<[f32; 3]>() * 2 + std::mem::size_of::<[f32; 4]>()) as wgpu::BufferAddress,
                     shader_location: 3,
                     format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 3]>() * 2 + std::mem::size_of::<[f32; 4]>() * 2) as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x3,
                 },
             ],
         }

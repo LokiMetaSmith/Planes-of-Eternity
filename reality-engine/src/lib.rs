@@ -1352,6 +1352,7 @@ impl State {
 
         self.reality_uniform.global_offset = self.engine.global_offset;
         self.reality_uniform.global_offset[2] = self.engine.time;
+        self.reality_uniform.global_offset[3] = (self.engine.time % 0.016) / 0.016;
 
         self.queue.write_buffer(
             &self.reality_buffer,

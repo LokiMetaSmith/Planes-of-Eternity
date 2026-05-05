@@ -641,7 +641,7 @@ fn test_bound_variable_labels() {
 #[test]
 fn test_splat_vertex_alignment() {
     use reality_engine::splat::SplatVertex;
-    assert_eq!(std::mem::size_of::<SplatVertex>(), 56, "SplatVertex should be exactly 56 bytes");
+    assert_eq!(std::mem::size_of::<SplatVertex>(), 68, "SplatVertex should be exactly 68 bytes");
     assert_eq!(std::mem::align_of::<SplatVertex>(), 4, "SplatVertex should be 4-byte aligned");
 }
 

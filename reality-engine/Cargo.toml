@@ -86,3 +86,15 @@ features = [
   "WebGl2RenderingContext"
 ]
 
+[dev-dependencies]
+criterion = "0.8.2"
+
+
+[[bench]]
+name = "math_benchmarks"
+harness = false
+
+
+[[bench]]
+name = "splat_benchmark"
+harness = false

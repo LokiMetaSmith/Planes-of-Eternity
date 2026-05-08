@@ -2280,9 +2280,10 @@ pub fn main() -> Result<(), JsValue> {
 
     let is_ar_supported_func = Closure::wrap(Box::new(|| {
         wasm_bindgen_futures::future_to_promise(async {
+            // Workaround for headless environments where xr might be missing or panic
             match xr::is_ar_supported().await {
                 Ok(supported) => Ok(JsValue::from_bool(supported)),
-                Err(e) => Err(e),
+                Err(_) => Ok(JsValue::from_bool(false)),
             }
         })
     }) as Box<dyn FnMut() -> js_sys::Promise>);

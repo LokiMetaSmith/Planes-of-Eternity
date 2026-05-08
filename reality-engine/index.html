@@ -752,7 +752,13 @@
                 log("> WASM INITIALIZED OK");
 
                 // Check WebXR Support
-                const arSupported = await is_ar_supported();
+                let arSupported = false;
+                try {
+                    arSupported = await is_ar_supported();
+                } catch (e) {
+                    log("> WEBXR ERROR: " + e.message);
+                }
+
                 if (arSupported) {
                     log("> WEBXR AR DETECTED: CAPABLE");
                     const btnAR = document.getElementById('btn-start-ar');

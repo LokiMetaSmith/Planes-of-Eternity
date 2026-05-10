@@ -99,3 +99,7 @@ harness = false
 [[bench]]
 name = "splat_benchmark"
 harness = false
+
+[[bench]]
+name = "npc_benchmark"
+harness = false

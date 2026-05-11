@@ -1313,9 +1313,17 @@ impl State {
         let cam_pos = self.engine.camera.eye;
 
         // Sort by distance to camera
-        projectors.sort_by(|a, b| {
-            let dist_a = (a.location.x - cam_pos.x).powi(2) + (a.location.y - cam_pos.y).powi(2) + (a.location.z - cam_pos.z).powi(2);
-            let dist_b = (b.location.x - cam_pos.x).powi(2) + (b.location.y - cam_pos.y).powi(2) + (b.location.z - cam_pos.z).powi(2);
+        projectors.sort_unstable_by(|a, b| {
+            let dx_a = a.location.x - cam_pos.x;
+            let dy_a = a.location.y - cam_pos.y;
+            let dz_a = a.location.z - cam_pos.z;
+            let dist_a = dx_a * dx_a + dy_a * dy_a + dz_a * dz_a;
+
+            let dx_b = b.location.x - cam_pos.x;
+            let dy_b = b.location.y - cam_pos.y;
+            let dz_b = b.location.z - cam_pos.z;
+            let dist_b = dx_b * dx_b + dy_b * dy_b + dz_b * dz_b;
+
             dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -1564,13 +1572,17 @@ impl State {
         }
 
         // Sort splats back-to-front
-        active_splats.sort_by(|a, b| {
-            let dist_a = (a.position[0] - cam_pos.x).powi(2)
-                + (a.position[1] - cam_pos.y).powi(2)
-                + (a.position[2] - cam_pos.z).powi(2);
-            let dist_b = (b.position[0] - cam_pos.x).powi(2)
-                + (b.position[1] - cam_pos.y).powi(2)
-                + (b.position[2] - cam_pos.z).powi(2);
+        active_splats.sort_unstable_by(|a, b| {
+            let dx_a = a.position[0] - cam_pos.x;
+            let dy_a = a.position[1] - cam_pos.y;
+            let dz_a = a.position[2] - cam_pos.z;
+            let dist_a = dx_a * dx_a + dy_a * dy_a + dz_a * dz_a;
+
+            let dx_b = b.position[0] - cam_pos.x;
+            let dy_b = b.position[1] - cam_pos.y;
+            let dz_b = b.position[2] - cam_pos.z;
+            let dist_b = dx_b * dx_b + dy_b * dy_b + dz_b * dz_b;
+
             dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -2281,9 +2293,10 @@ pub fn main() -> Result<(), JsValue> {
 
     let is_ar_supported_func = Closure::wrap(Box::new(|| {
         wasm_bindgen_futures::future_to_promise(async {
+            // Workaround for headless environments where xr might be missing or panic
             match xr::is_ar_supported().await {
                 Ok(supported) => Ok(JsValue::from_bool(supported)),
-                Err(e) => Err(e),
+                Err(_) => Ok(JsValue::from_bool(false)),
             }
         })
     }) as Box<dyn FnMut() -> js_sys::Promise>);

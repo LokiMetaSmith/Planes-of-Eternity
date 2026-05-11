@@ -680,7 +680,7 @@
             </div>
 
             <div class="control-group">
-                <label>PRIMITIVES PALETTE</label>
+                <div>PRIMITIVES PALETTE</div>
                 <div id="primitives-palette" style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 20px;">
                     <!-- Primitive buttons will be generated here -->
                 </div>
@@ -752,7 +752,13 @@
                 log("> WASM INITIALIZED OK");
 
                 // Check WebXR Support
-                const arSupported = await is_ar_supported();
+                let arSupported = false;
+                try {
+                    arSupported = await is_ar_supported();
+                } catch (e) {
+                    log("> WEBXR ERROR: " + e.message);
+                }
+
                 if (arSupported) {
                     log("> WEBXR AR DETECTED: CAPABLE");
                     const btnAR = document.getElementById('btn-start-ar');
@@ -801,7 +807,7 @@
                                     if (!el) {
                                         el = document.createElement('div');
                                         el.className = 'npc-chat-bubble';
-                                        document.getElementById('ui-layer').appendChild(el);
+                                        document.getElementById('labels-layer').appendChild(el);
                                         chatBubbles[uuid] = el;
                                     }
                                     el.innerText = state.chat_message;

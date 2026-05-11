@@ -96,6 +96,7 @@
 - [x] **UI Improvement**: Added ability to hide UI menu bars using 'H' key for a cleaner experience.
 
 ## Future Enhancements
+- [x] **Expanding Host Test Coverage**: Added specific tests to expand test coverage for platform-specific rendering logic (i.e. headless WebGPU shader compilation validation).
 - [x] Add shaders to liquids, and gasses, as well as existing landscape.
 - [x] A specific spell-casting UI or particle effects for when spells hit the ground.
 - [x] A dedicated inventory system for picking up and storing dropped items.
@@ -117,3 +118,4 @@
 
 ## Build / Technical Debt
 - [x] **WASM Compilation Errors**: Fix missing trait imports (`wgpu::util::DeviceExt`, `cgmath::Rotation`) and `NpcStateView` struct initialization errors when compiling for `wasm32-unknown-unknown`.
+- [x] Optimize sorting in rendering pipeline

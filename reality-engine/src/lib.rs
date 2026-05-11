@@ -2321,12 +2321,7 @@ pub fn main() -> Result<(), JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
-    std::panic::set_hook(Box::new(|info| {
-        web_sys::console::error_1(&wasm_bindgen::JsValue::from_str(&format!(
-            "Panic: {}",
-            info
-        )));
-    }));
+    console_error_panic_hook::set_once();
     console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
 
     let window = web_sys::window().expect("No global `window` exists");

@@ -2437,10 +2437,12 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     struct MouseState {
         down_pos: Option<(f32, f32)>,
         down_time: f64,
+        button: i16,
     }
     let mouse_state = Rc::new(RefCell::new(MouseState {
         down_pos: None,
         down_time: 0.0,
+        button: -1,
     }));
 
     let state_down = state.clone();
@@ -2470,8 +2472,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             .borrow_mut()
             .process_mouse_down(ndc_x, ndc_y, button);
 
-        mouse_state_down.borrow_mut().down_pos = Some((ndc_x, ndc_y));
-        mouse_state_down.borrow_mut().down_time = js_sys::Date::now();
+        let mut ms = mouse_state_down.borrow_mut();
+        ms.down_pos = Some((ndc_x, ndc_y));
+        ms.down_time = js_sys::Date::now();
+        ms.button = button;
     }) as Box<dyn FnMut(_)>);
 
     canvas
@@ -2511,6 +2515,37 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         .unwrap();
     mousemove_closure.forget();
 
+    let state_dblclick = state.clone();
+    let canvas_dblclick = canvas.clone();
+    let dblclick_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let rect = canvas_dblclick.get_bounding_client_rect();
+        let x = event.client_x() as f32 - rect.left() as f32;
+        let y = event.client_y() as f32 - rect.top() as f32;
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+        let ndc_x = (x / width) * 2.0 - 1.0;
+        let ndc_y = -((y / height) * 2.0 - 1.0);
+
+        state_dblclick.borrow_mut().engine.process_double_click(ndc_x, ndc_y);
+    }) as Box<dyn FnMut(_)>);
+
+    canvas
+        .add_event_listener_with_callback("dblclick", dblclick_closure.as_ref().unchecked_ref())
+        .unwrap();
+    dblclick_closure.forget();
+
+    // Wheel event handler
+    let state_wheel = state.clone();
+    let wheel_closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
+        let delta_y = event.delta_y() as f32;
+        state_wheel.borrow_mut().engine.process_mouse_wheel(delta_y);
+    }) as Box<dyn FnMut(_)>);
+
+    canvas
+        .add_event_listener_with_callback("wheel", wheel_closure.as_ref().unchecked_ref())
+        .unwrap();
+    wheel_closure.forget();
+
     let state_up = state.clone();
     let canvas_up = canvas.clone();
     let mouse_state_up = mouse_state.clone();
@@ -2532,12 +2567,23 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             let dy = ndc_y - sy;
             let dist_sq = dx * dx + dy * dy;
             let elapsed = js_sys::Date::now() - ms.down_time;
+            let button = ms.button;
 
-            // dist < 0.05 is equivalent to dist_sq < 0.0025
-            if dist_sq < 0.0025 && elapsed < 300.0 {
-                state_up
-                    .borrow_mut()
-                    .process_click(ndc_x, ndc_y, event.shift_key());
+            if button == 2 {
+                // Right click behavior
+                if elapsed < 300.0 {
+                    state_up.borrow_mut().engine.process_right_click(ndc_x, ndc_y);
+                } else {
+                    state_up.borrow_mut().engine.process_right_hold(ndc_x, ndc_y);
+                }
+            } else if button == 0 {
+                // Left click behavior (will update in next step)
+                // dist < 0.05 is equivalent to dist_sq < 0.0025
+                if dist_sq < 0.0025 && elapsed < 300.0 {
+                    state_up
+                        .borrow_mut()
+                        .process_click(ndc_x, ndc_y, event.shift_key());
+                }
             }
         }
         ms.down_pos = None;

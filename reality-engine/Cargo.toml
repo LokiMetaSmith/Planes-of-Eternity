@@ -84,7 +84,8 @@ features = [
   "OscillatorNode",
   "OscillatorType",
   "AudioContextState",
-  "WebGl2RenderingContext"
+  "WebGl2RenderingContext",
+  "WheelEvent"
 ]
 
 [dev-dependencies]

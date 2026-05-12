@@ -1,0 +1,23 @@
+1. *Add `is_editing` property to `VisualNode` in `reality-engine/src/visual_lambda.rs`.*
+   - Modify `VisualNode` to include a `pub is_editing: bool` property.
+   - Adjust `VisualNode` creation to initialize `is_editing` to `false`.
+2. *Modify `toggle_collapse` to set `is_editing` on right click hold, or toggle on right click in `reality-engine/src/visual_lambda.rs` and `reality-engine/src/engine.rs`.*
+   - Since we only have `process_mouse_down` right now, we can track `right_down_time` to distinguish click and hold. But the requirement says "right-click hold toggle an is_editing state on the node". We can use mousedown to set a timer or check duration on mouseup. Wait, we can implement it by starting a right click drag/hold state, and if it exceeds a duration, toggle `is_editing`. Actually, a simple approach is: right click (down + up quickly) toggles collapse. Right click down + wait (hold) toggles edit. We'll need to pass the hold info from `lib.rs` to `engine.rs` or track right down time in `lib.rs` and call `process_right_click_hold`.
+3. *Implement pinning behavior for left click in `reality-engine/src/visual_lambda.rs` and `reality-engine/src/engine.rs`.*
+   - Add `pub is_pinned: bool` to `VisualNode`.
+   - Update `process_mouse_down`: if left click, track down time. On `process_mouse_up`, if it was a quick click and didn't move much, toggle `is_pinned`. Wait, the requirement says "Left-click and hold should allow me to drag the node around in the view. When I release the mouse, it should remain pinned at that new location." and "A quick left-click should 'pin' the node." This means whenever `end_drag` is called, the node becomes pinned (or stays pinned). If it was just a quick click, toggle pinning.
+4. *Update physics calculation in `reality-engine/src/visual_lambda.rs`.*
+   - If `node.is_pinned`, do not apply spring forces to update its position, but it still exerts force on connected nodes.
+5. *Implement double-click to reduce in `reality-engine/src/lib.rs` and `reality-engine/src/engine.rs`.*
+   - Add a `dblclick` event listener on the canvas in `lib.rs`.
+   - Add `pub fn process_double_click(&mut self, x: f32, y: f32)` to `engine.rs`.
+   - Move `reduce_root` from `process_click` to `process_double_click`.
+6. *Implement scroll wheel to push/pull `anchor_pos` in `reality-engine/src/lib.rs` and `reality-engine/src/engine.rs`.*
+   - Add a `wheel` event listener on the canvas in `lib.rs`.
+   - Add `pub fn process_mouse_wheel(&mut self, delta_y: f32)` to `engine.rs` which modifies `self.lambda_system.anchor_pos` along the camera direction.
+7. *Visually highlight the editing state.*
+   - In `visual_lambda.rs`, inside `get_instance_data` or similar where `LambdaInstance` color is determined, change the color slightly or pulse it if `is_editing` is true.
+8. *Complete pre commit steps*
+   - Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
+9. *Submit the change.*
+   - Once all tests pass, submit the change with a descriptive commit message.

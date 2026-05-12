@@ -1,4 +1,3 @@
-use log::{error, info};
 use crate::input::InputConfig;
 use crate::projector::RealityProjector;
 use crate::world::WorldState;

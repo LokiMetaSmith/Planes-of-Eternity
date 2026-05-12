@@ -43,6 +43,7 @@ pub struct Engine {
     pub height: u32,
     pub spell_effects: Vec<SpellEffect>,
     pub pending_dreams: Vec<String>,
+    pub anchor_distance: f32,
 }
 
 impl Engine {
@@ -190,6 +191,7 @@ impl Engine {
             height,
             spell_effects: Vec::new(),
             pending_dreams: Vec::new(),
+            anchor_distance: 8.0,
         }
     }
 
@@ -462,7 +464,7 @@ impl Engine {
 
         // Update Lambda System
         let forward = (self.camera.target - self.camera.eye).normalize();
-        let anchor = self.camera.eye + forward * 8.0; // Place it 8 units away
+        let anchor = self.camera.eye + forward * self.anchor_distance;
         self.lambda_system.set_anchor(anchor);
 
         // Fixed timestep for lambda physics for now, could use dt
@@ -672,11 +674,20 @@ impl Engine {
             if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
                 self.lambda_system.start_drag(idx, ray_origin, ray_dir);
             }
-        } else if button == 2 {
-            // Right
-            if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
-                self.lambda_system.toggle_collapse(idx);
-            }
+        }
+    }
+
+    pub fn process_right_click(&mut self, x: f32, y: f32) {
+        let (ray_origin, ray_dir) = self.get_ray(x, y);
+        if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
+            self.lambda_system.toggle_collapse(idx);
+        }
+    }
+
+    pub fn process_right_hold(&mut self, x: f32, y: f32) {
+        let (ray_origin, ray_dir) = self.get_ray(x, y);
+        if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
+            self.lambda_system.toggle_edit(idx);
         }
     }
 
@@ -699,20 +710,38 @@ impl Engine {
     }
 
     pub fn process_mouse_up(&mut self) {
+        if let Some(idx) = self.lambda_system.dragged_node {
+            self.lambda_system.set_pin(idx, true);
+        }
         self.lambda_system.end_drag();
+    }
+
+    pub fn process_double_click(&mut self, x: f32, y: f32) {
+        let (ray_origin, ray_dir) = self.get_ray(x, y);
+        if let Some(_idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
+            log::info!("Double Clicked Lambda Node! Reducing...");
+            self.lambda_system.reduce_root();
+        }
+    }
+
+    pub fn process_mouse_wheel(&mut self, delta_y: f32) {
+        // Adjust anchor distance based on wheel scroll
+        let scroll_speed = 0.01;
+        self.anchor_distance += delta_y * scroll_speed;
+
+        // Clamp distance between reasonable min and max limits
+        self.anchor_distance = self.anchor_distance.clamp(2.0, 25.0);
     }
 
     // Returns true if state changed and requires save
     pub fn process_click(&mut self, x: f32, y: f32) -> bool {
         let (ray_origin, ray_dir) = self.get_ray(x, y);
 
-        // 1. Check Lambda Intersection (Reduce)
-        if let Some(_idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
-            log::info!("Clicked Lambda Node! Reducing...");
-            self.lambda_system.reduce_root();
-            return false; // Lambda state is not currently persisted in save game, so return false?
-                          // Actually if we want to save lambda state eventually, we should return true.
-                          // But the current save format doesn't include lambda.
+        // 1. Check Lambda Intersection (Pin)
+        if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
+            log::info!("Clicked Lambda Node! Toggling pin...");
+            self.lambda_system.toggle_pin(idx);
+            return false;
         }
 
         // 2. Plane Intersection (Terrain)

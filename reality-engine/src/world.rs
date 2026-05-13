@@ -143,6 +143,8 @@ pub struct WorldState {
     pub dropped_items: Vec<crate::reality_types::DroppedItem>,
     #[serde(default)]
     pub player_inventory: Vec<crate::reality_types::DroppedItem>,
+    #[serde(default)]
+    pub spawned_nodes_grid: HashSet<[i32; 3]>,
 }
 
 impl WorldState {

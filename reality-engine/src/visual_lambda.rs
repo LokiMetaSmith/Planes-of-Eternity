@@ -413,7 +413,13 @@ impl LambdaRenderer {
                 let mut color = n.color;
 
                 // Apply Highlight
-                if let Some(hover_idx) = hovered_node {
+                if n.is_editing {
+                    // Editing Highlight: Pulse/Yellow-Orange tint
+                    color[0] = 1.0;
+                    color[1] = (color[1] + 0.5).min(0.8);
+                    color[2] *= 0.2;
+                    color[3] = (color[3] + 0.3).min(1.0);
+                } else if let Some(hover_idx) = hovered_node {
                     if i == hover_idx {
                         // Direct Hover: Brighten significantly
                         color[0] = (color[0] + 0.5).min(1.0);
@@ -733,6 +739,8 @@ pub struct VisualNode {
     pub scale: f32,
     pub node_type: NodeType,
     pub collapsed: bool,
+    pub is_editing: bool,
+    pub is_pinned: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1049,6 +1057,24 @@ impl LambdaSystem {
             } else {
                 1.0
             };
+        }
+    }
+
+    pub fn toggle_edit(&mut self, idx: usize) {
+        if idx < self.nodes.len() {
+            self.nodes[idx].is_editing = !self.nodes[idx].is_editing;
+        }
+    }
+
+    pub fn toggle_pin(&mut self, idx: usize) {
+        if idx < self.nodes.len() {
+            self.nodes[idx].is_pinned = !self.nodes[idx].is_pinned;
+        }
+    }
+
+    pub fn set_pin(&mut self, idx: usize, pinned: bool) {
+        if idx < self.nodes.len() {
+            self.nodes[idx].is_pinned = pinned;
         }
     }
 
@@ -1381,15 +1407,20 @@ impl LambdaSystem {
                 continue;
             }
 
-            // Pull towards "ideal" tree layout target (weakly)
-            let to_target = node.target_position - node.position;
-            node.velocity += to_target * centering_strength * dt;
+            if node.is_pinned {
+                node.velocity = Vector3::new(0.0, 0.0, 0.0);
+                // Allow spring/target calculations to happen but don't apply to pos
+            } else {
+                // Pull towards "ideal" tree layout target (weakly)
+                let to_target = node.target_position - node.position;
+                node.velocity += to_target * centering_strength * dt;
 
-            // Update Position
-            node.position += node.velocity * dt;
+                // Update Position
+                node.position += node.velocity * dt;
 
-            // Damping
-            node.velocity *= damping;
+                // Damping
+                node.velocity *= damping;
+            }
         }
 
         events
@@ -1437,6 +1468,8 @@ impl LambdaSystem {
                     scale,
                     node_type: NodeType::Abs(param.clone()),
                     collapsed: false,
+                    is_editing: false,
+                    is_pinned: false,
                 });
 
                 // Update Scope
@@ -1471,6 +1504,8 @@ impl LambdaSystem {
                         scale,
                         node_type: NodeType::Port,
                         collapsed: false,
+                        is_editing: false,
+                        is_pinned: false,
                     });
 
                     // Create WIRE Edge (Port -> Binder)
@@ -1493,6 +1528,8 @@ impl LambdaSystem {
                         scale,
                         node_type: NodeType::Var(name.clone()),
                         collapsed: false,
+                        is_editing: false,
+                        is_pinned: false,
                     });
 
                     node_index
@@ -1514,6 +1551,8 @@ impl LambdaSystem {
                     scale,
                     node_type: NodeType::App,
                     collapsed: false,
+                    is_editing: false,
+                    is_pinned: false,
                 });
 
                 // Build Children
@@ -1544,6 +1583,8 @@ impl LambdaSystem {
                     scale,
                     node_type: NodeType::Prim(*p),
                     collapsed: false,
+                    is_editing: false,
+                    is_pinned: false,
                 });
 
                 node_index
@@ -1796,6 +1837,8 @@ mod tests {
             scale: 1.0,
             node_type: NodeType::Var("a".to_string()),
             collapsed: false,
+            is_editing: false,
+            is_pinned: false,
         };
         let n2 = VisualNode {
             id: 1,
@@ -1807,6 +1850,8 @@ mod tests {
             scale: 1.0,
             node_type: NodeType::Var("b".to_string()),
             collapsed: false,
+            is_editing: false,
+            is_pinned: false,
         };
         sys.nodes.push(n1);
         sys.nodes.push(n2);

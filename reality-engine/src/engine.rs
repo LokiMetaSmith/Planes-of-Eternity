@@ -10,6 +10,7 @@ use crate::world::WorldState;
 use cgmath::{EuclideanSpace, InnerSpace, Point3, SquareMatrix, Vector3};
 use serde::Serialize;
 use std::rc::Rc;
+use noise::{Fbm, Simplex};
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct LabelInfo {
@@ -44,6 +45,7 @@ pub struct Engine {
     pub spell_effects: Vec<SpellEffect>,
     pub pending_dreams: Vec<String>,
     pub anchor_distance: f32,
+    pub fbm_noise: Fbm<Simplex>,
 }
 
 impl Engine {
@@ -192,6 +194,7 @@ impl Engine {
             spell_effects: Vec::new(),
             pending_dreams: Vec::new(),
             anchor_distance: 8.0,
+            fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
         }
     }
 
@@ -480,6 +483,52 @@ impl Engine {
             effect.timer += dt;
         }
         self.spell_effects.retain(|e| e.timer < e.max_time);
+
+        // --- Background Potential Node Spawning ---
+        // We use 3D Simplex noise with fBm to determine if a node of raw potential should spawn.
+        use noise::NoiseFn;
+
+        let grid_size = 50.0;
+        let px = self.camera.eye.x;
+        let py = self.camera.eye.y;
+        let pz = self.camera.eye.z;
+
+        let grid_x = (px / grid_size).floor() as i32;
+        let grid_y = (py / grid_size).floor() as i32;
+        let grid_z = (pz / grid_size).floor() as i32;
+
+        let grid_coord = [grid_x, grid_y, grid_z];
+
+        if !self.world_state.spawned_nodes_grid.contains(&grid_coord) {
+            // Evaluate noise at the center of the grid cell
+            let nx = (grid_x as f64) * 0.1;
+            let ny = (grid_y as f64) * 0.1;
+            let nz = (grid_z as f64) * 0.1;
+
+            let noise_val = self.fbm_noise.get([nx, ny, nz]);
+
+            if noise_val > 0.7 { // High potential threshold
+                let spawn_x = (grid_x as f32) * grid_size + (grid_size / 2.0);
+                let spawn_y = py + 5.0; // Spawn slightly above player height
+                let spawn_z = (grid_z as f32) * grid_size + (grid_size / 2.0);
+
+                let spawn_pos = cgmath::Point3::new(spawn_x, spawn_y, spawn_z);
+
+                let new_node = crate::reality_types::DroppedItem::new_cube(
+                    format!("potential_node_{}_{}_{}", grid_x, grid_y, grid_z),
+                    spawn_pos,
+                    cgmath::Vector3::new(0.0, 0.0, 0.0), // Floating or drops down
+                    0.5, // Larger scale
+                    [0.0, 1.0, 1.0, 1.0], // Cyan glowing color
+                    5, // 5x5x5 grid so it looks substantial
+                );
+
+                self.world_state.dropped_items.push(new_node);
+                log::info!("Spawned raw potential node at {:?}", spawn_pos);
+            }
+
+            self.world_state.spawned_nodes_grid.insert(grid_coord);
+        }
 
         voxel_destroyed
     }
@@ -956,7 +1005,20 @@ impl Engine {
                             if let Some(idx) = closest_idx {
                                 let item = self.world_state.dropped_items.remove(idx);
                                 log::info!("Lambda picked up item {} from {:?}", item.id, item.position);
-                                self.world_state.player_inventory.push(item);
+
+                                if item.id.starts_with("potential_node_") {
+                                    // Absorb the raw potential to expand reality
+                                    self.player_projector.reality_signature.influence_radius += 50.0;
+                                    log::info!("Absorbed raw potential! New influence radius: {}", self.player_projector.reality_signature.influence_radius);
+
+                                    // Trigger Gaussian Splat generation to anchor the landscape
+                                    let prompt = format!("{:?} landscape", self.player_projector.reality_signature.active_style.archetype);
+                                    // Push a dream so GenieBridge will generate splats around this new anchor
+                                    self.pending_dreams.push(prompt);
+                                } else {
+                                    // Normal item pickup
+                                    self.world_state.player_inventory.push(item);
+                                }
                             }
                         }
                         None

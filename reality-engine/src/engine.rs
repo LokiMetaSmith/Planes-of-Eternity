@@ -133,6 +133,7 @@ impl Engine {
                     RealityArchetype::Dream,
                     RealityArchetype::ObraDinn,
                     RealityArchetype::Tron,
+                    RealityArchetype::Clockwork,
                 ];
                 for (i, arch) in archetypes.into_iter().enumerate() {
                     let mut sig = RealitySignature::default();
@@ -515,6 +516,7 @@ impl Engine {
                             crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
                             crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
                             crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
+                            crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
                         };
 
                         self.spell_effects.push(SpellEffect {
@@ -589,6 +591,7 @@ impl Engine {
                                     crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
                                     crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
                                     crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
+                                    crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
                                 };
 
                                 self.spell_effects.push(SpellEffect {
@@ -1024,6 +1027,7 @@ impl Engine {
                                 "OBRADINN" => Some(crate::reality_types::RealityArchetype::ObraDinn),
                                 "SOLARPUNK" => Some(crate::reality_types::RealityArchetype::SolarPunk),
                                 "BIOPUNK" => Some(crate::reality_types::RealityArchetype::Biopunk),
+                                "CLOCKWORK" => Some(crate::reality_types::RealityArchetype::Clockwork),
                                 "VOID" => Some(crate::reality_types::RealityArchetype::Void),
                                 _ => None,
                             };
@@ -1168,6 +1172,7 @@ impl Engine {
             RealityArchetype::Dream,
             RealityArchetype::ObraDinn,
             RealityArchetype::Tron,
+            RealityArchetype::Clockwork,
         ];
         for (i, arch) in archetypes.into_iter().enumerate() {
             let mut sig = RealitySignature::default();

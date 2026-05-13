@@ -330,6 +330,14 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
     } else if (id < 17.5) {
         // LiminalSpace (Flat indoor hallways)
         return 0.0;
+    } else if (id < 18.5) {
+        // Clockwork (Gear-like geometric ridges)
+        let p = pos * scale;
+        let r = length(p - vec2<f32>(0.0, 0.0));
+        let angle = atan2(p.y, p.x);
+        let gear_teeth = sin(angle * 12.0) * 0.5 + 0.5;
+        let base_height = sin(r * 3.14159) * 0.5;
+        return (base_height + gear_teeth * 0.5) * 10.0 * params.z;
     }
 
     return 0.0;
@@ -772,6 +780,20 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         // Faint carpet pattern or ceiling tile lines
         let pattern = (sin(p.x * 3.14) * sin(p.y * 3.14)) * 0.1;
         return base - vec3<f32>(pattern) + vec3<f32>(n * 0.05);
+    } else if (id < 18.5) {
+        // Clockwork (Brass/copper with gear lines)
+        let p = pos.xz * scale * 5.0;
+        let n = fbm(p, 3, roughness);
+
+        let brass = vec3<f32>(0.8, 0.6, 0.2);
+        let copper = vec3<f32>(0.7, 0.4, 0.2);
+
+        // Concentric circles/gears pattern
+        let r = length(p);
+        let ring = step(0.1, abs(sin(r * 10.0)));
+        let base_metal = mix(copper, brass, n);
+
+        return base_metal * (0.8 + 0.2 * ring);
     }
 
     return base_color;

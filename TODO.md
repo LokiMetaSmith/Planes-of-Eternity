@@ -102,6 +102,7 @@
 - [x] A dedicated inventory system for picking up and storing dropped items.
 - [x] An expanded AI system where NPCs can be hostile and attack the player.
 - [x] Different terrain generation types based on the "base" reality of the area.
+- [x] Implement dynamic raw potential nodes that can be absorbed to expand reality.
 
 ## Full Lambda Scripting Integration
 - [x] **Extend Primitives**: Introduce new lambda primitives (e.g., `MOVE`, `JUMP`, `DROP`, `SET_ARCHETYPE`) to map game actions into the Lambda engine.

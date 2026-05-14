@@ -22,6 +22,7 @@ pub enum RealityArchetype {
     Tron,        // Geometric, neon grid
     ColdStorage, // Offline, high-security host
     LiminalSpace, // Infinite empty hallways and backrooms
+    Clockwork,   // Giant gears, brass, precise ticking mechanisms
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

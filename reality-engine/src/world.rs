@@ -143,6 +143,8 @@ pub struct WorldState {
     pub dropped_items: Vec<crate::reality_types::DroppedItem>,
     #[serde(default)]
     pub player_inventory: Vec<crate::reality_types::DroppedItem>,
+    #[serde(default)]
+    pub spawned_nodes_grid: HashSet<[i32; 3]>,
 }
 
 impl WorldState {
@@ -212,6 +214,7 @@ impl WorldState {
             RealityArchetype::Tron => 0.15,
             RealityArchetype::ColdStorage => 0.2,
             RealityArchetype::LiminalSpace => 0.3,
+            RealityArchetype::Clockwork => 0.2,
         };
 
         // Player influence applies over time
@@ -248,6 +251,7 @@ impl WorldState {
             RealityArchetype::Tron => 0.15,
             RealityArchetype::ColdStorage => 0.2,
             RealityArchetype::LiminalSpace => 0.3,
+            RealityArchetype::Clockwork => 0.2,
         };
 
         chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);

@@ -377,8 +377,10 @@ impl LambdaRenderer {
             while let Some(parent) = stack.pop() {
                 for &(p, c) in edges {
                     if p == parent {
-                        highlighted_nodes.insert(c);
-                        stack.push(c);
+                        if !highlighted_nodes.contains(&c) {
+                            highlighted_nodes.insert(c);
+                            stack.push(c);
+                        }
                     }
                 }
             }
@@ -1081,22 +1083,28 @@ impl LambdaSystem {
     fn set_subtree_visibility(&mut self, root_idx: usize, visible: bool) {
         // Simple visibility toggle
         let mut stack = vec![root_idx];
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(root_idx);
+
         while let Some(parent) = stack.pop() {
             for &(p, c) in &self.edges {
                 if p == parent {
-                    // Set scale based on visibility and type
-                    if !visible {
-                        self.nodes[c].scale = 0.0;
-                    } else {
-                        // Restore default scale
-                        self.nodes[c].scale = match self.nodes[c].node_type {
-                            NodeType::Abs(_) => 3.0,
-                            NodeType::Port => 0.2,
-                            NodeType::App => 0.5,
-                            _ => 1.0,
-                        };
+                    if !visited.contains(&c) {
+                        visited.insert(c);
+                        // Set scale based on visibility and type
+                        if !visible {
+                            self.nodes[c].scale = 0.0;
+                        } else {
+                            // Restore default scale
+                            self.nodes[c].scale = match self.nodes[c].node_type {
+                                NodeType::Abs(_) => 3.0,
+                                NodeType::Port => 0.2,
+                                NodeType::App => 0.5,
+                                _ => 1.0,
+                            };
+                        }
+                        stack.push(c);
                     }
-                    stack.push(c);
                 }
             }
         }

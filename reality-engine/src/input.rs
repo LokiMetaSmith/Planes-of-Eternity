@@ -20,6 +20,7 @@ pub enum Action {
     VoxelDiffuse,
     DropItem,
     PickupItem,
+    StoreSpell,
     // Add more actions as needed
 }
 
@@ -43,6 +44,7 @@ impl Action {
             "VoxelDiffuse" => Some(Action::VoxelDiffuse),
             "DropItem" => Some(Action::DropItem),
             "PickupItem" => Some(Action::PickupItem),
+            "StoreSpell" => Some(Action::StoreSpell),
             _ => None,
         }
     }
@@ -68,6 +70,7 @@ impl std::fmt::Display for Action {
             Action::VoxelDiffuse => "VoxelDiffuse",
             Action::DropItem => "DropItem",
             Action::PickupItem => "PickupItem",
+            Action::StoreSpell => "StoreSpell",
         };
         write!(f, "{}", s)
     }
@@ -105,6 +108,7 @@ impl Default for InputConfig {
         bindings.insert(Action::VoxelDiffuse, "KeyH".to_string());
         bindings.insert(Action::DropItem, "KeyB".to_string());
         bindings.insert(Action::PickupItem, "KeyQ".to_string());
+        bindings.insert(Action::StoreSpell, "KeyM".to_string());
 
         let mut config = Self {
             bindings,

@@ -677,6 +677,28 @@ impl Engine {
                         self.lambda_system.paused = !self.lambda_system.paused;
                     }
                 }
+                Action::StoreSpell => {
+                    if pressed {
+                        if let Some(term) = &self.lambda_system.root_term {
+                            let term_string = term.to_string();
+                            let new_item = crate::reality_types::DroppedItem::new_cube(
+                                format!("spell_{}", term_string),
+                                self.camera.eye,
+                                cgmath::Vector3::new(0.0, 0.0, 0.0),
+                                0.2,
+                                [0.0, 0.5, 1.0, 1.0], // Blueish color for spells
+                                3,
+                            );
+                            self.world_state.player_inventory.push(new_item);
+                            log::info!("Stored spell into inventory: {}", term_string);
+
+                            // Clear visual plane
+                            self.lambda_system.root_term = None;
+                            self.lambda_system.nodes.clear();
+                            self.lambda_system.edges.clear();
+                        }
+                    }
+                }
                 Action::DropItem => {
                     if pressed {
                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();

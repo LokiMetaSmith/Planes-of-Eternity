@@ -1348,7 +1348,7 @@ impl State {
                 p.location.x,
                 p.location.y,
                 p.location.z,
-                p.reality_signature.fidelity,
+                p.reality_signature.fidelity * p.reality_signature.influence_radius,
             ];
             self.reality_uniform.proj_params[i] = [
                 p.reality_signature.active_style.roughness,

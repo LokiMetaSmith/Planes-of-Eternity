@@ -83,6 +83,7 @@
 
 ## Game Mechanics
 - [x] **Item Physics**: Added simple physics for dropped items with gravity and ground collision.
+- [x] **Influence Radius**: Update the logic to apply the area of influence expansion.
 
 ## UI/UX
 - [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.

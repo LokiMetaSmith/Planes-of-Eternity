@@ -2919,3 +2919,12 @@ impl GameClient {
         false
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn get_engine_version() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let branch = env!("GIT_BRANCH");
+    let hash = env!("GIT_HASH");
+    format!("{}-{}-{}", version, branch, hash)
+}

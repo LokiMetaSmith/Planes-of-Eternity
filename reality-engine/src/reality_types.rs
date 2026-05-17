@@ -23,6 +23,7 @@ pub enum RealityArchetype {
     ColdStorage, // Offline, high-security host
     LiminalSpace, // Infinite empty hallways and backrooms
     Clockwork,   // Giant gears, brass, precise ticking mechanisms
+    Cottagecore, // Cozy, pastoral, floral
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

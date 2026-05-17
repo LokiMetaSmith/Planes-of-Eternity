@@ -338,6 +338,11 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let gear_teeth = sin(angle * 12.0) * 0.5 + 0.5;
         let base_height = sin(r * 3.14159) * 0.5;
         return (base_height + gear_teeth * 0.5) * 10.0 * params.z;
+    } else if (id < 19.5) {
+        // Cottagecore (Soft rolling hills)
+        let p = pos * scale * 0.5;
+        let n = fbm(p, 4, roughness);
+        return n * 12.0 * params.z;
     }
 
     return 0.0;
@@ -794,6 +799,20 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         let base_metal = mix(copper, brass, n);
 
         return base_metal * (0.8 + 0.2 * ring);
+    } else if (id < 19.5) {
+        // Cottagecore (Floral greens and earthy paths)
+        let p = pos.xz * scale * 4.0;
+        let n = fbm(p, 4, roughness);
+
+        let grass = vec3<f32>(0.4, 0.7, 0.3);
+        let path = vec3<f32>(0.6, 0.5, 0.3);
+        let flower = vec3<f32>(0.9, 0.4, 0.6); // Pinkish flowers
+
+        // Voronoi-ish blobs for flowers
+        let f_pattern = step(0.85, fbm(p * 5.0, 2, 0.5));
+
+        let base_col = mix(path, grass, smoothstep(0.3, 0.7, n));
+        return mix(base_col, flower, f_pattern * smoothstep(0.5, 0.6, n)); // Flowers only on grass
     }
 
     return base_color;

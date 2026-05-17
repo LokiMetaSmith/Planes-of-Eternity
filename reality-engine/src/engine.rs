@@ -136,6 +136,7 @@ impl Engine {
                     RealityArchetype::ObraDinn,
                     RealityArchetype::Tron,
                     RealityArchetype::Clockwork,
+                    RealityArchetype::Cottagecore,
                 ];
                 for (i, arch) in archetypes.into_iter().enumerate() {
                     let mut sig = RealitySignature::default();
@@ -566,6 +567,7 @@ impl Engine {
                             crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
                             crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
                             crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
+                            crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
                         };
 
                         self.spell_effects.push(SpellEffect {
@@ -641,6 +643,7 @@ impl Engine {
                                     crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
                                     crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
                                     crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
+                                    crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
                                 };
 
                                 self.spell_effects.push(SpellEffect {
@@ -675,6 +678,28 @@ impl Engine {
                 Action::TogglePause => {
                     if pressed {
                         self.lambda_system.paused = !self.lambda_system.paused;
+                    }
+                }
+                Action::StoreSpell => {
+                    if pressed {
+                        if let Some(term) = &self.lambda_system.root_term {
+                            let term_string = term.to_string();
+                            let new_item = crate::reality_types::DroppedItem::new_cube(
+                                format!("spell_{}", term_string),
+                                self.camera.eye,
+                                cgmath::Vector3::new(0.0, 0.0, 0.0),
+                                0.2,
+                                [0.0, 0.5, 1.0, 1.0], // Blueish color for spells
+                                3,
+                            );
+                            self.world_state.player_inventory.push(new_item);
+                            log::info!("Stored spell into inventory: {}", term_string);
+
+                            // Clear visual plane
+                            self.lambda_system.root_term = None;
+                            self.lambda_system.nodes.clear();
+                            self.lambda_system.edges.clear();
+                        }
                     }
                 }
                 Action::DropItem => {
@@ -1090,6 +1115,7 @@ impl Engine {
                                 "SOLARPUNK" => Some(crate::reality_types::RealityArchetype::SolarPunk),
                                 "BIOPUNK" => Some(crate::reality_types::RealityArchetype::Biopunk),
                                 "CLOCKWORK" => Some(crate::reality_types::RealityArchetype::Clockwork),
+                                "COTTAGECORE" => Some(crate::reality_types::RealityArchetype::Cottagecore),
                                 "VOID" => Some(crate::reality_types::RealityArchetype::Void),
                                 _ => None,
                             };
@@ -1235,6 +1261,7 @@ impl Engine {
             RealityArchetype::ObraDinn,
             RealityArchetype::Tron,
             RealityArchetype::Clockwork,
+            RealityArchetype::Cottagecore,
         ];
         for (i, arch) in archetypes.into_iter().enumerate() {
             let mut sig = RealitySignature::default();

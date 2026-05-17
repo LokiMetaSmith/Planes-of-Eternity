@@ -508,6 +508,11 @@
         <div>INITIALIZING REALITY ENGINE...</div>
     </div>
     <div id="crosshair" aria-hidden="true"></div>
+    <div id="version-display" style="position: fixed; bottom: 10px; right: 10px; z-index: 1000; color: rgba(255, 255, 255, 0.5); font-family: monospace; font-size: 10px; pointer-events: none; text-align: right; text-shadow: 1px 1px 0 #000;">
+        <div id="ui-version">UI: 0.1.0</div>
+        <div id="engine-version">Engine: Booting...</div>
+    </div>
+
     <video id="ar-feed" autoplay playsinline aria-hidden="true"></video>
     <div class="scanline" aria-hidden="true"></div>
     <canvas id="reality-canvas" role="img" aria-label="Interactive Reality Engine Viewport"></canvas>
@@ -760,8 +765,29 @@
                 while (!window.wasmBindings) {
                     await new Promise(r => setTimeout(r, 10));
                 }
-                const { start, is_ar_supported } = window.wasmBindings;
+
+                const { start, is_ar_supported, get_engine_version } = window.wasmBindings;
+
+
                 log("> WASM INITIALIZED OK");
+                try {
+                    const engineVer = get_engine_version();
+                    document.getElementById('engine-version').innerText = 'Engine: ' + engineVer;
+                } catch(e) {
+                    console.error("Failed to get engine version", e);
+                }
+
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'v' || e.key === 'V') {
+                        const vd = document.getElementById('version-display');
+                        if (vd.style.display === 'none') {
+                            vd.style.display = 'block';
+                        } else {
+                            vd.style.display = 'none';
+                        }
+                    }
+                });
+
 
                 // Check WebXR Support
                 let arSupported = false;

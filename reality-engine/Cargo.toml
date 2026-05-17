@@ -1,6 +1,7 @@
 [package]
 name = "reality-engine"
 version = "0.1.0"
+build = "build.rs"
 edition = "2021"
 
 [lib]
@@ -77,6 +78,7 @@ features = [
   "RequestInit",
   "RequestMode",
   "Headers",
+  "Performance",
   "AudioContext",
   "AudioDestinationNode",
   "AudioNode",

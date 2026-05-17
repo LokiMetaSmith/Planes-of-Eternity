@@ -1,8 +1,19 @@
 use futures::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use warp::Filter;
+
+#[derive(Serialize, Deserialize, Debug)]
+struct CrashReport {
+    message: String,
+    stack: String,
+    user_agent: String,
+    uptime: f64,
+}
 
 /// Our global unique user id counter.
 static NEXT_USER_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
@@ -38,11 +49,40 @@ async fn main() {
     // Serve static files from the parent directory (repo root)
     let static_files = warp::fs::dir("../reality-engine/dist");
 
+    // POST /api/crash-report
+    let crash_report = warp::path!("api" / "crash-report")
+        .and(warp::post())
+        .and(warp::body::content_length_limit(1024 * 64)) // 64KB limit
+        .and(warp::body::json())
+        .map(|report: CrashReport| {
+            let timestamp = chrono::Utc::now().to_rfc3339();
+            let log_entry = format!(
+                "[{}] Crash Report:\nMessage: {}\nUptime: {:.2}ms\nUser Agent: {}\nStack:\n{}\n----------------------------------------\n",
+                timestamp, report.message, report.uptime, report.user_agent, report.stack
+            );
+
+            println!("{}", log_entry);
+
+            if let Ok(mut file) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("crash_logs.txt")
+            {
+                if let Err(e) = writeln!(file, "{}", log_entry) {
+                    eprintln!("Failed to write to crash_logs.txt: {}", e);
+                }
+            } else {
+                eprintln!("Failed to open crash_logs.txt");
+            }
+
+            warp::reply::json(&serde_json::json!({ "status": "success" }))
+        });
+
     // Redirect root to the game's index.html
     let root_redirect =
         warp::path::end().map(|| warp::redirect(warp::http::Uri::from_static("/index.html")));
 
-    let routes = chat.or(root_redirect).or(static_files)
+    let routes = chat.or(crash_report).or(root_redirect).or(static_files)
         .with(warp::reply::with::header("X-Frame-Options", "DENY"))
         .with(warp::reply::with::header("X-Content-Type-Options", "nosniff"))
         .with(warp::reply::with::header("Referrer-Policy", "strict-origin-when-cross-origin"))
@@ -101,6 +141,8 @@ async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
 
     println!("User {} connected", my_id);
 
+    let mut graceful_exit = false;
+
     // Security Enhancement: Rate limit incoming messages to prevent flood DoS
     let mut message_count = 0;
     let mut last_reset = std::time::Instant::now();
@@ -131,12 +173,19 @@ async fn user_connected(ws: warp::ws::WebSocket, users: Users) {
             }
         };
 
+        if let Ok(text) = msg.to_str() {
+            if text == "__GRACEFUL_EXIT__" {
+                graceful_exit = true;
+                break; // Exit the loop to disconnect
+            }
+        }
+
         user_message(my_id, msg, &users).await;
     }
 
     // user_ws_rx stream will keep processing as long as the user stays
     // connected. Once they disconnect, then...
-    user_disconnected(my_id, &users).await;
+    user_disconnected(my_id, &users, graceful_exit).await;
 }
 
 async fn user_message(my_id: usize, msg: warp::ws::Message, users: &Users) {
@@ -172,8 +221,12 @@ async fn user_message(my_id: usize, msg: warp::ws::Message, users: &Users) {
     }
 }
 
-async fn user_disconnected(my_id: usize, users: &Users) {
-    println!("User {} disconnected", my_id);
+async fn user_disconnected(my_id: usize, users: &Users, graceful_exit: bool) {
+    if graceful_exit {
+        println!("User {} disconnected (Graceful Exit)", my_id);
+    } else {
+        println!("User {} disconnected (Unexpected Drop/Crash)", my_id);
+    }
     // Stream closed up, so remove from the user list
     users.lock().unwrap_or_else(|e| e.into_inner()).remove(&my_id);
 }

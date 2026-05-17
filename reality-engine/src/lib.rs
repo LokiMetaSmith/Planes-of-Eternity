@@ -1,4 +1,5 @@
-use cgmath::{InnerSpace, SquareMatrix, Rotation};
+use cgmath::{InnerSpace, SquareMatrix};
+use cgmath::Rotation;
 use wgpu::util::DeviceExt;
 
 use serde::Serialize;
@@ -18,6 +19,8 @@ use web_sys::{
 
 pub mod audio;
 pub mod camera;
+#[cfg(target_arch = "wasm32")]
+pub mod crash_report;
 pub mod engine;
 pub mod genie_bridge;
 pub mod input;
@@ -2334,7 +2337,7 @@ pub fn main() -> Result<(), JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
-    console_error_panic_hook::set_once();
+    crash_report::install_crash_hook();
     console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
 
     let window = web_sys::window().expect("No global `window` exists");
@@ -2681,6 +2684,14 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     // Initialize Network
     let network_manager = match network::NetworkManager::new("ws://localhost:9000/ws") {
         Ok(m) => {
+            // Graceful Exit Handling
+            let m_exit = m.clone();
+            let on_beforeunload = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                m_exit.borrow().send_graceful_exit();
+            }) as Box<dyn FnMut(web_sys::Event)>);
+            window.set_onbeforeunload(Some(on_beforeunload.as_ref().unchecked_ref()));
+            on_beforeunload.forget();
+
             // Setup Sync Callback
             let state_sync = state.clone();
             m.borrow_mut().set_sync_callback(move |msg| match msg {
@@ -2919,4 +2930,13 @@ impl GameClient {
         }
         false
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn get_engine_version() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let branch = env!("GIT_BRANCH");
+    let hash = env!("GIT_HASH");
+    format!("{}-{}-{}", version, branch, hash)
 }

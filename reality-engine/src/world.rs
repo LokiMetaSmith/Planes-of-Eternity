@@ -215,6 +215,7 @@ impl WorldState {
             RealityArchetype::ColdStorage => 0.2,
             RealityArchetype::LiminalSpace => 0.3,
             RealityArchetype::Clockwork => 0.2,
+            RealityArchetype::Cottagecore => 0.1,
         };
 
         // Player influence applies over time
@@ -252,6 +253,7 @@ impl WorldState {
             RealityArchetype::ColdStorage => 0.2,
             RealityArchetype::LiminalSpace => 0.3,
             RealityArchetype::Clockwork => 0.2,
+            RealityArchetype::Cottagecore => 0.1,
         };
 
         chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);

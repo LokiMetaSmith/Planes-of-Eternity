@@ -1130,9 +1130,23 @@ impl Engine {
                         }
                     }
                 }
-                None
+
+                // Fallback mechanism to ensure the grammar works like a context-free grammar,
+                // where every spell, even invalid ones, resolves into a functioning spell/anomaly.
+                log::info!("Term resulted in an invalid application: {:?}", term);
+
+                let mut base = self.primitive_to_anomaly(Primitive::Void, spawn_pos)?;
+                base.reality_signature.active_style.archetype = crate::reality_types::RealityArchetype::Glitch;
+                Some(base)
             }
-            _ => None,
+
+            // Fallback for unresolved terms like plain variables
+            _ => {
+                log::info!("Term unresolved: {:?}", term);
+                let mut base = self.primitive_to_anomaly(Primitive::Void, spawn_pos)?;
+                base.reality_signature.active_style.archetype = crate::reality_types::RealityArchetype::Glitch;
+                Some(base)
+            }
         }
     }
 

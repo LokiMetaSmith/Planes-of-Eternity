@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use image::GenericImageView;
 
 // --- Procedural Generation Helpers ---

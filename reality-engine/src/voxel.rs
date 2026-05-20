@@ -1536,14 +1536,14 @@ mod diffuse_tests {
             chunk.diffuse();
         }
 
-        let mut fire_count = 0;
+        let mut _fire_count = 0;
         let mut lava_count = 0;
         for z in 0..CHUNK_SIZE {
             for y in 0..CHUNK_SIZE {
                 for x in 0..CHUNK_SIZE {
                     let id = chunk.get(x, y, z).id;
                     if id == 3 {
-                        fire_count += 1;
+                        _fire_count += 1;
                     }
                     if id == 2 {
                         lava_count += 1;

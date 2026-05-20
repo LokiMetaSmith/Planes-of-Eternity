@@ -1,5 +1,8 @@
-use cgmath::{InnerSpace, SquareMatrix};
-use cgmath::Rotation;
+#![allow(dead_code)]
+use cgmath::InnerSpace;
+#[cfg(target_arch = "wasm32")]
+use cgmath::{Rotation, SquareMatrix};
+#[cfg(target_arch = "wasm32")]
 use wgpu::util::DeviceExt;
 
 use serde::Serialize;

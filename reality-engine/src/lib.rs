@@ -1255,8 +1255,14 @@ impl State {
             self.voxel_world.genie.request_splat_generation(prompt);
         }
 
+        for (prompt, pos) in self.engine.pending_models.drain(..) {
+            self.voxel_world.genie.request_model_generation(prompt, pos);
+        }
+
         // Apply generated splats to the world
-        self.voxel_world.process_pending_splats();
+        if self.voxel_world.process_pending_splats() {
+            self.voxel_dirty = true;
+        }
 
         // Rebuild meshes if dirty or if camera moved significantly (LOD update trigger)
         let cam_pos = self.engine.camera.eye;

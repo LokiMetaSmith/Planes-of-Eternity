@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 pub struct GenieBridge {
     pub pending_splats: Arc<Mutex<Vec<Vec<SplatVertex>>>>,
+    pub pending_voxels: Arc<Mutex<Vec<Chunk>>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -23,6 +24,7 @@ impl GenieBridge {
     pub fn new() -> Self {
         Self {
             pending_splats: Arc::new(Mutex::new(Vec::new())),
+            pending_voxels: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -83,6 +85,20 @@ impl GenieBridge {
         }
 
         chunk
+    }
+
+    pub fn request_model_generation(&self, prompt: String, position: [f32; 3]) {
+        let mut chunk = self.generate_voxel_model(&prompt);
+        // We modify the chunk key to place it near the position
+        chunk.key = crate::voxel::ChunkKey {
+            x: (position[0] / crate::voxel::CHUNK_SIZE as f32).floor() as i32,
+            y: (position[1] / crate::voxel::CHUNK_SIZE as f32).floor() as i32,
+            z: (position[2] / crate::voxel::CHUNK_SIZE as f32).floor() as i32,
+        };
+
+        if let Ok(mut pending) = self.pending_voxels.lock() {
+            pending.push(chunk);
+        }
     }
 
     pub fn request_splat_generation(&self, prompt: String) {

@@ -44,6 +44,7 @@ pub struct Engine {
     pub height: u32,
     pub spell_effects: Vec<SpellEffect>,
     pub pending_dreams: Vec<String>,
+    pub pending_models: Vec<(String, [f32; 3])>,
     pub anchor_distance: f32,
     pub fbm_noise: Fbm<Simplex>,
 }
@@ -195,6 +196,7 @@ impl Engine {
             height,
             spell_effects: Vec::new(),
             pending_dreams: Vec::new(),
+            pending_models: Vec::new(),
             anchor_distance: 8.0,
             fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
         }
@@ -218,6 +220,13 @@ impl Engine {
         mut voxel_world: Option<&mut crate::voxel::VoxelWorld>,
     ) -> bool {
         self.time += dt;
+
+        let mut chunks_generated = false;
+        if let Some(vw) = &mut voxel_world {
+            if vw.ensure_chunks_around(self.camera.eye, 3) {
+                chunks_generated = true;
+            }
+        }
 
         // --- NPC AI Logic ---
         let current_time = crate::projector::get_current_timestamp();
@@ -1042,7 +1051,9 @@ impl Engine {
                                     // Trigger Gaussian Splat generation to anchor the landscape
                                     let prompt = format!("{:?} landscape", self.player_projector.reality_signature.active_style.archetype);
                                     // Push a dream so GenieBridge will generate splats around this new anchor
-                                    self.pending_dreams.push(prompt);
+                                    self.pending_dreams.push(prompt.clone());
+                                    // Also generate procedural voxel models
+                                    self.pending_models.push((prompt, [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z]));
                                 } else {
                                     // Normal item pickup
                                     self.world_state.player_inventory.push(item);

@@ -411,6 +411,7 @@ impl Chunk {
         }
     }
 
+
     pub fn generate(&mut self, base_archetype: Option<crate::reality_types::RealityArchetype>) {
         // Only valid for full size chunks
         if self.size != CHUNK_SIZE {
@@ -1074,6 +1075,42 @@ impl VoxelWorld {
         self.chunks.entry(key).or_insert_with(|| Chunk::new(key))
     }
 
+    pub fn ensure_chunks_around(&mut self, player_pos: cgmath::Point3<f32>, radius: i32) -> bool {
+        let chunk_size = CHUNK_SIZE as f32;
+        let px = (player_pos.x / chunk_size).floor() as i32;
+        let py = (player_pos.y / chunk_size).floor() as i32;
+        let pz = (player_pos.z / chunk_size).floor() as i32;
+
+        let mut generated_any = false;
+
+        // Iterate within radius (a simple bounding box for now)
+        for x in (px - radius)..=(px + radius) {
+            for y in -1..2 { // Match the default world vertical bounds (-1 to 1) for ground layer consistency
+                for z in (pz - radius)..=(pz + radius) {
+                    let key = ChunkKey { x, y, z };
+                    if !self.chunks.contains_key(&key) {
+                        let chunk = self.create_chunk(key);
+
+                        // Procedural archetype selection
+                        let n = (x.wrapping_abs() + z.wrapping_abs()) % 3;
+                        let archetype = if n == 0 {
+                            Some(crate::reality_types::RealityArchetype::Fantasy)
+                        } else if n == 1 {
+                            Some(crate::reality_types::RealityArchetype::SciFi)
+                        } else {
+                            Some(crate::reality_types::RealityArchetype::Horror)
+                        };
+
+                        chunk.generate(archetype);
+                        generated_any = true;
+                    }
+                }
+            }
+        }
+
+        generated_any
+    }
+
     pub fn get_voxel_at(&self, x: i32, y: i32, z: i32) -> Option<Voxel> {
         let chunk_size = CHUNK_SIZE as i32;
         let cx = x.div_euclid(chunk_size);
@@ -1161,8 +1198,9 @@ impl VoxelWorld {
         }
     }
 
-    pub fn process_pending_splats(&mut self) {
+    pub fn process_pending_splats(&mut self) -> bool {
         let mut groups = Vec::new();
+        let mut changed = false;
         if let Ok(mut pending) = self.genie.pending_splats.lock() {
             groups.extend(pending.drain(..));
         }
@@ -1179,8 +1217,34 @@ impl VoxelWorld {
             }
 
             let chunk = self.create_chunk(chunk_key);
+            if !splat_group.is_empty() {
+                changed = true;
+            }
             chunk.splats.extend(splat_group);
         }
+
+        let mut voxel_chunks = Vec::new();
+        if let Ok(mut pending) = self.genie.pending_voxels.lock() {
+            voxel_chunks.extend(pending.drain(..));
+        }
+
+        for new_chunk in voxel_chunks {
+            let key = new_chunk.key;
+            changed = true;
+            // Merge or replace
+            if let Some(existing) = self.chunks.get_mut(&key) {
+                // Merge data where new_chunk has non-air
+                for i in 0..existing.data.len() {
+                    if new_chunk.data[i].id != 0 {
+                        existing.data[i] = new_chunk.data[i];
+                    }
+                }
+            } else {
+                self.chunks.insert(key, new_chunk);
+            }
+        }
+
+        changed
     }
 
     pub fn dream(&mut self) {

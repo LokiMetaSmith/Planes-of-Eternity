@@ -94,6 +94,7 @@
 ## Dynamic 3D Voxel Model Generation
 - [x] **Programmatic Voxelizer**: Implement programmatic voxelization algorithm (OBJ to Voxel Chunk) in `reality-engine`.
 - [x] **Sparse Voxel Generator**: Expand `reality-genie` to include a Text-to-3D Sparse Voxel Generator (Sparc3D concept).
+- [x] **Dynamic Generation**: Dynamically generate voxel chunks and models as the player moves and collects potential nodes.
 - [x] **Advanced Voxel Physics**: Implement voxel terrain collision and destruction for dropped items, inspired by Starbase.
 - [x] **New Archetypes**: Added SolarPunk archetype to Reality Engine.
 - [x] **UI Improvement**: Added ability to hide UI menu bars using 'H' key for a cleaner experience.
@@ -120,6 +121,7 @@
 - [x] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
 
 ## Build / Technical Debt
+- [ ] **WebXR Compilation Errors**: Fix unresolved WebXR imports (`XrEye`, `XrFrame`, etc.) when compiling for `wasm32-unknown-unknown`.
 - [x] **WASM Compilation Errors**: Fix missing trait imports (`wgpu::util::DeviceExt`, `cgmath::Rotation`) and `NpcStateView` struct initialization errors when compiling for `wasm32-unknown-unknown`.
 - [x] Optimize sorting in rendering pipeline
 - [x] Fix infinite loop in lambda graph visualization (BFS cycles)

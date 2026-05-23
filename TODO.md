@@ -121,7 +121,7 @@
 - [x] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
 
 ## Build / Technical Debt
-- [ ] **WebXR Compilation Errors**: Fix unresolved WebXR imports (`XrEye`, `XrFrame`, etc.) when compiling for `wasm32-unknown-unknown`.
+- [x] **WebXR Compilation Errors**: Fix unresolved WebXR imports (`XrEye`, `XrFrame`, etc.) when compiling for `wasm32-unknown-unknown`.
 - [x] **WASM Compilation Errors**: Fix missing trait imports (`wgpu::util::DeviceExt`, `cgmath::Rotation`) and `NpcStateView` struct initialization errors when compiling for `wasm32-unknown-unknown`.
 - [x] Optimize sorting in rendering pipeline
 - [x] Fix infinite loop in lambda graph visualization (BFS cycles)

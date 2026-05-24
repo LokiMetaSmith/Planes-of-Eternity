@@ -896,14 +896,11 @@
                     } catch (e) {}
                 }
 
-
                 function updateLabels() {
                     requestAnimationFrame(updateLabels);
                     updateChatBubbles();
-                    updateMinimap();
 
                     try {
-
                         const uint8Array = gameClient.get_node_labels_flat();
                         const dataView = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
 
@@ -1695,11 +1692,9 @@
         }
 
 
-
         function updateMinimap() {
-            if (!window.gameClient || !window.gameClient.get_minimap_data_json) return;
+            if (!window.gameClient) return;
             const minimapDataJson = window.gameClient.get_minimap_data_json();
-
             if (!minimapDataJson || minimapDataJson === "{}") return;
 
             try {

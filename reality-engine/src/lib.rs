@@ -2802,6 +2802,20 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
+
+    pub fn get_minimap_data_json(&self) -> String {
+        let state = self.state.borrow();
+        let chunks: Vec<[i32; 2]> = state.engine.world_state.chunks.keys().map(|id| [id.x, id.z]).collect();
+        let player_pos = [state.engine.player_projector.location.x, state.engine.player_projector.location.z];
+
+        let data = serde_json::json!({
+            "chunks": chunks,
+            "player_pos": player_pos
+        });
+
+        serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string())
+    }
+
     pub fn get_inventory_json(&self) -> String {
         let state = self.state.borrow();
         serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())

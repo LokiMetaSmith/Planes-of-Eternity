@@ -501,7 +501,10 @@
         }
 
 
+
         #minimap-container {
+            display: none !important;
+
             position: fixed;
             top: 20px;
             right: 20px;
@@ -538,7 +541,7 @@
     <div id="labels-layer" aria-hidden="true"></div>
 
 
-    <div id="minimap-container" aria-hidden="true">
+    <div id="minimap-container" aria-hidden="true" style="display: none;">
         <canvas id="minimap-canvas" width="128" height="128"></canvas>
     </div>
 
@@ -1696,7 +1699,26 @@
 
 
 
+
+        let isMinimapVisible = false;
+
+
+        window.addEventListener('keydown', (e) => {
+            // Ignore if typing in input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            if (e.key.toLowerCase() === 'm') {
+                isMinimapVisible = !isMinimapVisible;
+                const container = document.getElementById('minimap-container');
+                if (container) {
+                    if (isMinimapVisible) { container.style.setProperty('display', 'block', 'important'); } else { container.style.setProperty('display', 'none', 'important'); }
+                }
+            }
+        });
+
         function updateMinimap() {
+            if (!isMinimapVisible) return;
+
             if (!window.gameClient || !window.gameClient.get_minimap_data_json) return;
             const minimapDataJson = window.gameClient.get_minimap_data_json();
 

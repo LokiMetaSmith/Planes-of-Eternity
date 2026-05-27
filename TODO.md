@@ -125,3 +125,4 @@
 - [x] **WASM Compilation Errors**: Fix missing trait imports (`wgpu::util::DeviceExt`, `cgmath::Rotation`) and `NpcStateView` struct initialization errors when compiling for `wasm32-unknown-unknown`.
 - [x] Optimize sorting in rendering pipeline
 - [x] Fix infinite loop in lambda graph visualization (BFS cycles)
+- [x] Expand host test coverage to include shader_lambda.wgsl pipelines.

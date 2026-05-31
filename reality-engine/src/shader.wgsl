@@ -10,6 +10,10 @@ struct RealityUniform {
     proj_params: array<vec4<f32>, 5>, // x=roughness, y=scale, z=distortion, w=archetype_id
     proj_color: array<vec4<f32>, 5>,
     global_offset: vec4<f32>,
+    nodes_pos_fid: array<vec4<f32>, 15>,
+    nodes_params: array<vec4<f32>, 15>,
+    nodes_color: array<vec4<f32>, 15>,
+    num_nodes: vec4<u32>, // x=count
 };
 @group(2) @binding(0)
 var<uniform> reality: RealityUniform;
@@ -127,11 +131,13 @@ fn domain_warp(p: vec2<f32>) -> f32 {
 
 struct BlendResult {
     weights: array<f32, 5>,
+    node_weights: array<f32, 15>,
     total_strength: f32,
 };
 
 fn calculate_blend(pos: vec3<f32>) -> BlendResult {
     var strengths: array<f32, 5>;
+    var node_strengths: array<f32, 15>;
     var total = 0.0;
 
     for (var i = 0u; i < 5u; i = i + 1u) {
@@ -141,18 +147,33 @@ fn calculate_blend(pos: vec3<f32>) -> BlendResult {
         total = total + strength;
     }
 
+    let node_count = min(reality.num_nodes.x, 15u);
+    for (var i = 0u; i < node_count; i = i + 1u) {
+        let dist = max(distance(pos, reality.nodes_pos_fid[i].xyz), 1.0);
+        let strength = reality.nodes_pos_fid[i].w / dist;
+        node_strengths[i] = strength;
+        total = total + strength;
+    }
+
     var weights: array<f32, 5>;
+    var node_weights: array<f32, 15>;
     if (total > 0.0001) {
         for (var i = 0u; i < 5u; i = i + 1u) {
             weights[i] = strengths[i] / total;
+        }
+        for (var i = 0u; i < node_count; i = i + 1u) {
+            node_weights[i] = node_strengths[i] / total;
         }
     } else {
         for (var i = 0u; i < 5u; i = i + 1u) {
             weights[i] = 0.0;
         }
+        for (var i = 0u; i < 15u; i = i + 1u) {
+            node_weights[i] = 0.0;
+        }
     }
 
-    return BlendResult(weights, total);
+    return BlendResult(weights, node_weights, total);
 }
 
 fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
@@ -361,6 +382,14 @@ fn get_height_at(pos: vec3<f32>) -> f32 {
         }
     }
 
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        if (blend.node_weights[i] > 0.001) {
+            let disp = get_displacement(pos.xz, reality.nodes_params[i]);
+            let val = disp * reality.nodes_params[i].z;
+            total_displacement = total_displacement + val * blend.node_weights[i];
+        }
+    }
+
     let visibility = min(blend.total_strength, 1.0);
     return total_displacement * visibility;
 }
@@ -378,6 +407,10 @@ struct VertexOutput {
     @location(8) visibility: f32,
     @location(9) normal: vec3<f32>,
     @location(10) instability: f32,
+    @location(11) node_weight0: f32,
+    @location(12) node_weight1: f32,
+    @location(13) node_weight2: f32,
+    @location(14) node_weight3: f32,
 };
 
 @vertex
@@ -432,6 +465,10 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.weight2 = blend.weights[2];
     out.weight3 = blend.weights[3];
     out.weight4 = blend.weights[4];
+    out.node_weight0 = blend.node_weights[0];
+    out.node_weight1 = blend.node_weights[1];
+    out.node_weight2 = blend.node_weights[2];
+    out.node_weight3 = blend.node_weights[3];
     out.visibility = min(blend.total_strength, 1.0);
     out.normal = normal;
     out.instability = instability;
@@ -823,6 +860,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_texture = textureSample(t_diffuse, s_diffuse, in.tex_coords);
 
     let weights = array<f32, 5>(in.weight0, in.weight1, in.weight2, in.weight3, in.weight4);
+    let node_weights = array<f32, 4>(in.node_weight0, in.node_weight1, in.node_weight2, in.node_weight3);
 
     var pattern_color = vec3<f32>(0.0);
     var blended_roughness = 0.0;
@@ -832,6 +870,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let c = get_pattern_color(in.world_pos, reality.proj_params[i], reality.proj_color[i].rgb);
             pattern_color = pattern_color + c * weights[i];
             blended_roughness = blended_roughness + reality.proj_params[i].x * weights[i];
+        }
+    }
+
+    // We only passed the first 4 node weights via interpolators to avoid hitting limits
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        if (node_weights[i] > 0.001) {
+            let c = get_pattern_color(in.world_pos, reality.nodes_params[i], reality.nodes_color[i].rgb);
+            pattern_color = pattern_color + c * node_weights[i];
+            blended_roughness = blended_roughness + reality.nodes_params[i].x * node_weights[i];
         }
     }
 

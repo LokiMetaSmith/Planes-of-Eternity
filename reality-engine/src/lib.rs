@@ -2806,7 +2806,7 @@ impl GameClient {
     pub fn get_minimap_data_json(&self) -> String {
         let state = self.state.borrow();
         let chunks: Vec<[i32; 2]> = state.engine.world_state.chunks.keys().map(|id| [id.x, id.z]).collect();
-        let player_pos = [state.engine.player_projector.location.x, state.engine.player_projector.location.z];
+        let player_pos = [state.engine.player_projector.location.x, state.engine.player_projector.location.y, state.engine.player_projector.location.z];
 
         let data = serde_json::json!({
             "chunks": chunks,

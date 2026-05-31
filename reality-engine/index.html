@@ -530,7 +530,7 @@
         <div>INITIALIZING REALITY ENGINE...</div>
     </div>
     <div id="crosshair" aria-hidden="true"></div>
-    <div id="version-display" style="position: fixed; bottom: 10px; right: 10px; z-index: 1000; color: rgba(255, 255, 255, 0.5); font-family: monospace; font-size: 10px; pointer-events: none; text-align: right; text-shadow: 1px 1px 0 #000;">
+    <div id="version-display" style="position: fixed; bottom: 30px; right: 10px; z-index: 1000; color: rgba(255, 255, 255, 0.5); font-family: monospace; font-size: 10px; pointer-events: none; text-align: right; text-shadow: 1px 1px 0 #000;">
         <div id="ui-version">UI: 0.1.0</div>
         <div id="engine-version">Engine: Booting...</div>
     </div>
@@ -544,6 +544,8 @@
     <div id="minimap-container" aria-hidden="true" style="display: none;">
         <canvas id="minimap-canvas" width="128" height="128"></canvas>
     </div>
+
+    <div id="player-coordinates" aria-hidden="true" style="position: fixed; bottom: 30px; right: 10px; color: #0f0; background: rgba(0,0,0,0.5); padding: 5px; font-family: monospace; z-index: 1000; border: 1px solid #0f0; border-radius: 3px;">X: 0.00 Y: 0.00 Z: 0.00</div>
 
     <div id="ui-layer">
         <div class="cyber-card">
@@ -904,6 +906,7 @@
                     requestAnimationFrame(updateLabels);
                     updateChatBubbles();
                     updateMinimap();
+
 
                     try {
 
@@ -1716,6 +1719,8 @@
             }
         });
 
+
+
         function updateMinimap() {
             if (!isMinimapVisible) return;
 
@@ -1728,6 +1733,10 @@
                 const data = JSON.parse(minimapDataJson);
                 const chunks = data.chunks;
                 const playerPos = data.player_pos;
+                const coordDiv = document.getElementById('player-coordinates');
+                if (coordDiv) {
+                    coordDiv.innerText = `X: ${playerPos[0].toFixed(2)} Y: ${playerPos[1].toFixed(2)} Z: ${playerPos[2].toFixed(2)}`;
+                }
 
                 const canvas = document.getElementById('minimap-canvas');
                 if (!canvas) return;
@@ -1749,7 +1758,7 @@
                     const cz = chunk[1] * CHUNK_SIZE;
 
                     const drawX = centerX + (cx - playerPos[0]) * scale;
-                    const drawZ = centerZ + (cz - playerPos[1]) * scale;
+                    const drawZ = centerZ + (cz - playerPos[2]) * scale;
                     const drawSize = CHUNK_SIZE * scale;
 
                     // Only draw if visible on minimap

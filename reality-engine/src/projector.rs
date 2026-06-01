@@ -93,6 +93,63 @@ impl RealityProjector {
         strength_a / (strength_a + strength_b)
     }
 
+
+    pub fn calculate_reality_at_point_multi(
+        &self,
+        point: Point3<f32>,
+        projectors: &[&RealityProjector],
+    ) -> BlendResult {
+        let mut result = BlendResult::default();
+
+        let dist_self = self.location.distance(point).max(1.0);
+        let strength_self = (self.reality_signature.fidelity * self.reality_signature.influence_radius) / dist_self;
+
+        let mut strongest_proj = self;
+        let mut max_strength = strength_self;
+
+        let mut second_strongest_proj = None;
+        let mut second_max_strength = 0.0;
+
+        let mut total_strength = strength_self;
+
+        for proj in projectors {
+            let dist = proj.location.distance(point).max(1.0);
+            let strength = (proj.reality_signature.fidelity * proj.reality_signature.influence_radius) / dist;
+            total_strength += strength;
+
+            if strength > max_strength {
+                second_strongest_proj = Some(strongest_proj);
+                second_max_strength = max_strength;
+                strongest_proj = *proj;
+                max_strength = strength;
+            } else if strength > second_max_strength {
+                second_strongest_proj = Some(*proj);
+                second_max_strength = strength;
+            }
+        }
+
+        result.total_strength = total_strength;
+        result.dominant_archetype = strongest_proj.reality_signature.active_style.archetype;
+
+        const KINDA_SMALL_NUMBER: f32 = 1e-4;
+
+        if let Some(second_proj) = second_strongest_proj {
+            if strongest_proj.reality_signature.active_style.archetype != second_proj.reality_signature.active_style.archetype {
+                result.is_conflict = true;
+            }
+
+            if max_strength + second_max_strength > KINDA_SMALL_NUMBER {
+                result.blend_alpha = second_max_strength / (max_strength + second_max_strength);
+            } else {
+                result.blend_alpha = 0.0;
+            }
+        } else {
+            result.blend_alpha = 0.0;
+        }
+
+        result
+    }
+
     pub fn calculate_reality_at_point(
         &self,
         point: Point3<f32>,
@@ -151,6 +208,43 @@ impl RealityProjector {
 mod tests {
     use super::*;
     use crate::reality_types::RealityArchetype;
+
+    #[test]
+
+    fn test_calculate_reality_at_point_multi() {
+        let mut sig_a = RealitySignature::default();
+        sig_a.active_style.archetype = RealityArchetype::Fantasy;
+        sig_a.fidelity = 100.0;
+        sig_a.influence_radius = 1000.0;
+
+        let mut sig_b = RealitySignature::default();
+        sig_b.active_style.archetype = RealityArchetype::SciFi;
+        sig_b.fidelity = 100.0;
+        sig_b.influence_radius = 1000.0;
+
+        let mut sig_c = RealitySignature::default();
+        sig_c.active_style.archetype = RealityArchetype::Cottagecore;
+        sig_c.fidelity = 100.0;
+        sig_c.influence_radius = 1000.0;
+
+        let proj_a = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig_a);
+        let proj_b = RealityProjector::new(Point3::new(10.0, 0.0, 0.0), sig_b);
+        let proj_c = RealityProjector::new(Point3::new(-10.0, 0.0, 0.0), sig_c);
+
+        let projectors = vec![&proj_b, &proj_c];
+
+        // Near proj_a
+        let result = proj_a.calculate_reality_at_point_multi(Point3::new(2.0, 0.0, 0.0), &projectors);
+        assert_eq!(result.dominant_archetype, RealityArchetype::Fantasy);
+
+        // Near proj_b
+        let result = proj_a.calculate_reality_at_point_multi(Point3::new(8.0, 0.0, 0.0), &projectors);
+        assert_eq!(result.dominant_archetype, RealityArchetype::SciFi);
+
+        // Near proj_c
+        let result = proj_a.calculate_reality_at_point_multi(Point3::new(-8.0, 0.0, 0.0), &projectors);
+        assert_eq!(result.dominant_archetype, RealityArchetype::Cottagecore);
+    }
 
     #[test]
     fn test_calculate_reality_at_point() {

@@ -87,6 +87,7 @@
 - [x] **Influence Radius**: Update the logic to apply the area of influence expansion.
 
 ## UI/UX
+- [x] Add visual indicator for player coordinate position on the UI
 - [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.
 - [x] **Player Model**: Rendered a voxel sphere player model at the player's position colored by their active archetype to make the player dynamic and fit the game's voxel aesthetic.
 - [x] **Add AI or Non-Player Characters (NPCs)**: Added an array of NPCs to the WorldState, basic deterministic wandering logic to `Engine::update`, and updated rendering to use instanced drawing for the player and NPCs.
@@ -121,7 +122,8 @@
 - [x] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
 
 ## Build / Technical Debt
-- [ ] **WebXR Compilation Errors**: Fix unresolved WebXR imports (`XrEye`, `XrFrame`, etc.) when compiling for `wasm32-unknown-unknown`.
+- [x] **WebXR Compilation Errors**: Fix unresolved WebXR imports (`XrEye`, `XrFrame`, etc.) when compiling for `wasm32-unknown-unknown`.
 - [x] **WASM Compilation Errors**: Fix missing trait imports (`wgpu::util::DeviceExt`, `cgmath::Rotation`) and `NpcStateView` struct initialization errors when compiling for `wasm32-unknown-unknown`.
 - [x] Optimize sorting in rendering pipeline
 - [x] Fix infinite loop in lambda graph visualization (BFS cycles)
+- [x] Expand host test coverage to include shader_lambda.wgsl pipelines.

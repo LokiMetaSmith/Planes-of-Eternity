@@ -73,7 +73,10 @@ struct RealityUniform {
     proj_params: [[f32; 4]; 5], // x=roughness, y=scale, z=distortion, w=archetype_id
     proj_color: [[f32; 4]; 5],
     global_offset: [f32; 4],
-
+    nodes_pos_fid: [[f32; 4]; 15],
+    nodes_params: [[f32; 4]; 15],
+    nodes_color: [[f32; 4]; 15],
+    num_nodes: [u32; 4], // x=count
 }
 
 impl RealityUniform {
@@ -83,7 +86,10 @@ impl RealityUniform {
             proj_params: [[0.0; 4]; 5],
             proj_color: [[0.0; 4]; 5],
             global_offset: [0.0; 4],
-
+            nodes_pos_fid: [[0.0; 4]; 15],
+            nodes_params: [[0.0; 4]; 15],
+            nodes_color: [[0.0; 4]; 15],
+            num_nodes: [0; 4],
         }
     }
 }
@@ -1377,6 +1383,63 @@ impl State {
         self.reality_uniform.global_offset[2] = self.engine.time;
         self.reality_uniform.global_offset[3] = (self.engine.time % 0.016) / 0.016;
 
+        // Collect permanent anomalies (nodes)
+        self.reality_uniform.nodes_pos_fid = [[0.0; 4]; 15];
+        self.reality_uniform.nodes_params = [[0.0; 4]; 15];
+        self.reality_uniform.nodes_color = [[0.0; 4]; 15];
+
+        let mut permanent_anomalies = Vec::new();
+        for chunk in self.engine.world_state.chunks.values() {
+            for anomaly in &chunk.anomalies {
+                if !anomaly.deleted {
+                    permanent_anomalies.push(anomaly);
+                }
+            }
+        }
+
+        // Sort anomalies by distance to camera
+        permanent_anomalies.sort_unstable_by(|a, b| {
+            let dx_a = a.location.x - cam_pos.x;
+            let dy_a = a.location.y - cam_pos.y;
+            let dz_a = a.location.z - cam_pos.z;
+            let dist_a = dx_a * dx_a + dy_a * dy_a + dz_a * dz_a;
+
+            let dx_b = b.location.x - cam_pos.x;
+            let dy_b = b.location.y - cam_pos.y;
+            let dz_b = b.location.z - cam_pos.z;
+            let dist_b = dx_b * dx_b + dy_b * dy_b + dz_b * dz_b;
+
+            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let nodes_count = std::cmp::min(15, permanent_anomalies.len());
+        self.reality_uniform.num_nodes[0] = nodes_count as u32;
+
+        for i in 0..nodes_count {
+            let p = permanent_anomalies[i];
+            let p_archetype = *self
+                .engine
+                .input_config
+                .archetype_filters
+                .get(&p.reality_signature.active_style.archetype)
+                .unwrap_or(&p.reality_signature.active_style.archetype);
+            let (id, color) = get_archetype_data(p_archetype);
+
+            self.reality_uniform.nodes_pos_fid[i] = [
+                p.location.x,
+                p.location.y,
+                p.location.z,
+                p.reality_signature.fidelity * p.reality_signature.influence_radius,
+            ];
+            self.reality_uniform.nodes_params[i] = [
+                p.reality_signature.active_style.roughness,
+                p.reality_signature.active_style.scale,
+                p.reality_signature.active_style.distortion,
+                id,
+            ];
+            self.reality_uniform.nodes_color[i] = color;
+        }
+
         self.queue.write_buffer(
             &self.reality_buffer,
             0,
@@ -1497,10 +1560,32 @@ impl State {
         let view_proj = self.engine.camera.build_view_projection_matrix();
         let stability_hash = self.engine.world_state.root_hash.clone();
 
-        let needs_update = match &self.last_view_proj {
-            Some(last_vp) => *last_vp != view_proj || self.last_stability_hash != stability_hash,
-            None => true,
-        };
+        let player_pos = self.engine.player_projector.location;
+        let chunk_size = voxel::CHUNK_SIZE as f32;
+        let player_chunk_x = (player_pos.x / chunk_size).floor() as i32;
+        let player_chunk_z = (player_pos.z / chunk_size).floor() as i32;
+
+        // Re-generate chunk_data dynamically based on player's chunk
+        self.chunk_data.clear();
+        let grid_count = 3;
+        let half_grid = grid_count / 2; // e.g., 1 for 3x3
+
+        for z in (player_chunk_z - half_grid)..=(player_chunk_z + half_grid) {
+            for x in (player_chunk_x - half_grid)..=(player_chunk_x + half_grid) {
+                let x_pos = x as f32 * chunk_size + chunk_size / 2.0;
+                let z_pos = z as f32 * chunk_size + chunk_size / 2.0;
+                let half_size = chunk_size / 2.0;
+
+                self.chunk_data.push(ChunkData {
+                    position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
+                    aabb_min: cgmath::Point3::new(x_pos - half_size, -10.0, z_pos - half_size),
+                    aabb_max: cgmath::Point3::new(x_pos + half_size, 10.0, z_pos + half_size),
+                });
+            }
+        }
+
+        // We should always update instance positions now since they can move
+        let needs_update = true;
 
         if needs_update {
             // Optimization: Extract frustum planes once per frame instead of per-instance
@@ -2803,6 +2888,20 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
+
+    pub fn get_minimap_data_json(&self) -> String {
+        let state = self.state.borrow();
+        let chunks: Vec<[i32; 2]> = state.engine.world_state.chunks.keys().map(|id| [id.x, id.z]).collect();
+        let player_pos = [state.engine.player_projector.location.x, state.engine.player_projector.location.y, state.engine.player_projector.location.z];
+
+        let data = serde_json::json!({
+            "chunks": chunks,
+            "player_pos": player_pos
+        });
+
+        serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string())
+    }
+
     pub fn get_inventory_json(&self) -> String {
         let state = self.state.borrow();
         serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())

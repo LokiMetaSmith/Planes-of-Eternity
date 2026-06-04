@@ -102,24 +102,6 @@ impl GenieBridge {
     }
 
     pub fn request_splat_generation(&self, prompt: String) {
-        use reality_genie::splat_gen::{SplatGenerator, DummySplatGenerator};
-
-        let gen = DummySplatGenerator::new();
-        let raw_splats = gen.generate_splats_from_prompt(&prompt);
-        let mut direct_splats = Vec::new();
-        for s in raw_splats {
-            direct_splats.push(SplatVertex {
-                position: [s[0], s[1], s[2]],
-                rotation: [s[3], s[4], s[5], s[6]],
-                scale: [s[7], s[8], s[9]],
-                color: [s[10], s[11], s[12], s[13]],
-                previous_position: [s[0], s[1], s[2]],
-            });
-        }
-
-        if let Ok(mut pending) = self.pending_splats.lock() {
-            pending.push(direct_splats);
-        }
 
         let pending_ref = Arc::clone(&self.pending_splats);
 
@@ -127,38 +109,124 @@ impl GenieBridge {
         {
             let prompt_clone = prompt.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let encoded_prompt = js_sys::encode_uri_component(&prompt_clone);
-                let url = format!("http://localhost:8000/generate?prompt={}", String::from(encoded_prompt));
+                log::info!("Spawning Web Worker for Splat Generation: {}", prompt_clone);
 
-                let opts = web_sys::RequestInit::new();
-                opts.set_method("GET");
-                opts.set_mode(web_sys::RequestMode::Cors);
+                use wasm_bindgen::JsCast;
+                use wasm_bindgen::prelude::Closure;
+                use std::cell::RefCell;
+                use std::collections::HashMap;
+                use std::sync::atomic::{AtomicUsize, Ordering};
 
-                if let Ok(request) = web_sys::Request::new_with_str_and_init(&url, &opts) {
-                    if let Some(window) = web_sys::window() {
-                        let fetch_promise = window.fetch_with_request(&request);
-                        if let Ok(resp_value) = wasm_bindgen_futures::JsFuture::from(fetch_promise).await {
-                            let resp: web_sys::Response = resp_value.into();
-                            if resp.ok() {
-                                if let Ok(json_promise) = resp.json() {
-                                    if let Ok(json_val) = wasm_bindgen_futures::JsFuture::from(json_promise).await {
-                                        if let Ok(splats) = serde_json::from_str::<Vec<SplatVertex>>(&js_sys::JSON::stringify(&json_val).map(|s| String::from(s)).unwrap_or_else(|_| String::from("[]"))) {
-                                            if let Ok(mut pending) = pending_ref.lock() {
-                                                pending.push(splats);
-                                            }
+
+                // Lazy-load a global worker and a map of callbacks
+                thread_local! {
+                    static GLOBAL_WORKER: RefCell<Option<web_sys::Worker>> = RefCell::new(None);
+                    static CALLBACKS: RefCell<HashMap<usize, Closure<dyn FnMut(wasm_bindgen::JsValue)>>> = RefCell::new(HashMap::new());
+                }
+
+                static TASK_ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
+                let task_id = TASK_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+
+                let worker = GLOBAL_WORKER.with(|global| {
+                    let mut b = global.borrow_mut();
+                    if b.is_none() {
+                        let options = web_sys::WorkerOptions::new();
+                        options.set_type(web_sys::WorkerType::Module);
+                        let w = web_sys::Worker::new_with_options("worker.js", &options).unwrap();
+
+                        // Set a single, permanent message handler
+                        let onmessage = Closure::wrap(Box::new(|event: web_sys::MessageEvent| {
+                            let data = event.data();
+                            if let Ok(id_val) = js_sys::Reflect::get(&data, &"task_id".into()) {
+                                if let Some(id) = id_val.as_f64().map(|f| f as usize) {
+                                    CALLBACKS.with(|callbacks| {
+                                        if let Some(cb) = callbacks.borrow_mut().remove(&id) {
+                                            let cb_fn: &js_sys::Function = cb.as_ref().unchecked_ref();
+                                            let _ = cb_fn.call1(&wasm_bindgen::JsValue::NULL, &data);
                                         }
-                                    }
+                                    });
+                                }
+                            }
+                        }) as Box<dyn FnMut(_)>);
+                        w.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+                        onmessage.forget(); // Leak once globally
+
+                        *b = Some(w);
+                    }
+                    b.clone().unwrap()
+                });
+
+                // Prepare message object
+                let msg = js_sys::Object::new();
+                js_sys::Reflect::set(&msg, &"prompt".into(), &prompt_clone.into()).unwrap();
+                js_sys::Reflect::set(&msg, &"task_id".into(), &(task_id as f64).into()).unwrap();
+
+                let promise = js_sys::Promise::new(&mut |resolve, reject| {
+
+                    let resolve_clone = resolve.clone();
+                    let reject_clone = reject.clone();
+
+                    let callback = Closure::wrap(Box::new(move |data: wasm_bindgen::JsValue| {
+                        let success = js_sys::Reflect::get(&data, &"success".into()).unwrap().as_bool().unwrap_or(false);
+
+                        if success {
+                            let splats_json = js_sys::Reflect::get(&data, &"splats_json".into()).unwrap().as_string().unwrap_or_else(|| "[]".into());
+                            let _ = resolve_clone.call1(&wasm_bindgen::JsValue::NULL, &splats_json.into());
+                        } else {
+                            let error_msg = js_sys::Reflect::get(&data, &"error".into()).unwrap();
+                            let _ = reject_clone.call1(&wasm_bindgen::JsValue::NULL, &error_msg);
+                        }
+                    }) as Box<dyn FnMut(_)>);
+
+                    CALLBACKS.with(|callbacks| {
+                        callbacks.borrow_mut().insert(task_id, callback);
+                    });
+                });
+
+                // Send the message to start work
+                worker.post_message(&msg).unwrap();
+
+                // Await the worker's result
+                match wasm_bindgen_futures::JsFuture::from(promise).await {
+                    Ok(splats_json_val) => {
+                        if let Some(splats_json) = splats_json_val.as_string() {
+                            if let Ok(splats) = serde_json::from_str::<Vec<SplatVertex>>(&splats_json) {
+                                if let Ok(mut pending) = pending_ref.lock() {
+                                    pending.push(splats);
+                                    log::info!("Web Worker Splat Generation complete and applied.");
                                 }
                             }
                         }
+                    }
+                    Err(e) => {
+                        log::error!("Web Worker failed: {:?}", e);
                     }
                 }
             });
         }
         #[cfg(not(target_arch = "wasm32"))]
+
         {
-            let _ = pending_ref;
+            use reality_genie::splat_gen::{SplatGenerator, DummySplatGenerator};
+            let gen = DummySplatGenerator::new();
+            let raw_splats = gen.generate_splats_from_prompt(&prompt);
+
+            let mut direct_splats = Vec::new();
+            for s in raw_splats {
+                direct_splats.push(SplatVertex {
+                    position: [s[0], s[1], s[2]],
+                    rotation: [s[3], s[4], s[5], s[6]],
+                    scale: [s[7], s[8], s[9]],
+                    color: [s[10], s[11], s[12], s[13]],
+                    previous_position: [s[0], s[1], s[2]],
+                });
+            }
+
+            if let Ok(mut pending) = pending_ref.clone().lock() {
+                pending.push(direct_splats);
+            }
         }
+
     }
 }
 

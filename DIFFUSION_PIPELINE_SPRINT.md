@@ -3,7 +3,7 @@
 **Sprint Goal:** Replace DummySplatGenerator with a functional, Wasm-compatible local Diffusion Pipeline for generating Gaussian Splats.
 
 ## Phase 1: Wasm Infrastructure & Weight Management
-- [ ] **Task 1.1:** Set up the Web Worker architecture in GenieBridge to offload heavy inference from the main game thread.
+- [x] **Task 1.1:** Set up the Web Worker architecture in GenieBridge to offload heavy inference from the main game thread.
 - [ ] **Task 1.2:** Implement Wasm-compatible HTTP fetching and IndexedDB/CacheStorage caching for the .safetensors model weights.
 
 ## Phase 2: Text Encoding & Conditioning

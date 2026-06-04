@@ -7,7 +7,7 @@
 - [ ] **Task 1.2:** Implement Wasm-compatible HTTP fetching and IndexedDB/CacheStorage caching for the .safetensors model weights.
 
 ## Phase 2: Text Encoding & Conditioning
-- [ ] **Task 2.1:** Integrate the tokenizers crate and implement a lightweight Text Encoder.
+- [x] **Task 2.1:** Integrate the tokenizers crate and implement a lightweight Text Encoder.
 - [ ] **Task 2.2:** Add Cross-Attention layers to the DiscreteDiffusion block to accept text embeddings for conditioning.
 
 ## Phase 3: The Inference Loop

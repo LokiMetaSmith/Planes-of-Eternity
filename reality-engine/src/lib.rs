@@ -3047,3 +3047,25 @@ pub fn get_engine_version() -> String {
     let hash = env!("GIT_HASH");
     format!("{}-{}-{}", version, branch, hash)
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn generate_splats_worker_entry(prompt: String) -> String {
+    use reality_genie::splat_gen::{SplatGenerator, DummySplatGenerator};
+
+    let gen = DummySplatGenerator::new();
+    let raw_splats = gen.generate_splats_from_prompt(&prompt);
+
+    let mut direct_splats = Vec::new();
+    for s in raw_splats {
+        direct_splats.push(crate::splat::SplatVertex {
+            position: [s[0], s[1], s[2]],
+            rotation: [s[3], s[4], s[5], s[6]],
+            scale: [s[7], s[8], s[9]],
+            color: [s[10], s[11], s[12], s[13]],
+            previous_position: [s[0], s[1], s[2]],
+        });
+    }
+
+    serde_json::to_string(&direct_splats).unwrap_or_else(|_| String::from("[]"))
+}

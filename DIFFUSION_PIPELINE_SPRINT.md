@@ -8,7 +8,7 @@
 
 ## Phase 2: Text Encoding & Conditioning
 - [x] **Task 2.1:** Integrate the tokenizers crate and implement a lightweight Text Encoder.
-- [ ] **Task 2.2:** Add Cross-Attention layers to the DiscreteDiffusion block to accept text embeddings for conditioning.
+- [x] **Task 2.2:** Add Cross-Attention layers to the DiscreteDiffusion block to accept text embeddings for conditioning.
 
 ## Phase 3: The Inference Loop
 - [ ] **Task 3.1:** Implement a proper diffusion scheduler (e.g., DDIM or DDPM).

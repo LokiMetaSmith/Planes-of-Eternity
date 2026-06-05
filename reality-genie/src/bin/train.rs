@@ -34,6 +34,7 @@ fn load_voxel_chunks(dir: &str, device: &Device) -> Result<Vec<Tensor>> {
 }
 
 fn main() -> Result<()> {
+    let global_start = std::time::Instant::now();
     println!("Starting Reality Genie Diffusion Training Loop...");
 
     let device = Device::Cpu; // Or Device::new_cuda(0)? for GPU
@@ -77,6 +78,7 @@ fn main() -> Result<()> {
 
     // 4. Training Loop
     for epoch in 1..=epochs {
+        let epoch_start = std::time::Instant::now();
         let mut epoch_loss = 0.0;
 
         for batch in &dataset {
@@ -100,7 +102,8 @@ fn main() -> Result<()> {
             epoch_loss += loss.to_scalar::<f32>()?;
         }
 
-        println!("Epoch {}: Avg Loss: {:.4}", epoch, epoch_loss / dataset.len() as f32);
+        let epoch_duration = epoch_start.elapsed();
+        println!("Epoch {}: Avg Loss: {:.4} (Took: {:.2?})", epoch, epoch_loss / dataset.len() as f32, epoch_duration);
     }
 
     // 5. Save Weights
@@ -108,6 +111,7 @@ fn main() -> Result<()> {
     println!("Saving trained weights to {}...", save_path);
     varmap.save(save_path)?;
 
-    println!("Training Complete!");
+    let total_duration = global_start.elapsed();
+    println!("Training Complete in {:.2?}!", total_duration);
     Ok(())
 }

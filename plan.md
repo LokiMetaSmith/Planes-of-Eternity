@@ -1,17 +1,20 @@
-1. **Setup tokenizers dependency**
-   - We have already updated `reality-genie/Cargo.toml` to add `tokenizers` with the `unstable_wasm` feature.
-   - We have correctly set up `getrandom@0.2.17` with `js` feature to allow compilation on `wasm32-unknown-unknown` alongside `tokenizers`'s transitive dependencies on `rand` and `getrandom`.
+1. **Update the UI (`reality-engine/index.html`)**
+   - Add a `<div id="minimap-container">` to display the mini map.
+   - Add a `<canvas id="minimap-canvas" width="128" height="128">` inside it.
+   - Add CSS to position the mini map in the top-right corner.
 
-2. **Implement Text Encoder in `reality-genie`**
-   - Create a simple abstraction in `reality-genie/src/diffusion.rs` or a new module `reality-genie/src/text_encoder.rs` for encoding text to embeddings/tokens.
-   - We can add a function to `GenieBridge` or a new `TextEncoder` struct that initializes a tokenizer using a minimal configuration (or just tokenizing logic, e.g. BPE or WordPiece format).
-   - *Since this is "integrate the tokenizers crate and implement a lightweight Text Encoder" (Task 2.1), we should provide a structure `TextEncoder` that wraps `tokenizers::Tokenizer`.*
+2. **Expose Map Data from WASM (`reality-engine/src/lib.rs`)**
+   - Add a method to `GameClient` called `pub fn get_minimap_data_json(&self) -> String`.
+   - This method will access the chunks from `self.state.borrow().engine.world_state.chunks`, retrieving their `ChunkId` keys (`x`, `z`) or `ChunkKey` keys (`x`, `y`, `z`) where `y=0`. Since `WorldState` uses `ChunkId` for the top-level mapping but maybe `ChunkManager` uses `ChunkKey`. I need to verify what `world_state.chunks` contains. Let me check `world.rs`. Wait, `world.rs` uses `ChunkId {x, z}` mapped to `Chunk { key: ChunkKey {x, y, z}, .. }` ?
+   - The method will also retrieve the player position from `self.state.borrow().engine.player_projector.location` which is a `Point3<f32>` containing `x, y, z`.
+   - It will serialize these keys and the player's `(x, z)` coordinates into JSON.
 
-3. **Update TODO list**
-   - Check off Task 2.1 in `DIFFUSION_PIPELINE_SPRINT.md`.
+3. **Refine the JS Implementation (`reality-engine/index.html`)**
+   - Implement `updateMinimap()` function in JS called using `setInterval` or in the render loop.
+   - Call `gameClient.get_minimap_data_json()`, parse the JSON, and draw rectangles for chunks and a dot for the player on the `<canvas>`.
 
-4. **Complete Pre Commit Steps**
-   - Ensure proper testing, verification, review, and reflection are done by calling `pre_commit_instructions` and following its output.
+4. **Run Compilation & Tests**
+   - Run `cargo check --target=wasm32-unknown-unknown` and `cargo test --test host_test`.
 
-5. **Submit the change**
-   - Once everything compiles and passes, commit with branch `jules-diffusion-text-encoder`.
+5. **Complete Pre-Commit Steps**
+   - Run required checks before finalizing.

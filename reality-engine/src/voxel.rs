@@ -1078,7 +1078,7 @@ impl VoxelWorld {
     pub fn ensure_chunks_around(&mut self, player_pos: cgmath::Point3<f32>, radius: i32) -> bool {
         let chunk_size = CHUNK_SIZE as f32;
         let px = (player_pos.x / chunk_size).floor() as i32;
-        let py = (player_pos.y / chunk_size).floor() as i32;
+        let _py = (player_pos.y / chunk_size).floor() as i32;
         let pz = (player_pos.z / chunk_size).floor() as i32;
 
         let mut generated_any = false;

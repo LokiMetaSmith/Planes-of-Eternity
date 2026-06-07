@@ -221,10 +221,10 @@ impl Engine {
     ) -> bool {
         self.time += dt;
 
-        let mut chunks_generated = false;
+        let mut _chunks_generated = false;
         if let Some(vw) = &mut voxel_world {
             if vw.ensure_chunks_around(self.camera.eye, 3) {
-                chunks_generated = true;
+                _chunks_generated = true;
             }
         }
 

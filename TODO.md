@@ -127,3 +127,7 @@
 - [x] Optimize sorting in rendering pipeline
 - [x] Fix infinite loop in lambda graph visualization (BFS cycles)
 - [x] Expand host test coverage to include shader_lambda.wgsl pipelines.
+## OpenXR / Steam Frame Support
+- [x] **WebXR Input Bindings**: Implemented OpenXR Steam Frame Controller mappings using WebXR Gamepad API for in-headset controls.
+- [x] **Android Build Wrapper**: Configured Android/APK build instructions utilizing cross compilation.
+- [ ] **Android Build Environment**: Configure the sandboxed CI/CD environment with a valid Android Studio and NDK configuration to enable automated `cargo tauri android build` execution.

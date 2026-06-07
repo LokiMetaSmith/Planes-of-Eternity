@@ -2264,8 +2264,49 @@ impl GameClient {
             Rc::new(RefCell::new(None));
         let g_xr = f_xr.clone();
 
+        // Used to debounce trigger action per controller (Left/Right index approximation)
+        let mut last_trigger_pressed = vec![false; 4];
+
         *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
             let mut state = state_xr.borrow_mut();
+
+            // Process XR Inputs
+            let input_sources = session_clone.input_sources();
+            for i in 0..input_sources.length() {
+                if let Some(input_source) = input_sources.get(i).map(|s| s.unchecked_into::<web_sys::XrInputSource>()) {
+                    if let Some(gamepad) = input_source.gamepad() {
+                        let buttons = gamepad.buttons();
+
+                        // Mapping based on XR_VALVE_frame_controller_interaction and generic XR Gamepad
+                        // A standard WebXR gamepad places the primary trigger at index 0.
+                        // For the Steam Frame controller, we'll map the primary trigger to CastSpell or jump
+                        // For demonstration, map Trigger (button 0) to CastSpell
+                        if buttons.length() > 0 {
+                            let trigger_button = buttons.get(0).unchecked_into::<web_sys::GamepadButton>();
+                            let pressed = trigger_button.pressed();
+                            let idx = (i as usize).min(3);
+                            if pressed && !last_trigger_pressed[idx] {
+                                state.engine.camera_controller.process_action(input::Action::CastSpell, true);
+                                state.engine.camera_controller.process_action(input::Action::CastSpell, false);
+                            }
+                            last_trigger_pressed[idx] = pressed;
+                        }
+
+                        // Map Thumbstick (axes 2 and 3 usually) to movement
+                        let axes = gamepad.axes();
+                        if axes.length() >= 4 {
+                            let x_axis = axes.get(2).as_f64().unwrap_or(0.0) as f32;
+                            let y_axis = axes.get(3).as_f64().unwrap_or(0.0) as f32;
+
+                            const DEADZONE: f32 = 0.1;
+                            state.engine.camera_controller.process_action(input::Action::MoveRight, x_axis > DEADZONE);
+                            state.engine.camera_controller.process_action(input::Action::MoveLeft, x_axis < -DEADZONE);
+                            state.engine.camera_controller.process_action(input::Action::MoveBackward, y_axis > DEADZONE);
+                            state.engine.camera_controller.process_action(input::Action::MoveForward, y_axis < -DEADZONE);
+                        }
+                    }
+                }
+            }
 
             let pose = frame.get_viewer_pose(&reference_space_clone);
             let viewer_pose = pose.map(|p| p.unchecked_into::<XrViewerPose>());

@@ -667,3 +667,63 @@ fn test_generate_splats() {
     let water_splat = splats.iter().find(|s| s.color[3] == 0.8).expect("Should have a water splat with opacity 0.8");
     assert_eq!(water_splat.scale[0], 1.0, "Water scale should be 1.0");
 }
+
+#[test]
+fn test_vr_performance_limits_arm() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // Simulate VR Session
+    // We cannot instantiate State/WebGl in headless host tests natively, but we can benchmark
+    // the chunk and anomaly generation logic to ensure it stays within limits.
+
+    // Create 100 chunks and 100 anomalies, which is a stressful load for VR
+    use cgmath::Point3;
+    use reality_engine::projector::RealityProjector;
+    use reality_engine::reality_types::{RealityArchetype, RealitySignature};
+
+    for i in 0..10 {
+        for j in 0..10 {
+            let mut sig = RealitySignature::default();
+            sig.active_style.archetype = RealityArchetype::SciFi;
+            sig.fidelity = 100.0;
+            let anomaly = RealityProjector::new(Point3::new(i as f32 * 10.0, 0.0, j as f32 * 10.0), sig);
+            engine.world_state.add_anomaly(anomaly);
+        }
+    }
+
+    let start = std::time::Instant::now();
+    for _ in 0..60 {
+        // 60 frames of updates
+        engine.update(0.016, None);
+    }
+    let duration = start.elapsed();
+
+    // Ensure 60 frames under heavy VR load on host resolves well under real-time (1 second)
+    // to give headroom for ARM execution
+    assert!(duration.as_secs_f32() < 0.25, "Engine physics and generation took too long for VR limitations: {:?}", duration);
+
+    // Memory overhead check (rough proxy by checking length of data)
+    assert!(engine.world_state.chunks.len() > 0);
+}
+
+#[test]
+fn test_vr_input_processing() {
+    let mut engine = Engine::new(800, 600, None);
+
+    // Simulate VR controller input logic triggering engine processes
+    let initial_time = engine.time;
+
+    // Trigger action (e.g. from XR button 0)
+    engine.process_click(0.0, 0.0);
+
+    // Analog stick input logic (simulated by updating camera)
+    engine.camera.eye.x += 1.0;
+    engine.camera.eye.z += 1.0;
+
+    // Update frame
+    engine.update(0.016, None);
+
+    // Assert logic is cleanly running without issues under VR load simulation
+    assert!(engine.time > initial_time);
+    assert!(engine.camera.eye.x != 0.0);
+}

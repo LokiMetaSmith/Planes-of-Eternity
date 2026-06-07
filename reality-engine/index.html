@@ -795,7 +795,7 @@
                     await new Promise(r => setTimeout(r, 10));
                 }
 
-                const { start, is_ar_supported, get_engine_version } = window.wasmBindings;
+                const { start, is_ar_supported, is_vr_supported, get_engine_version } = window.wasmBindings;
 
 
                 log("> WASM INITIALIZED OK");
@@ -820,21 +820,32 @@
 
                 // Check WebXR Support
                 let arSupported = false;
+                let vrSupported = false;
                 try {
                     arSupported = await is_ar_supported();
+                    if (is_vr_supported) {
+                        vrSupported = await is_vr_supported();
+                    }
                 } catch (e) {
                     log("> WEBXR ERROR: " + e.message);
                 }
 
-                if (arSupported) {
+                if (vrSupported) {
+                    log("> WEBXR VR DETECTED: CAPABLE");
+                    const btnAR = document.getElementById('btn-start-ar');
+                    btnAR.innerText = "INITIALIZE WEBXR VR UPLINK";
+                    btnAR.style.borderColor = "#00ff00";
+                    btnAR.style.color = "#00ff00";
+                    btnAR.style.background = "rgba(0, 255, 0, 0.1)";
+                } else if (arSupported) {
                     log("> WEBXR AR DETECTED: CAPABLE");
                     const btnAR = document.getElementById('btn-start-ar');
-                    btnAR.innerText = "INITIALIZE WEBXR UPLINK";
+                    btnAR.innerText = "INITIALIZE WEBXR AR UPLINK";
                     btnAR.style.borderColor = "#00ff00";
                     btnAR.style.color = "#00ff00";
                     btnAR.style.background = "rgba(0, 255, 0, 0.1)";
                 } else {
-                    log("> WEBXR AR NOT DETECTED. FALLBACK MODE ACTIVE.");
+                    log("> WEBXR NOT DETECTED. FALLBACK MODE ACTIVE.");
                 }
 
                 log("> STARTING ENGINE...");
@@ -1625,18 +1636,33 @@
                     btnAR.style.cursor = 'wait';
 
                     // Attempt WebXR first if supported
-                    if (arSupported) {
+                    if (vrSupported) {
                          try {
-                             log("> REQUESTING WEBXR SESSION...");
-                             await gameClient.enter_ar_session();
-                             log("> WEBXR SESSION STARTED");
+                             log("> REQUESTING WEBXR VR SESSION...");
+                             await gameClient.enter_vr_session();
+                             log("> WEBXR VR SESSION STARTED");
                              btnAR.innerText = "UPLINK ESTABLISHED";
                              btnAR.removeAttribute('aria-busy');
                              btnAR.style.opacity = '';
                              btnAR.style.cursor = '';
                              return; // Skip Magic Window fallback if WebXR works
                          } catch (e) {
-                             log("> WEBXR ERROR: " + e);
+                             log("> WEBXR VR ERROR: " + e);
+                             log("> FALLING BACK TO MAGIC WINDOW...");
+                             // Will fall through to magic window, keep loading state
+                         }
+                    } else if (arSupported) {
+                         try {
+                             log("> REQUESTING WEBXR AR SESSION...");
+                             await gameClient.enter_ar_session();
+                             log("> WEBXR AR SESSION STARTED");
+                             btnAR.innerText = "UPLINK ESTABLISHED";
+                             btnAR.removeAttribute('aria-busy');
+                             btnAR.style.opacity = '';
+                             btnAR.style.cursor = '';
+                             return; // Skip Magic Window fallback if WebXR works
+                         } catch (e) {
+                             log("> WEBXR AR ERROR: " + e);
                              log("> FALLING BACK TO MAGIC WINDOW...");
                              // Will fall through to magic window, keep loading state
                          }

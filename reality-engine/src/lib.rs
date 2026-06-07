@@ -330,6 +330,7 @@ pub struct State {
     pub voxel_density_texture: wgpu::Texture,
     pub voxel_density_view: wgpu::TextureView,
     pub in_xr: bool,
+    pub in_vr: bool,
     pub canvas: HtmlCanvasElement,
 
     // Caching logic for instanced chunk updates
@@ -933,6 +934,7 @@ impl State {
             voxel_density_texture,
             voxel_density_view,
             in_xr: false,
+            in_vr: false,
             canvas: canvas.clone(),
             last_view_proj: None,
             last_stability_hash: String::new(),
@@ -1704,7 +1706,7 @@ impl State {
         }
 
         {
-            let clear_color = if self.in_xr {
+            let clear_color = if self.in_xr && !self.in_vr {
                 wgpu::Color {
                     r: 0.0,
                     g: 0.0,
@@ -2222,6 +2224,196 @@ impl GameClient {
         persistence::save_to_local_storage(&key, &game_state);
     }
 
+    pub async fn enter_vr_session(&self) -> Result<(), JsValue> {
+        if !xr::is_vr_supported().await? {
+            return Err(JsValue::from_str("VR not supported"));
+        }
+
+        let session: XrSession = xr::request_vr_session().await?;
+
+        // 1. Get State & Canvas (Brief Borrow)
+        let canvas = {
+            let mut state = self.state.borrow_mut();
+            state.in_xr = true;
+            state.in_vr = true;
+            state.canvas.clone()
+        };
+
+        // 2. Get Context (No Borrow)
+        let gl_context = canvas
+            .get_context("webgl2")?
+            .ok_or_else(|| JsValue::from_str("No WebGL2 context found"))?
+            .dyn_into::<web_sys::WebGl2RenderingContext>()?;
+
+        // 3. Create Layer (No Borrow)
+        let layer = XrWebGlLayer::new_with_web_gl2_rendering_context(&session, &gl_context)?;
+
+        let render_state_init = XrRenderStateInit::new();
+        render_state_init.set_base_layer(Some(&layer));
+        session.update_render_state_with_state(&render_state_init);
+
+        // 4. Request Reference Space (Async - Must not hold borrow)
+        let reference_space = wasm_bindgen_futures::JsFuture::from(
+            session.request_reference_space(XrReferenceSpaceType::Local),
+        )
+        .await?
+        .unchecked_into::<XrReferenceSpace>();
+
+        let state_xr = self.state.clone();
+        let session_clone = session.clone();
+        let reference_space_clone = reference_space.clone();
+
+        let f_xr: Rc<RefCell<Option<Closure<dyn FnMut(f64, XrFrame)>>>> =
+            Rc::new(RefCell::new(None));
+        let g_xr = f_xr.clone();
+
+        let last_trigger_state = Rc::new(RefCell::new(false));
+
+        *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
+            let mut state = state_xr.borrow_mut();
+
+            let pose = frame.get_viewer_pose(&reference_space_clone);
+            let viewer_pose = pose.map(|p| p.unchecked_into::<XrViewerPose>());
+            if let Some(pose) = viewer_pose {
+                let views = pose.views();
+                if views.length() > 0 {
+                    let view = views.get(0).unchecked_into::<XrView>();
+                    let _eye: XrEye = view.eye();
+
+                    // Tracking
+                    let transform = view.transform();
+                    let pos = transform.position();
+                    let orient = transform.orientation();
+
+                    let q = cgmath::Quaternion::new(
+                        orient.w() as f32,
+                        orient.x() as f32,
+                        orient.y() as f32,
+                        orient.z() as f32,
+                    );
+                    let forward = q.rotate_vector(cgmath::Vector3::new(0.0, 0.0, -1.0));
+                    let up = q.rotate_vector(cgmath::Vector3::new(0.0, 1.0, 0.0));
+
+                    state.engine.camera.eye =
+                        cgmath::Point3::new(pos.x() as f32, pos.y() as f32, pos.z() as f32);
+                    state.engine.camera.target = state.engine.camera.eye + forward;
+                    state.engine.camera.up = up;
+
+                    // Projection
+                    let proj_data = view.projection_matrix();
+
+                    if proj_data.len() >= 16 {
+                        state.engine.camera.projection_override = Some(cgmath::Matrix4::from_cols(
+                            cgmath::Vector4::new(
+                                proj_data[0],
+                                proj_data[1],
+                                proj_data[2],
+                                proj_data[3],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[4],
+                                proj_data[5],
+                                proj_data[6],
+                                proj_data[7],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[8],
+                                proj_data[9],
+                                proj_data[10],
+                                proj_data[11],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[12],
+                                proj_data[13],
+                                proj_data[14],
+                                proj_data[15],
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            // Poll Input Sources
+            let input_sources = session_clone.input_sources();
+            let mut trigger_pressed = false;
+
+            for i in 0..input_sources.length() {
+                if let Some(input_source) = input_sources.get(i) {
+                    if let Some(gamepad) = input_source.gamepad() {
+                        let buttons = gamepad.buttons();
+                        let axes = gamepad.axes();
+
+                        let trigger = js_sys::Reflect::get(&buttons, &JsValue::from(0)).ok();
+                        if let Some(t) = trigger {
+                            let pressed = js_sys::Reflect::get(&t, &JsValue::from_str("pressed")).ok().and_then(|v| v.as_bool()).unwrap_or(false);
+                            if pressed {
+                                trigger_pressed = true;
+                            }
+                        }
+
+                        let x_axis = js_sys::Reflect::get(&axes, &JsValue::from(2)).ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                        let y_axis = js_sys::Reflect::get(&axes, &JsValue::from(3)).ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+
+                        if x_axis.abs() > 0.1 || y_axis.abs() > 0.1 {
+                             // E.g. basic controller look/move logic
+                        }
+                    }
+                }
+            }
+
+            // Handle debounced click
+            let mut last_trigger = last_trigger_state.borrow_mut();
+            if trigger_pressed && !*last_trigger {
+                state.engine.process_click(0.0, 0.0);
+            }
+            *last_trigger = trigger_pressed;
+
+            // Render to wgpu canvas first
+            state.update();
+            state.render().expect("Render failed");
+
+            // Blit Canvas to XR Framebuffer
+            let width = state.width as i32;
+            let height = state.height as i32;
+            let framebuffer = layer.framebuffer();
+
+            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::READ_FRAMEBUFFER, None);
+            gl_context.bind_framebuffer(
+                web_sys::WebGl2RenderingContext::DRAW_FRAMEBUFFER,
+                framebuffer.as_ref(),
+            );
+
+            gl_context.blit_framebuffer(
+                0,
+                height,
+                width,
+                0,
+                0,
+                0,
+                width,
+                height,
+                web_sys::WebGl2RenderingContext::COLOR_BUFFER_BIT,
+                web_sys::WebGl2RenderingContext::NEAREST,
+            );
+
+            session_clone
+                .request_animation_frame(f_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+        }));
+
+        session.request_animation_frame(g_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+
+        let state_end = self.state.clone();
+        let onend_closure = Closure::wrap(Box::new(move |_| {
+            let mut state = state_end.borrow_mut();
+            state.in_xr = false;
+            state.in_vr = false;
+            log::info!("XR VR Session Ended");
+        }) as Box<dyn FnMut(JsValue)>);
+        session.set_onend(Some(onend_closure.as_ref().unchecked_ref()));
+        onend_closure.forget();
+
+        Ok(())
+    }
     pub async fn enter_ar_session(&self) -> Result<(), JsValue> {
         if !xr::is_ar_supported().await? {
             return Err(JsValue::from_str("AR not supported"));

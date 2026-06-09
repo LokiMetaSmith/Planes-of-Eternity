@@ -8,4 +8,4 @@ cd ..
 
 # Initialize and build Android APK wrapper
 cd reality-app
-cargo tauri build --target aarch64-linux-android
+ANDROID_HOME=$HOME/android-sdk NDK_HOME=$HOME/android-sdk/ndk/25.2.9519653 npx tauri android build

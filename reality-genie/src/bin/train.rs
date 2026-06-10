@@ -86,7 +86,10 @@ fn main() -> Result<()> {
             let (x_masked, _mask_indices) = model.q_sample(batch, mask_prob)?;
 
             // Forward Pass
-            let logits = model.p_sample(&x_masked)?;
+            let dummy_context = Tensor::zeros((batch.dim(0)?, 1, 64), DType::F32, &device)?; // Match d_model=64
+
+            // Forward Pass
+            let logits = model.p_sample(&x_masked, &dummy_context)?;
 
             // Compute Cross Entropy Loss
             // Target is the original unmasked tokens.

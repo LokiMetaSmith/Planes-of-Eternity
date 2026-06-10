@@ -77,28 +77,91 @@ impl SelfAttention {
 }
 
 #[derive(Debug)]
+struct CrossAttention {
+    query: Linear,
+    key: Linear,
+    value: Linear,
+    out: Linear,
+    n_head: usize,
+    d_head: usize,
+    scale: f64,
+}
+
+impl CrossAttention {
+    fn new(d_model: usize, n_head: usize, vb: VarBuilder) -> Result<Self> {
+        let d_head = d_model / n_head;
+        let query = candle_nn::linear(d_model, d_model, vb.pp("query"))?;
+        let key = candle_nn::linear(d_model, d_model, vb.pp("key"))?;
+        let value = candle_nn::linear(d_model, d_model, vb.pp("value"))?;
+        let out = candle_nn::linear(d_model, d_model, vb.pp("out"))?;
+
+        Ok(Self {
+            query, key, value, out,
+            n_head,
+            d_head,
+            scale: 1.0 / (d_head as f64).sqrt(),
+        })
+    }
+
+    fn forward(&self, x: &Tensor, context: &Tensor) -> Result<Tensor> {
+        let (b, t, c) = x.dims3()?;
+        let (_, t_ctx, _) = context.dims3()?;
+
+        let q = self.query.forward(x)?;
+        let k = self.key.forward(context)?;
+        let v = self.value.forward(context)?;
+
+        // Reshape for heads: [B, T, n_head, d_head] -> permute -> [B, n_head, T, d_head]
+        let q = q.reshape((b, t, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?;
+        let k = k.reshape((b, t_ctx, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?;
+        let v = v.reshape((b, t_ctx, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?;
+
+        // Attention scores: Q * K^T -> [B, n_head, T, T_ctx]
+        let att = (q.matmul(&k.t()?)? * self.scale)?;
+        let att = candle_nn::ops::softmax(&att, 3)?;
+
+        // Output: Att * V -> [B, n_head, T, d_head]
+        let out = att.matmul(&v)?;
+
+        // Reassemble: [B, T, n_head, d_head] -> [B, T, C]
+        let out = out.permute((0, 2, 1, 3))?.reshape((b, t, c))?;
+
+        self.out.forward(&out)
+    }
+}
+
+#[derive(Debug)]
 struct Block {
     sa: SelfAttention,
+    ca: CrossAttention,
     ff1: Linear,
     ff2: Linear,
     ln1: LayerNorm,
+    ln_ca: LayerNorm,
     ln2: LayerNorm,
 }
 
 impl Block {
     fn new(cfg: &DiffusionConfig, vb: VarBuilder) -> Result<Self> {
         let sa = SelfAttention::new(cfg.d_model, cfg.n_head, vb.pp("sa"))?;
+        let ca = CrossAttention::new(cfg.d_model, cfg.n_head, vb.pp("ca"))?;
         let ff1 = candle_nn::linear(cfg.d_model, cfg.d_model * 4, vb.pp("ff1"))?;
         let ff2 = candle_nn::linear(cfg.d_model * 4, cfg.d_model, vb.pp("ff2"))?;
         let ln1 = candle_nn::layer_norm(cfg.d_model, 1e-5, vb.pp("ln1"))?;
+        let ln_ca = candle_nn::layer_norm(cfg.d_model, 1e-5, vb.pp("ln_ca"))?;
         let ln2 = candle_nn::layer_norm(cfg.d_model, 1e-5, vb.pp("ln2"))?;
-        Ok(Self { sa, ff1, ff2, ln1, ln2 })
+        Ok(Self { sa, ca, ff1, ff2, ln1, ln_ca, ln2 })
     }
 
-    fn forward(&self, x: &Tensor) -> Result<Tensor> {
+    fn forward(&self, x: &Tensor, context: &Tensor) -> Result<Tensor> {
         let residual = x;
         let x = self.ln1.forward(x)?;
         let x = self.sa.forward(&x)?;
+        let x = (x + residual)?;
+
+        let residual = &x;
+        let x = self.ln_ca.forward(&x)?;
+        let x = self.ca.forward(&x, context)?;
         let x = (x + residual)?;
 
         let residual = &x;
@@ -143,7 +206,7 @@ impl DiffusionModel {
         })
     }
 
-    pub fn forward(&self, tokens: &Tensor) -> Result<Tensor> {
+    pub fn forward(&self, tokens: &Tensor, context: &Tensor) -> Result<Tensor> {
         let (b, t) = tokens.dims2()?;
 
         let t_emb = self.token_embed.forward(tokens)?;
@@ -153,7 +216,7 @@ impl DiffusionModel {
         let mut x = (t_emb + p_emb)?;
 
         for block in &self.blocks {
-            x = block.forward(&x)?;
+            x = block.forward(&x, context)?;
         }
 
         let x = self.ln_f.forward(&x)?;
@@ -198,8 +261,8 @@ impl DiscreteDiffusion {
 
     // Reverse process: Denoise xt to x0
     // Predicts logits for x0
-    pub fn p_sample(&self, xt: &Tensor) -> Result<Tensor> {
-        let logits = self.model.forward(xt)?;
+    pub fn p_sample(&self, xt: &Tensor, context: &Tensor) -> Result<Tensor> {
+        let logits = self.model.forward(xt, context)?;
         // Return logits for sampling
         Ok(logits)
     }
@@ -213,8 +276,8 @@ impl DiscreteDiffusion {
     //
     // For this implementation, we'll expose a "denoise" function that takes a partially masked input
     // and fills in the masks.
-    pub fn denoise(&self, x_masked: &Tensor) -> Result<Tensor> {
-        let logits = self.p_sample(x_masked)?;
+    pub fn denoise(&self, x_masked: &Tensor, context: &Tensor) -> Result<Tensor> {
+        let logits = self.p_sample(x_masked, context)?;
         let pred_tokens = logits.argmax(2)?; // [B, T]
         Ok(pred_tokens)
     }

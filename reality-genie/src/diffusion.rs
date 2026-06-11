@@ -253,7 +253,8 @@ impl DiscreteDiffusion {
         let x0_f = x0.to_dtype(DType::F32)?;
         let mask_token_f = mask_token.to_dtype(DType::F32)?;
 
-        let x_t_f = ((x0_f * (1.0 - &mask_f))? + (mask_token_f * &mask_f)?)?;
+        let inv_mask = mask_f.affine(-1.0, 1.0)?;
+        let x_t_f = ((x0_f * &inv_mask)? + (mask_token_f * &mask_f)?)?;
         let x_t = x_t_f.to_dtype(x0.dtype())?;
 
         Ok((x_t, mask_indices))

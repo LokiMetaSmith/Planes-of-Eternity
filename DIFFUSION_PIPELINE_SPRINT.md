@@ -11,8 +11,8 @@
 - [x] **Task 2.2:** Add Cross-Attention layers to the DiscreteDiffusion block to accept text embeddings for conditioning.
 
 ## Phase 3: The Inference Loop
-- [ ] **Task 3.1:** Implement a proper diffusion scheduler (e.g., DDIM or DDPM).
-- [ ] **Task 3.2:** Build the iterative denoising inference loop inside DiscreteDiffusion.
+- [x] **Task 3.1:** Implement a proper diffusion scheduler (e.g., DDIM or DDPM).
+- [x] **Task 3.2:** Build the iterative denoising inference loop inside DiscreteDiffusion.
 
 ## Phase 4: Decoding & Splat Mapping
 - [ ] **Task 4.1:** Pass final discrete latent tokens through VqVae::decode_from_indices.

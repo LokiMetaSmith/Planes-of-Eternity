@@ -224,6 +224,26 @@ impl DiffusionModel {
     }
 }
 
+
+#[derive(Debug, Clone)]
+pub struct DiffusionScheduler {
+    pub num_timesteps: usize,
+}
+
+impl DiffusionScheduler {
+    pub fn new(num_timesteps: usize) -> Self {
+        Self { num_timesteps }
+    }
+
+    pub fn get_mask_prob(&self, t: usize) -> f64 {
+        // Simple cosine schedule for masking probability
+        // At t=0 (start), prob=1.0 (fully masked)
+        // At t=num_timesteps (end), prob=0.0 (fully unmasked)
+        let phase = (t as f64 / self.num_timesteps as f64) * std::f64::consts::PI / 2.0;
+        phase.cos()
+    }
+}
+
 pub struct DiscreteDiffusion {
     pub model: DiffusionModel,
     pub config: DiffusionConfig,
@@ -277,6 +297,32 @@ impl DiscreteDiffusion {
     //
     // For this implementation, we'll expose a "denoise" function that takes a partially masked input
     // and fills in the masks.
+
+    // Iterative Generation Loop
+    pub fn generate(&self, b: usize, t: usize, context: &Tensor, scheduler: &DiffusionScheduler, device: &candle_core::Device) -> Result<Tensor> {
+        // Start with fully masked input (assuming mask token is 0 for now)
+        let mut xt = Tensor::zeros((b, t), DType::U32, device)?;
+
+        for step in 0..scheduler.num_timesteps {
+            // Predict x0 from xt
+            let logits = self.p_sample(&xt, context)?;
+            let x0_pred = logits.argmax(2)?; // [B, T]
+
+            // Mask probability for the NEXT step
+            let mask_prob = scheduler.get_mask_prob(step + 1);
+
+            // Re-mask a portion of tokens for the next step, unless it's the last step
+            if step < scheduler.num_timesteps - 1 {
+                let (x_next, _) = self.q_sample(&x0_pred, mask_prob)?;
+                xt = x_next;
+            } else {
+                xt = x0_pred;
+            }
+        }
+
+        Ok(xt)
+    }
+
     pub fn denoise(&self, x_masked: &Tensor, context: &Tensor) -> Result<Tensor> {
         let logits = self.p_sample(x_masked, context)?;
         let pred_tokens = logits.argmax(2)?; // [B, T]

@@ -207,8 +207,8 @@ impl GenieBridge {
         #[cfg(not(target_arch = "wasm32"))]
 
         {
-            use reality_genie::splat_gen::{SplatGenerator, DummySplatGenerator};
-            let gen = DummySplatGenerator::new();
+            use reality_genie::splat_gen::{SplatGenerator, GenieSplatGenerator};
+            let gen = GenieSplatGenerator::new();
             let raw_splats = gen.generate_splats_from_prompt(&prompt);
 
             let mut direct_splats = Vec::new();

@@ -86,3 +86,17 @@ impl SplatGenerator for GenieSplatGenerator {
         splats
     }
 }
+
+impl GenieSplatGenerator {
+    pub fn from_safetensors(data: &[u8]) -> Self {
+        let device = candle_core::Device::Cpu;
+        let vb = candle_nn::VarBuilder::from_slice_safetensors(data, candle_core::DType::F32, &device).unwrap();
+
+        let mut cfg = crate::vqvae::VqVaeConfig::default();
+        cfg.in_channels = 14;
+
+        let vqvae = crate::vqvae::VqVae::new(&cfg, vb).unwrap();
+
+        Self { vqvae }
+    }
+}

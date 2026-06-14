@@ -4,7 +4,7 @@
 
 ## Phase 1: Wasm Infrastructure & Weight Management
 - [x] **Task 1.1:** Set up the Web Worker architecture in GenieBridge to offload heavy inference from the main game thread.
-- [ ] **Task 1.2:** Implement Wasm-compatible HTTP fetching and IndexedDB/CacheStorage caching for the .safetensors model weights.
+- [x] **Task 1.2:** Implement Wasm-compatible HTTP fetching and IndexedDB/CacheStorage caching for the .safetensors model weights.
 
 ## Phase 2: Text Encoding & Conditioning
 - [x] **Task 2.1:** Integrate the tokenizers crate and implement a lightweight Text Encoder.

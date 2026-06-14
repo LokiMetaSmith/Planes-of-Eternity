@@ -3284,10 +3284,19 @@ pub fn get_engine_version() -> String {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn generate_splats_worker_entry(prompt: String) -> String {
-    use reality_genie::splat_gen::{SplatGenerator, DummySplatGenerator};
+pub async fn generate_splats_worker_entry(prompt: String) -> String {
+    use reality_genie::splat_gen::{SplatGenerator, GenieSplatGenerator};
 
-    let gen = DummySplatGenerator::new();
+    let model_url = "/models/diffusion_model.safetensors";
+    let data = match reality_genie::fetch_weights::fetch_safetensors(model_url).await {
+        Ok(d) => d,
+        Err(e) => {
+            log::error!("Failed to fetch weights: {:?}", e);
+            return String::from("[]");
+        }
+    };
+
+    let gen = GenieSplatGenerator::from_safetensors(&data);
     let raw_splats = gen.generate_splats_from_prompt(&prompt);
 
     let mut direct_splats = Vec::new();

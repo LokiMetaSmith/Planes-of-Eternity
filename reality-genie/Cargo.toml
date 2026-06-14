@@ -14,3 +14,19 @@ ndarray = "0.15"
 npyz = "0.8"
 tokenizers = { version = "0.23.1", default-features = false, features = ["unstable_wasm"] }
 getrandom = { version = "0.2", features = ["js"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Cache",
+    "CacheStorage",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Window",
+    "WorkerGlobalScope",
+    "console"
+] }

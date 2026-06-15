@@ -1833,14 +1833,18 @@ impl GameClient {
     }
 
     pub fn get_node_labels_flat(&self) -> js_sys::Uint8Array {
-        let mut state_ref = self.state.borrow_mut();
-        let state = &mut *state_ref;
-        state.engine.get_node_labels_flat(&mut state.labels_buffer);
-        // Optimization: Use `js_sys::Uint8Array::view` to create a direct view into WASM memory.
-        // This entirely eliminates the O(N) allocation and copying of bytes at the JS/WASM boundary
-        // every single frame, significantly improving performance.
-        unsafe {
-            js_sys::Uint8Array::view(&state.labels_buffer)
+        if let Ok(mut state_ref) = self.state.try_borrow_mut() {
+            let state = &mut *state_ref;
+            state.engine.get_node_labels_flat(&mut state.labels_buffer);
+            // Optimization: Use `js_sys::Uint8Array::view` to create a direct view into WASM memory.
+            // This entirely eliminates the O(N) allocation and copying of bytes at the JS/WASM boundary
+            // every single frame, significantly improving performance.
+            unsafe {
+                js_sys::Uint8Array::view(&state.labels_buffer)
+            }
+        } else {
+            // Return an empty array if we cannot borrow the state to avoid panicking
+            js_sys::Uint8Array::new(&js_sys::ArrayBuffer::new(0))
         }
     }
 
@@ -3023,21 +3027,24 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             let state_sync = state.clone();
             m.borrow_mut().set_sync_callback(move |msg| match msg {
                 network::SyncMessage::WorldUpdate(remote_world) => {
-                    let mut state = state_sync.borrow_mut();
-                    if state.engine.world_state.merge(remote_world) {
-                        log::info!("Anomaly Conflict Resolved! World merged.");
+                    if let Ok(mut state) = state_sync.try_borrow_mut() {
+                        if state.engine.world_state.merge(remote_world) {
+                            log::info!("Anomaly Conflict Resolved! World merged.");
+                        }
                     }
                 }
                 network::SyncMessage::ChunkUpdate(chunks) => {
-                    let mut state = state_sync.borrow_mut();
-                    if state.engine.world_state.merge_chunks(chunks) {
-                        log::info!("Chunk Update Merged.");
+                    if let Ok(mut state) = state_sync.try_borrow_mut() {
+                        if state.engine.world_state.merge_chunks(chunks) {
+                            log::info!("Chunk Update Merged.");
+                        }
                     }
                 }
                 network::SyncMessage::RequestSync => {
-                    let mut state = state_sync.borrow_mut();
-                    state.engine.pending_full_sync = true;
-                    log::info!("Received Sync Request. Scheduled Full Broadcast.");
+                    if let Ok(mut state) = state_sync.try_borrow_mut() {
+                        state.engine.pending_full_sync = true;
+                        log::info!("Received Sync Request. Scheduled Full Broadcast.");
+                    }
                 }
             });
             Some(m)
@@ -3054,50 +3061,54 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let slot_autosave = current_save_slot.clone();
 
     let autosave_closure = Closure::wrap(Box::new(move || {
-        let mut state = state_autosave.borrow_mut();
-        let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
-            term.to_string()
-        } else {
-            "".to_string()
-        };
+        if let Ok(mut state) = state_autosave.try_borrow_mut() {
+            let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
+                term.to_string()
+            } else {
+                "".to_string()
+            };
 
-        let game_state = persistence::GameState {
-            player: persistence::PlayerState {
-                projector: state.engine.player_projector.clone(),
-            },
-            world: state.engine.world_state.clone(),
-            lambda_source,
-            lambda_layout: state.engine.lambda_system.get_layout(),
-            input_config: state.engine.input_config.clone(),
-            voxel_world: Some(state.voxel_world.clone()),
-            timestamp: js_sys::Date::now() as u64,
-            version: persistence::SAVE_VERSION,
-        };
-        let slot = slot_autosave.borrow().clone();
-        let key = persistence::get_save_key(&slot);
-        persistence::save_to_local_storage(&key, &game_state);
-
-        // Pollinate (Broadcast Presence)
-        if let Some(net) = &network_autosave {
-            let loc = state.engine.player_projector.location;
-            let net = net.borrow();
-
-            net.pollinate(&state.engine.world_state.root_hash, [loc.x, loc.y, loc.z]);
-
-            // Check pending full sync
-            if state.engine.pending_full_sync {
-                net.broadcast_world_state(&state.engine.world_state);
-                state.engine.pending_full_sync = false;
+            let game_state = persistence::GameState {
+                player: persistence::PlayerState {
+                    projector: state.engine.player_projector.clone(),
+                },
+                world: state.engine.world_state.clone(),
+                lambda_source,
+                lambda_layout: state.engine.lambda_system.get_layout(),
+                input_config: state.engine.input_config.clone(),
+                voxel_world: Some(state.voxel_world.clone()),
+                timestamp: js_sys::Date::now() as u64,
+                version: persistence::SAVE_VERSION,
+            };
+            if let Ok(slot_ref) = slot_autosave.try_borrow() {
+                let slot = slot_ref.clone();
+                let key = persistence::get_save_key(&slot);
+                persistence::save_to_local_storage(&key, &game_state);
             }
-            // Check if world empty (Request Sync)
-            else if state.engine.world_state.chunks.is_empty() {
-                net.broadcast_request_sync();
-            }
-            // Check dirty chunks (Delta Sync)
-            else {
-                let dirty = state.engine.world_state.extract_dirty_chunks();
-                if !dirty.is_empty() {
-                    net.broadcast_chunk_update(dirty);
+
+            // Pollinate (Broadcast Presence)
+            if let Some(net_rc) = &network_autosave {
+                if let Ok(net) = net_rc.try_borrow() {
+                    let loc = state.engine.player_projector.location;
+
+                    net.pollinate(&state.engine.world_state.root_hash, [loc.x, loc.y, loc.z]);
+
+                    // Check pending full sync
+                    if state.engine.pending_full_sync {
+                        net.broadcast_world_state(&state.engine.world_state);
+                        state.engine.pending_full_sync = false;
+                    }
+                    // Check if world empty (Request Sync)
+                    else if state.engine.world_state.chunks.is_empty() {
+                        net.broadcast_request_sync();
+                    }
+                    // Check dirty chunks (Delta Sync)
+                    else {
+                        let dirty = state.engine.world_state.extract_dirty_chunks();
+                        if !dirty.is_empty() {
+                            net.broadcast_chunk_update(dirty);
+                        }
+                    }
                 }
             }
         }
@@ -3123,21 +3134,27 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 impl GameClient {
 
     pub fn get_minimap_data_json(&self) -> String {
-        let state = self.state.borrow();
-        let chunks: Vec<[i32; 2]> = state.engine.world_state.chunks.keys().map(|id| [id.x, id.z]).collect();
-        let player_pos = [state.engine.player_projector.location.x, state.engine.player_projector.location.y, state.engine.player_projector.location.z];
+        if let Ok(state) = self.state.try_borrow() {
+            let chunks: Vec<[i32; 2]> = state.engine.world_state.chunks.keys().map(|id| [id.x, id.z]).collect();
+            let player_pos = [state.engine.player_projector.location.x, state.engine.player_projector.location.y, state.engine.player_projector.location.z];
 
-        let data = serde_json::json!({
-            "chunks": chunks,
-            "player_pos": player_pos
-        });
+            let data = serde_json::json!({
+                "chunks": chunks,
+                "player_pos": player_pos
+            });
 
-        serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string())
+            serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string())
+        } else {
+            "{}".to_string()
+        }
     }
 
     pub fn get_inventory_json(&self) -> String {
-        let state = self.state.borrow();
-        serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())
+        if let Ok(state) = self.state.try_borrow() {
+            serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
     }
 
     pub fn world_to_screen(&self, x: f32, y: f32, z: f32) -> js_sys::Float32Array {
@@ -3198,15 +3215,18 @@ impl GameClient {
     }
 
     pub fn get_all_npcs_json(&self) -> String {
-        let state = self.state.borrow();
-        let uuids: Vec<String> = state
-            .engine
-            .world_state
-            .npcs
-            .iter()
-            .map(|n| n.uuid.clone())
-            .collect();
-        serde_json::to_string(&uuids).unwrap_or_else(|_| "[]".to_string())
+        if let Ok(state) = self.state.try_borrow() {
+            let uuids: Vec<String> = state
+                .engine
+                .world_state
+                .npcs
+                .iter()
+                .map(|n| n.uuid.clone())
+                .collect();
+            serde_json::to_string(&uuids).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
     }
 
     pub fn execute_npc_action_json(&self, uuid: js_sys::JsString, action_json: js_sys::JsString) -> bool {

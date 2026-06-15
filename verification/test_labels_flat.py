@@ -19,7 +19,7 @@ def test_labels_render_correctly(page: Page, dev_server):
     page.goto("http://localhost:9000/")
 
     # Wait for WGPU to initialize and the canvas to appear
-    canvas = page.locator("canvas")
+    canvas = page.locator("#reality-canvas")
     expect(canvas).to_be_visible(timeout=10000)
 
     # Let the game initialize

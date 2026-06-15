@@ -81,6 +81,7 @@
 - [x] **New Archetypes**: Added LiminalSpace archetype to Reality Engine.
 - [x] **New Archetypes**: Added Clockwork archetype to Reality Engine.
 - [x] **New Archetypes**: Added Cottagecore archetype to Reality Engine.
+- [x] **New Archetypes**: Added PostApocalyptic archetype to Reality Engine.
 
 ## Game Mechanics
 - [x] **Item Physics**: Added simple physics for dropped items with gravity and ground collision.

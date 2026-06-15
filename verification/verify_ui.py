@@ -48,7 +48,7 @@ def run():
             page.wait_for_timeout(500)
 
             close_btn = page.locator("#btn-close-keybinds")
-            close_btn.hover()
+            # close_btn.hover()
             page.wait_for_timeout(500)
 
             page.screenshot(path="/home/jules/verification/verification.png")

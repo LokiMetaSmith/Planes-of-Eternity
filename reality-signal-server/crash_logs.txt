@@ -277,3 +277,22 @@ Failed to find an appropriate adapter
     at http://localhost:9000/reality-engine-e2863ca887179655_bg.wasm:wasm-function[3773]:0x27e552
     at http://localhost:9000/reality-engine-e2863ca887179655_bg.wasm:wasm-function[3772]:0x27e544
 ----------------------------------------
+[2026-06-15T14:51:26.918226412+00:00] Crash Report:
+Message: panicked at src/lib.rs:3061:40:
+RefCell already borrowed
+Uptime: 33434.90ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3061:40:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-812aa02f41fd750c.js:1810:25)
+    at http://localhost:9000/reality-engine-812aa02f41fd750c_bg.wasm:wasm-function[894]:0x1643f2
+    at http://localhost:9000/reality-engine-812aa02f41fd750c_bg.wasm:wasm-function[2461]:0x2a4c3f
+    at http://localhost:9000/reality-engine-812aa02f41fd750c_bg.wasm:wasm-function[3794]:0x30ecdf
+    at http://localhost:9000/reality-engine-812aa02f41fd750c_bg.wasm:wasm-function[5533]:0x3490b0
+    at http://localhost:9000/reality-engine-812aa02f41fd750c_bg.wasm:wasm-function[4084]:0x31e87c
+    at http://localhost:9000/reality-engine-812aa02f41fd750c_bg.wasm:wasm-function[696]:0xcd4dc
+    at http://localhost:9000/reality-engine-812aa02f41fd750c_bg.wasm:wasm-function[4276]:0x3253b4
+    at wasm_bindgen__convert__closures_____invoke__hcc2f4f3817dd67d2 (http://localhost:9000/reality-engine-812aa02f41fd750c.js:2757:10)
+    at real (http://localhost:9000/reality-engine-812aa02f41fd750c.js:3034:20)
+----------------------------------------

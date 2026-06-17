@@ -94,7 +94,12 @@ pub fn save_to_local_storage(key: &str, state: &GameState) {
         match serde_json::to_string(state) {
             Ok(json) => {
                 if let Err(e) = storage.set_item(key, &json) {
-                    error!("Failed to save to local storage: {:?}", e);
+                    let err_str = format!("{:?}", e);
+                    if err_str.contains("QuotaExceededError") {
+                        log::warn!("Failed to save to local storage (QuotaExceededError). World is too large to save.");
+                    } else {
+                        error!("Failed to save to local storage: {:?}", e);
+                    }
                 }
             }
             Err(e) => error!("Failed to serialize game state: {:?}", e),

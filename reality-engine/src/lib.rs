@@ -355,6 +355,12 @@ pub struct State {
     max_entities: u32,
 
     pub labels_buffer: Vec<u8>,
+
+    // Dynamic Draw Distance & FPS Tracking
+    pub last_frame_time: f64,
+    pub fps_moving_average: f32,
+    pub frame_count: u32,
+    pub grid_count: i32,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -621,12 +627,12 @@ impl State {
 
         // Define logical chunks (Positions)
         let mut chunk_data = Vec::new();
-        let grid_count = 3; // 3x3
-        let half_grid = (grid_count as f32 * chunk_size) / 2.0;
+        let initial_grid_count = 3; // 3x3
+        let half_grid = (initial_grid_count as f32 * chunk_size) / 2.0;
         let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
 
-        for z in 0..grid_count {
-            for x in 0..grid_count {
+        for z in 0..initial_grid_count {
+            for x in 0..initial_grid_count {
                 let x_pos = (x as f32 * chunk_size) - half_grid + offset;
                 let z_pos = (z as f32 * chunk_size) - half_grid + offset;
                 let half_size = chunk_size / 2.0;
@@ -1137,6 +1143,10 @@ impl State {
             num_entities: 1,
             max_entities: max_entities as u32,
             labels_buffer: Vec::with_capacity(1024),
+            last_frame_time: 0.0,
+            fps_moving_average: 60.0,
+            frame_count: 0,
+            grid_count: 3,
         };
 
         state.last_lod_update_pos = state.engine.camera.eye;
@@ -1764,7 +1774,7 @@ impl State {
 
         // Re-generate chunk_data dynamically based on player's chunk
         self.chunk_data.clear();
-        let grid_count = 3;
+        let grid_count = self.grid_count;
         let half_grid = grid_count / 2; // e.g., 1 for 3x3
 
         for z in (player_chunk_z - half_grid)..=(player_chunk_z + half_grid) {
@@ -3272,6 +3282,26 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_copy = state.clone();
     *g.borrow_mut() = Some(Closure::new(move || {
         let mut state = state_copy.borrow_mut();
+
+        let now = web_sys::window().unwrap().performance().unwrap().now();
+        let dt = (now - state.last_frame_time) / 1000.0;
+        state.last_frame_time = now;
+
+        if dt > 0.0 && dt < 1.0 { // Ignore huge spikes
+            let current_fps = 1.0 / dt as f32;
+            // Moving average
+            state.fps_moving_average = state.fps_moving_average * 0.9 + current_fps * 0.1;
+        }
+
+        state.frame_count += 1;
+        if state.frame_count % 60 == 0 {
+            if state.fps_moving_average > 55.0 && state.grid_count < 25 {
+                state.grid_count += 2;
+            } else if state.fps_moving_average < 45.0 && state.grid_count > 3 {
+                state.grid_count -= 2;
+            }
+        }
+
         if !state.in_xr {
             state.update();
             state.render().expect("Render failed");

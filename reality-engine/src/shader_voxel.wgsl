@@ -23,6 +23,32 @@ struct RealityUniform {
 };
 @group(2) @binding(0) var<uniform> reality: RealityUniform;
 
+
+fn get_lighting_info(id: f32) -> vec2<f32> {
+    if (id < -0.5) { return vec2<f32>(0.0, 0.4); }
+    else if (id < 0.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 1.5) { return vec2<f32>(0.0, 0.5); }
+    else if (id < 2.5) { return vec2<f32>(0.0, 0.2); }
+    else if (id < 3.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 4.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 5.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 6.5) { return vec2<f32>(0.0, 0.5); }
+    else if (id < 7.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 8.5) { return vec2<f32>(0.0, 0.5); }
+    else if (id < 9.5) { return vec2<f32>(0.0, 0.4); }
+    else if (id < 10.5) { return vec2<f32>(0.0, 0.5); }
+    else if (id < 11.5) { return vec2<f32>(0.0, 0.6); }
+    else if (id < 12.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 13.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 14.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 15.5) { return vec2<f32>(0.0, 0.5); }
+    else if (id < 16.5) { return vec2<f32>(0.0, 0.6); }
+    else if (id < 17.5) { return vec2<f32>(0.0, 0.7); }
+    else if (id < 18.5) { return vec2<f32>(1.0, 0.3); }
+    else if (id < 19.5) { return vec2<f32>(1.0, 0.3); }
+    return vec2<f32>(0.5, 0.3);
+}
+
 fn ray_march_shadow(origin: vec3<f32>, direction: vec3<f32>) -> f32 {
     let max_dist = 60.0;
     let step_size = 0.5;
@@ -170,19 +196,40 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let view_dir = normalize(camera.camera_pos.xyz - in.world_pos);
 
-    // Ambient varies with Day/Night
-    var ambient = 0.3;
-    if (light_y < 0.0) { ambient = 0.05; } // Darker at night
+    let dist1 = max(distance(in.world_pos, reality.proj1_pos_fid.xyz), 1.0);
+    let str1 = reality.proj1_pos_fid.w / dist1;
+    let dist2 = max(distance(in.world_pos, reality.proj2_pos_fid.xyz), 1.0);
+    let str2 = reality.proj2_pos_fid.w / dist2;
+
+    let total_str = str1 + str2;
+    var w1 = 0.0;
+    var w2 = 0.0;
+    if (total_str > 0.0001) {
+        w1 = str1 / total_str;
+        w2 = str2 / total_str;
+    }
+
+    let l1 = get_lighting_info(reality.proj1_params.w);
+    let l2 = get_lighting_info(reality.proj2_params.w);
+
+    let directional_weight = l1.x * w1 + l2.x * w2;
+    let ambient_strength = l1.y * w1 + l2.y * w2;
+
+    // Ambient varies with Day/Night ONLY if there is directional light.
+    var ambient = ambient_strength;
+    if (light_y < 0.0) {
+        ambient = mix(ambient_strength, 0.05, directional_weight);
+    }
 
     // Raytraced Shadow (only if sun is up)
     var shadow = 1.0;
-    if (light_y > 0.0) {
+    if (light_y > 0.0 && directional_weight > 0.001) {
         shadow = ray_march_shadow(in.world_pos, light_dir);
     } else {
-        shadow = 0.0; // No direct sun at night
+        shadow = 0.0; // No direct sun at night or if ambient only
     }
 
-    let diff = max(dot(in.normal, light_dir), 0.0) * shadow;
+    let diff = max(dot(in.normal, light_dir), 0.0) * shadow * directional_weight;
 
     // AO Factor
     let ao_factor = in.ao * 0.8 + 0.2;
@@ -190,7 +237,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Specular
     let half_dir = normalize(light_dir + view_dir);
     let spec_angle = max(dot(in.normal, half_dir), 0.0);
-    let specular = pow(spec_angle, 32.0) * specular_strength * shadow;
+    let specular = pow(spec_angle, 32.0) * specular_strength * shadow * directional_weight;
 
     // Combine
     let albedo = tex_color.rgb * in.color;

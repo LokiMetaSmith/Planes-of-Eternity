@@ -10,6 +10,28 @@ pub struct SplatVertex {
     pub previous_position: [f32; 3],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SortEntry {
+    pub distance: f32,
+    pub index: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SortUniforms {
+    pub camera_pos: [f32; 3],
+    pub num_splats: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BitonicUniforms {
+    pub j: u32,
+    pub k: u32,
+    pub padding: [u32; 2],
+}
+
 impl SplatVertex {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {

@@ -322,6 +322,19 @@ pub struct State {
     pub splat_pipeline: wgpu::RenderPipeline,
     pub splat_buffer: wgpu::Buffer,
     pub num_splats: u32,
+
+    pub compute_distances_pipeline: wgpu::ComputePipeline,
+    pub sort_step_pipeline: wgpu::ComputePipeline,
+    pub apply_sort_pipeline: wgpu::ComputePipeline,
+    pub sort_uniform_buffer: wgpu::Buffer,
+    pub bitonic_uniform_buffer: wgpu::Buffer,
+    pub unsorted_splat_buffer: wgpu::Buffer,
+    pub sort_entries_buffer: wgpu::Buffer,
+    pub sort_bind_group_layout_0: wgpu::BindGroupLayout,
+    pub sort_bind_group_layout_1: wgpu::BindGroupLayout,
+    pub sort_bind_group_1: wgpu::BindGroup,
+    pub max_splat_capacity: u32,
+
     pub voxel_meshes: std::collections::HashMap<voxel::ChunkKey, ChunkMesh>,
     pub voxel_dirty: bool,
     pub last_lod_update_pos: cgmath::Point3<f32>,
@@ -853,7 +866,175 @@ impl State {
                 previous_position: [0.0, 0.0, 0.0],
                 color: [0.0, 0.0, 0.0, 0.0],
             }]),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Setup compute shaders for Bitonic Sort
+        let sort_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Sort Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader_sort.wgsl"
+            ))),
+        });
+
+        let sort_bind_group_layout_0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Sort Bind Group Layout 0"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let sort_bind_group_layout_1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Sort Bind Group Layout 1"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<splat::BitonicUniforms>() as _),
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let sort_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Sort Pipeline Layout"),
+            bind_group_layouts: &[&sort_bind_group_layout_0, &sort_bind_group_layout_1],
+            push_constant_ranges: &[],
+        });
+
+        let compute_distances_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Compute Distances Pipeline"),
+            layout: Some(&sort_pipeline_layout),
+            cache: None,
+            module: &sort_shader,
+            entry_point: Some("compute_distances"),
+            compilation_options: Default::default(),
+        });
+
+        let sort_step_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Sort Step Pipeline"),
+            layout: Some(&sort_pipeline_layout),
+            cache: None,
+            module: &sort_shader,
+            entry_point: Some("sort_step"),
+            compilation_options: Default::default(),
+        });
+
+        let apply_sort_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Apply Sort Pipeline"),
+            layout: Some(&sort_pipeline_layout),
+            cache: None,
+            module: &sort_shader,
+            entry_point: Some("apply_sort"),
+            compilation_options: Default::default(),
+        });
+
+        let max_splat_capacity = 256; // Starting capacity
+
+        let sort_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sort Uniform Buffer"),
+            size: std::mem::size_of::<splat::SortUniforms>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Precompute all possible j and k combinations for bitonic sort up to a reasonably large N
+        let mut bitonic_uniforms = Vec::new();
+        // Allow up to 2^18 = 262,144 elements
+        let max_k = 262144;
+        let mut k = 2;
+        while k <= max_k {
+            let mut j = k >> 1;
+            while j > 0 {
+                // Must pad to 256 bytes for dynamic uniform buffer offset
+                // BitonicUniforms is 16 bytes. We need 256 bytes total.
+                let mut data = [0u8; 256];
+                let uniform = splat::BitonicUniforms { j, k, padding: [0, 0] };
+                let bytes = bytemuck::bytes_of(&uniform);
+                data[0..16].copy_from_slice(bytes);
+                bitonic_uniforms.extend_from_slice(&data);
+
+                j >>= 1;
+            }
+            k <<= 1;
+        }
+
+        let bitonic_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Bitonic Uniform Buffer"),
+            contents: &bitonic_uniforms,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let unsorted_splat_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Unsorted Splat Buffer"),
+            size: (max_splat_capacity as usize * std::mem::size_of::<splat::SplatVertex>()) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let sort_entries_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sort Entries Buffer"),
+            size: (max_splat_capacity as usize * std::mem::size_of::<splat::SortEntry>()) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let sort_bind_group_1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Sort Bind Group 1"),
+            layout: &sort_bind_group_layout_1,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &bitonic_uniform_buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<splat::BitonicUniforms>() as _),
+                    }),
+                },
+            ],
         });
 
         let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -926,6 +1107,19 @@ impl State {
             splat_pipeline,
             splat_buffer,
             num_splats: 0,
+
+            compute_distances_pipeline,
+            sort_step_pipeline,
+            apply_sort_pipeline,
+            sort_uniform_buffer,
+            bitonic_uniform_buffer,
+            unsorted_splat_buffer,
+            sort_entries_buffer,
+            sort_bind_group_layout_0,
+            sort_bind_group_layout_1,
+            sort_bind_group_1,
+            max_splat_capacity,
+
             voxel_meshes: std::collections::HashMap::new(),
             voxel_dirty: false,
             last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
@@ -1674,35 +1868,108 @@ impl State {
             }
         }
 
-        // Sort splats back-to-front
-        active_splats.sort_unstable_by(|a, b| {
-            let dx_a = a.position[0] - cam_pos.x;
-            let dy_a = a.position[1] - cam_pos.y;
-            let dz_a = a.position[2] - cam_pos.z;
-            let dist_a = dx_a * dx_a + dy_a * dy_a + dz_a * dz_a;
-
-            let dx_b = b.position[0] - cam_pos.x;
-            let dy_b = b.position[1] - cam_pos.y;
-            let dz_b = b.position[2] - cam_pos.z;
-            let dist_b = dx_b * dx_b + dy_b * dy_b + dz_b * dz_b;
-
-            dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
         self.num_splats = active_splats.len() as u32;
 
         if self.num_splats > 0 {
-            // Reallocate buffer if necessary, or just write
-            let new_size = (self.num_splats as usize * std::mem::size_of::<splat::SplatVertex>()) as wgpu::BufferAddress;
-            if self.splat_buffer.size() < new_size {
-                self.splat_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            let next_pot = self.num_splats.next_power_of_two();
+            let target_capacity = std::cmp::max(self.max_splat_capacity, next_pot);
+
+            // Reallocate if capacity exceeded
+            if target_capacity > self.max_splat_capacity {
+                self.max_splat_capacity = target_capacity;
+
+                self.splat_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Splat Instance Buffer"),
-                    contents: bytemuck::cast_slice(&active_splats),
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    size: (self.max_splat_capacity as usize * std::mem::size_of::<splat::SplatVertex>()) as wgpu::BufferAddress,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
                 });
-            } else {
-                self.queue.write_buffer(&self.splat_buffer, 0, bytemuck::cast_slice(&active_splats));
+
+                self.unsorted_splat_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Unsorted Splat Buffer"),
+                    size: (self.max_splat_capacity as usize * std::mem::size_of::<splat::SplatVertex>()) as wgpu::BufferAddress,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+
+                self.sort_entries_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Sort Entries Buffer"),
+                    size: (self.max_splat_capacity as usize * std::mem::size_of::<splat::SortEntry>()) as wgpu::BufferAddress,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
             }
+
+            self.queue.write_buffer(&self.unsorted_splat_buffer, 0, bytemuck::cast_slice(&active_splats));
+
+            // Setup Sort Uniforms
+            let sort_uniforms = splat::SortUniforms {
+                camera_pos: [cam_pos.x, cam_pos.y, cam_pos.z],
+                num_splats: self.num_splats,
+            };
+            self.queue.write_buffer(&self.sort_uniform_buffer, 0, bytemuck::cast_slice(&[sort_uniforms]));
+
+            // Create ephemeral Bind Group 0 (since it relies on dynamically resized buffers)
+            let sort_bind_group_0 = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Sort Bind Group 0"),
+                layout: &self.sort_bind_group_layout_0,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.unsorted_splat_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.sort_entries_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.sort_uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: self.splat_buffer.as_entire_binding(),
+                    },
+                ],
+            });
+
+            let num_elements = next_pot;
+            let workgroups = ((num_elements + 255) / 256).max(1);
+
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Sort Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            compute_pass.set_pipeline(&self.compute_distances_pipeline);
+            compute_pass.set_bind_group(0, &sort_bind_group_0, &[]);
+            compute_pass.dispatch_workgroups(workgroups, 1, 1);
+
+            // Bitonic Sort
+            // Note: max_k in State::new is set to 262144 (2^18).
+            // We cap num_elements here to avoid uniform offset index out of bounds.
+            // A more robust production approach would be dynamically generating the bitonic_uniforms buffer
+            // if num_elements exceeds max_k, but 262,144 is quite large for standard use-cases in this engine.
+            let safe_num_elements = num_elements.min(262144);
+            let mut uniform_offset_index = 0;
+            let mut k = 2;
+            while k <= safe_num_elements {
+                let mut j = k >> 1;
+                while j > 0 {
+                    compute_pass.set_pipeline(&self.sort_step_pipeline);
+                    compute_pass.set_bind_group(1, &self.sort_bind_group_1, &[uniform_offset_index * 256]);
+                    compute_pass.dispatch_workgroups(workgroups, 1, 1);
+
+                    uniform_offset_index += 1;
+                    j >>= 1;
+                }
+                k <<= 1;
+            }
+
+            // Apply final sorted indices back to splat array
+            compute_pass.set_pipeline(&self.apply_sort_pipeline);
+            compute_pass.set_bind_group(0, &sort_bind_group_0, &[]);
+            compute_pass.dispatch_workgroups(workgroups, 1, 1);
         }
 
         {

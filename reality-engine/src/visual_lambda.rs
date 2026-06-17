@@ -376,12 +376,11 @@ impl LambdaRenderer {
             let mut stack = vec![hover_idx];
             while let Some(parent) = stack.pop() {
                 for &(p, c) in edges {
-                    if p == parent {
-                        if !highlighted_nodes.contains(&c) {
+                    if p == parent
+                        && !highlighted_nodes.contains(&c) {
                             highlighted_nodes.insert(c);
                             stack.push(c);
                         }
-                    }
                 }
             }
 
@@ -1088,8 +1087,8 @@ impl LambdaSystem {
 
         while let Some(parent) = stack.pop() {
             for &(p, c) in &self.edges {
-                if p == parent {
-                    if !visited.contains(&c) {
+                if p == parent
+                    && !visited.contains(&c) {
                         visited.insert(c);
                         // Set scale based on visibility and type
                         if !visible {
@@ -1105,7 +1104,6 @@ impl LambdaSystem {
                         }
                         stack.push(c);
                     }
-                }
             }
         }
     }

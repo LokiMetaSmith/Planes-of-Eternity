@@ -799,7 +799,8 @@ impl State {
                 label: Some("Splat Pipeline Layout"),
                 bind_group_layouts: &[
                     &camera_bind_group_layout,  // Group 0
-                    &reality_bind_group_layout, // Group 1
+                    &voxel_bind_group_layout, // Group 1
+                    &reality_bind_group_layout, // Group 2
                 ],
                 push_constant_ranges: &[],
             });
@@ -1780,7 +1781,8 @@ impl State {
             if self.num_splats > 0 {
                 render_pass.set_pipeline(&self.splat_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.reality_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.splat_buffer.slice(..));
                 render_pass.draw(0..6, 0..self.num_splats);
             }

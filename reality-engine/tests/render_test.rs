@@ -100,32 +100,6 @@ fn test_render_pipeline() {
         label: Some("reality_bind_group_layout"),
     });
 
-    let splat_reality_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: wgpu::TextureViewDimension::D3,
-                    sample_type: wgpu::TextureSampleType::Uint,
-                },
-                count: None,
-            },
-        ],
-        label: Some("splat_reality_bind_group_layout"),
-    });
-
     let voxel_pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Voxel Pipeline Layout"),
@@ -186,7 +160,8 @@ fn test_render_pipeline() {
             label: Some("Splat Pipeline Layout"),
             bind_group_layouts: &[
                 &camera_bind_group_layout,
-                &splat_reality_bind_group_layout,
+                &voxel_bind_group_layout,
+                &reality_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });

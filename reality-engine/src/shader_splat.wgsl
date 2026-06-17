@@ -14,9 +14,9 @@ struct RealityUniform {
     proj2_color: vec4<f32>,
     global_offset: vec4<f32>, // z is time
 };
-@group(1) @binding(0) var<uniform> reality: RealityUniform;
+@group(2) @binding(0) var<uniform> reality: RealityUniform;
 
-@group(1) @binding(1)
+@group(1) @binding(2)
 var t_density: texture_3d<u32>;
 
 fn ray_march_shadow(origin: vec3<f32>, direction: vec3<f32>) -> f32 {

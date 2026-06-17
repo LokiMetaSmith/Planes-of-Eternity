@@ -108,7 +108,7 @@ impl Default for InputConfig {
         bindings.insert(Action::VoxelDiffuse, "KeyH".to_string());
         bindings.insert(Action::DropItem, "KeyB".to_string());
         bindings.insert(Action::PickupItem, "KeyQ".to_string());
-        bindings.insert(Action::StoreSpell, "KeyM".to_string());
+        bindings.insert(Action::StoreSpell, "KeyC".to_string());
 
         let mut config = Self {
             bindings,

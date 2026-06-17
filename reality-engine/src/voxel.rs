@@ -8,7 +8,6 @@ pub const HISTORY_DEPTH: usize = 16; // Store last 16 states (ticks)
 
 pub type VoxelId = u8;
 
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VoxelVertex {
@@ -107,9 +106,13 @@ pub mod voxel_data_serde {
             // A maliciously crafted run-length encoded string could specify massive counts,
             // leading to memory exhaustion when pushing to the vector.
             // We limit the total decoded size to the expected maximum volume of a chunk.
-            const MAX_VOXELS: usize = crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE;
+            const MAX_VOXELS: usize =
+                crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE;
             if data.len() + (count as usize) > MAX_VOXELS {
-                return Err(serde::de::Error::custom(format!("Security Warning: Chunk data exceeds maximum allowed volume of {}", MAX_VOXELS)));
+                return Err(serde::de::Error::custom(format!(
+                    "Security Warning: Chunk data exceeds maximum allowed volume of {}",
+                    MAX_VOXELS
+                )));
             }
 
             for _ in 0..count {
@@ -411,7 +414,6 @@ impl Chunk {
         }
     }
 
-
     pub fn generate(&mut self, base_archetype: Option<crate::reality_types::RealityArchetype>) {
         // Only valid for full size chunks
         if self.size != CHUNK_SIZE {
@@ -572,12 +574,8 @@ impl Chunk {
                                 next_data[d_idx].id = 7;
                             } else if self.data[d_idx].id != 0 {
                                 // Block below is solid, try spreading horizontally
-                                let neighbors = [
-                                    (x + 1, y, z),
-                                    (x - 1, y, z),
-                                    (x, y, z + 1),
-                                    (x, y, z - 1),
-                                ];
+                                let neighbors =
+                                    [(x + 1, y, z), (x - 1, y, z), (x, y, z + 1), (x, y, z - 1)];
                                 // Move to one random available neighbor to avoid infinite cloning/flooding
                                 // since we don't have volume simulation, we just randomly pick one air neighbor and swap.
                                 // Using hash to pick deterministically pseudo-random neighbor
@@ -591,7 +589,10 @@ impl Chunk {
                                 }
 
                                 if !available.is_empty() {
-                                    let rand_idx = (hash(x + self.key.x, y, z + self.key.z).abs() * 100.0) as usize % available.len();
+                                    let rand_idx = (hash(x + self.key.x, y, z + self.key.z).abs()
+                                        * 100.0)
+                                        as usize
+                                        % available.len();
                                     let target_idx = available[rand_idx];
                                     next_data[idx].id = 0;
                                     next_data[target_idx].id = 7;
@@ -607,7 +608,9 @@ impl Chunk {
                         // Clouds occasionally spawn rain beneath them
                         let down_idx = self.index_opt(x, y - 1, z);
                         if let Some(d_idx) = down_idx {
-                            if self.data[d_idx].id == 0 && hash(x + self.key.x, y, z).abs() % 1.0 > 0.9 {
+                            if self.data[d_idx].id == 0
+                                && hash(x + self.key.x, y, z).abs() % 1.0 > 0.9
+                            {
                                 next_data[d_idx].id = 10;
                             }
                         }
@@ -635,17 +638,17 @@ impl Chunk {
 
     pub fn get_color_for_id(id: VoxelId) -> [f32; 3] {
         match id {
-            1 => [0.5, 0.5, 0.5], // Stone
-            2 => [1.0, 0.3, 0.0], // Lava
-            3 => [1.0, 0.8, 0.0], // Fire
-            4 => [0.0, 0.0, 1.0], // Water
-            5 => [0.4, 0.2, 0.0], // Wood
-            6 => [0.2, 0.6, 0.2], // Leaves
-            7 => [0.2, 1.0, 0.2], // Acid
-            8 => [0.7, 0.7, 0.8], // Fog
+            1 => [0.5, 0.5, 0.5],  // Stone
+            2 => [1.0, 0.3, 0.0],  // Lava
+            3 => [1.0, 0.8, 0.0],  // Fire
+            4 => [0.0, 0.0, 1.0],  // Water
+            5 => [0.4, 0.2, 0.0],  // Wood
+            6 => [0.2, 0.6, 0.2],  // Leaves
+            7 => [0.2, 1.0, 0.2],  // Acid
+            8 => [0.7, 0.7, 0.8],  // Fog
             9 => [0.9, 0.9, 0.95], // Cloud
             10 => [0.4, 0.5, 0.8], // Rain
-            _ => [1.0, 0.0, 1.0], // Magenta error
+            _ => [1.0, 0.0, 1.0],  // Magenta error
         }
     }
 
@@ -673,10 +676,12 @@ impl Chunk {
                         let mut scale = [scale_factor, scale_factor, scale_factor];
 
                         // Modify based on material type for demonstration
-                        if id == 8 || id == 9 { // Fog, Cloud
+                        if id == 8 || id == 9 {
+                            // Fog, Cloud
                             opacity = 0.5;
                             scale = [scale_factor * 1.5, scale_factor * 1.5, scale_factor * 1.5];
-                        } else if id == 4 || id == 7 { // Water, Acid
+                        } else if id == 4 || id == 7 {
+                            // Water, Acid
                             opacity = 0.8;
                         }
 
@@ -700,13 +705,26 @@ impl Chunk {
                                     (x as i32, y as i32, z as i32 - 1),
                                 ];
                                 for (nx, ny, nz) in neighbors {
-                                    if nx >= 0 && nx < size as i32 && ny >= 0 && ny < size as i32 && nz >= 0 && nz < size as i32 {
-                                        let nidx = self.index(nx as usize, ny as usize, nz as usize);
+                                    if nx >= 0
+                                        && nx < size as i32
+                                        && ny >= 0
+                                        && ny < size as i32
+                                        && nz >= 0
+                                        && nz < size as i32
+                                    {
+                                        let nidx =
+                                            self.index(nx as usize, ny as usize, nz as usize);
                                         if prev[nidx].id == id {
                                             previous_position = [
-                                                offset_x + nx as f32 * scale_factor + scale_factor * 0.5,
-                                                offset_y + ny as f32 * scale_factor + scale_factor * 0.5,
-                                                offset_z + nz as f32 * scale_factor + scale_factor * 0.5,
+                                                offset_x
+                                                    + nx as f32 * scale_factor
+                                                    + scale_factor * 0.5,
+                                                offset_y
+                                                    + ny as f32 * scale_factor
+                                                    + scale_factor * 0.5,
+                                                offset_z
+                                                    + nz as f32 * scale_factor
+                                                    + scale_factor * 0.5,
                                             ];
                                             break;
                                         }
@@ -744,15 +762,15 @@ impl Chunk {
 
         fn get_color(id: VoxelId) -> [f32; 3] {
             match id {
-                1 => [0.5, 0.5, 0.5], // Stone
-                2 => [1.0, 0.3, 0.0], // Lava
-                3 => [1.0, 0.8, 0.0], // Fire
-                4 => [0.0, 0.0, 1.0], // Water
-                5 => [0.0, 0.8, 0.0], // Grass
-                6 => [0.6, 0.4, 0.2], // Wood
-                7 => [0.2, 1.0, 0.2], // Acid
-                8 => [0.8, 0.8, 0.8], // Fog
-                9 => [0.9, 0.9, 0.9], // Cloud
+                1 => [0.5, 0.5, 0.5],  // Stone
+                2 => [1.0, 0.3, 0.0],  // Lava
+                3 => [1.0, 0.8, 0.0],  // Fire
+                4 => [0.0, 0.0, 1.0],  // Water
+                5 => [0.0, 0.8, 0.0],  // Grass
+                6 => [0.6, 0.4, 0.2],  // Wood
+                7 => [0.2, 1.0, 0.2],  // Acid
+                8 => [0.8, 0.8, 0.8],  // Fog
+                9 => [0.9, 0.9, 0.9],  // Cloud
                 10 => [0.5, 0.5, 1.0], // Rain
                 _ => [1.0, 0.0, 1.0],
             }
@@ -1085,7 +1103,8 @@ impl VoxelWorld {
 
         // Iterate within radius (a simple bounding box for now)
         for x in (px - radius)..=(px + radius) {
-            for y in -1..2 { // Match the default world vertical bounds (-1 to 1) for ground layer consistency
+            for y in -1..2 {
+                // Match the default world vertical bounds (-1 to 1) for ground layer consistency
                 for z in (pz - radius)..=(pz + radius) {
                     let key = ChunkKey { x, y, z };
                     if !self.chunks.contains_key(&key) {

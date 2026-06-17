@@ -8,9 +8,9 @@ use crate::reality_types::{RealityArchetype, RealitySignature};
 use crate::visual_lambda::{self, LambdaSystem};
 use crate::world::WorldState;
 use cgmath::{EuclideanSpace, InnerSpace, Point3, SquareMatrix, Vector3};
+use noise::{Fbm, Simplex};
 use serde::Serialize;
 use std::rc::Rc;
-use noise::{Fbm, Simplex};
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct LabelInfo {
@@ -26,6 +26,12 @@ pub struct SpellEffect {
     pub scale: f32,
     pub timer: f32,
     pub max_time: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhysicsState {
+    Flying,
+    Gravity,
 }
 
 pub struct Engine {
@@ -47,6 +53,7 @@ pub struct Engine {
     pub pending_models: Vec<(String, [f32; 3])>,
     pub anchor_distance: f32,
     pub fbm_noise: Fbm<Simplex>,
+    pub physics_state: PhysicsState,
 }
 
 impl Engine {
@@ -62,6 +69,8 @@ impl Engine {
             yaw: std::f32::consts::PI,
             pitch: -0.4636, // ~ -26.5 degrees
             projection_override: None,
+            velocity: Vector3::new(0.0, 0.0, 0.0),
+            is_grounded: true,
         };
 
         let camera_controller = CameraController::new(0.2);
@@ -199,6 +208,7 @@ impl Engine {
             pending_models: Vec::new(),
             anchor_distance: 8.0,
             fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
+            physics_state: PhysicsState::Flying,
         }
     }
 
@@ -307,13 +317,16 @@ impl Engine {
                     use cgmath::InnerSpace;
                     let dir_to_player = self.camera.eye - npc.location;
                     let dist_to_player_sq = dir_to_player.magnitude2();
-                    if dist_to_player_sq < 400.0 { // 20 units squared
+                    if dist_to_player_sq < 400.0 {
+                        // 20 units squared
                         npc.target_location = Some(self.camera.eye);
                         speed = 6.0;
 
-                        if dist_to_player_sq < 4.0 { // 2 units squared
+                        if dist_to_player_sq < 4.0 {
+                            // 2 units squared
                             // Push back the player
-                            let push_dir = dir_to_player * (5.0 / dist_to_player_sq.sqrt().max(0.1));
+                            let push_dir =
+                                dir_to_player * (5.0 / dist_to_player_sq.sqrt().max(0.1));
                             self.camera.eye += push_dir;
                         }
                     }
@@ -467,7 +480,60 @@ impl Engine {
             }
         }
 
-        self.camera_controller.update_camera(&mut self.camera);
+        let has_gravity = self.physics_state == PhysicsState::Gravity;
+
+        if has_gravity {
+            self.camera.velocity.y -= 9.8 * dt; // Apply gravity
+
+            let next_pos = self.camera.eye + self.camera.velocity * dt;
+            let mut hit_ground = false;
+
+            // Simple Voxel Collision for the player
+            if let Some(ref mut vw) = voxel_world {
+                let vx = next_pos.x.floor() as i32;
+                // Check foot position, crouch height affects checking
+                let foot_y_offset = if self.camera_controller.is_crouching {
+                    0.5
+                } else {
+                    1.0
+                };
+                let vy = (next_pos.y - foot_y_offset).floor() as i32;
+                let vz = next_pos.z.floor() as i32;
+
+                if let Some(voxel) = vw.get_voxel_at(vx, vy, vz) {
+                    if voxel.id != 0 {
+                        hit_ground = true;
+                    }
+                }
+            }
+
+            // Global Floor
+            let target_floor = if self.camera_controller.is_crouching {
+                0.5
+            } else {
+                1.0
+            };
+            if !hit_ground && next_pos.y <= target_floor {
+                hit_ground = true;
+                self.camera.eye.y = target_floor;
+            }
+
+            if hit_ground {
+                if self.camera.velocity.y < 0.0 {
+                    self.camera.velocity.y = 0.0;
+                    self.camera.is_grounded = true;
+                }
+                self.camera.eye.x = next_pos.x;
+                self.camera.eye.z = next_pos.z;
+                self.camera.eye.y = self.camera.eye.y.max(target_floor);
+            } else {
+                self.camera.eye = next_pos;
+                self.camera.is_grounded = false;
+            }
+        }
+
+        self.camera_controller
+            .update_camera(&mut self.camera, has_gravity);
 
         // Update Reality Projector Position (Player follows camera)
         self.player_projector.location = self.camera.eye;
@@ -518,7 +584,8 @@ impl Engine {
 
             let noise_val = self.fbm_noise.get([nx, ny, nz]);
 
-            if noise_val > 0.7 { // High potential threshold
+            if noise_val > 0.7 {
+                // High potential threshold
                 let spawn_x = (grid_x as f32) * grid_size + (grid_size / 2.0);
                 let spawn_y = py + 5.0; // Spawn slightly above player height
                 let spawn_z = (grid_z as f32) * grid_size + (grid_size / 2.0);
@@ -529,9 +596,9 @@ impl Engine {
                     format!("potential_node_{}_{}_{}", grid_x, grid_y, grid_z),
                     spawn_pos,
                     cgmath::Vector3::new(0.0, 0.0, 0.0), // Floating or drops down
-                    0.5, // Larger scale
-                    [0.0, 1.0, 1.0, 1.0], // Cyan glowing color
-                    5, // 5x5x5 grid so it looks substantial
+                    0.5,                                 // Larger scale
+                    [0.0, 1.0, 1.0, 1.0],                // Cyan glowing color
+                    5,                                   // 5x5x5 grid so it looks substantial
                 );
 
                 self.world_state.dropped_items.push(new_node);
@@ -553,30 +620,53 @@ impl Engine {
                     self.audio.play_cast();
                     if let Some(anomaly) = self.compile_spell(term) {
                         self.world_state.add_anomaly(anomaly.clone());
-                        log::info!("Custom Spell Cast Successfully: {:?}", anomaly.reality_signature.active_style.archetype);
+                        log::info!(
+                            "Custom Spell Cast Successfully: {:?}",
+                            anomaly.reality_signature.active_style.archetype
+                        );
 
                         let color = match anomaly.reality_signature.active_style.archetype {
                             crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
                             crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
                             crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
                             crate::reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],
-                            crate::reality_types::RealityArchetype::HyperNature => [0.0, 0.8, 0.2, 1.0],
+                            crate::reality_types::RealityArchetype::HyperNature => {
+                                [0.0, 0.8, 0.2, 1.0]
+                            }
                             crate::reality_types::RealityArchetype::Genie => [1.0, 0.0, 1.0, 1.0],
                             crate::reality_types::RealityArchetype::Void => [0.1, 0.1, 0.1, 1.0],
                             crate::reality_types::RealityArchetype::Glitch => [0.0, 1.0, 0.0, 1.0],
-                            crate::reality_types::RealityArchetype::Steampunk => [0.8, 0.5, 0.2, 1.0],
-                            crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
+                            crate::reality_types::RealityArchetype::Steampunk => {
+                                [0.8, 0.5, 0.2, 1.0]
+                            }
+                            crate::reality_types::RealityArchetype::Vaporwave => {
+                                [1.0, 0.0, 1.0, 1.0]
+                            }
                             crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
-                            crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
+                            crate::reality_types::RealityArchetype::CyberSpace => {
+                                [0.0, 1.0, 1.0, 1.0]
+                            }
                             crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
-                            crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
-                            crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
+                            crate::reality_types::RealityArchetype::ObraDinn => {
+                                [0.9, 0.9, 0.8, 1.0]
+                            }
+                            crate::reality_types::RealityArchetype::SolarPunk => {
+                                [0.2, 0.9, 0.4, 1.0]
+                            }
                             crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
                             crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
-                            crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
-                            crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
-                            crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
-                            crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
+                            crate::reality_types::RealityArchetype::ColdStorage => {
+                                [0.6, 0.9, 1.0, 1.0]
+                            }
+                            crate::reality_types::RealityArchetype::LiminalSpace => {
+                                [0.95, 0.95, 0.8, 1.0]
+                            }
+                            crate::reality_types::RealityArchetype::Clockwork => {
+                                [0.8, 0.6, 0.2, 1.0]
+                            }
+                            crate::reality_types::RealityArchetype::Cottagecore => {
+                                [0.4, 0.7, 0.3, 1.0]
+                            }
                         };
 
                         self.spell_effects.push(SpellEffect {
@@ -598,10 +688,22 @@ impl Engine {
             let term = match action {
                 Action::Jump => Some(Term::prim(Primitive::Jump)),
                 Action::Descend => Some(Term::prim(Primitive::Descend)),
-                Action::MoveForward => Some(Term::app(Term::prim(Primitive::Move), Term::prim(Primitive::Forward))),
-                Action::MoveBackward => Some(Term::app(Term::prim(Primitive::Move), Term::prim(Primitive::Backward))),
-                Action::MoveLeft => Some(Term::app(Term::prim(Primitive::Move), Term::prim(Primitive::Left))),
-                Action::MoveRight => Some(Term::app(Term::prim(Primitive::Move), Term::prim(Primitive::Right))),
+                Action::MoveForward => Some(Term::app(
+                    Term::prim(Primitive::Move),
+                    Term::prim(Primitive::Forward),
+                )),
+                Action::MoveBackward => Some(Term::app(
+                    Term::prim(Primitive::Move),
+                    Term::prim(Primitive::Backward),
+                )),
+                Action::MoveLeft => Some(Term::app(
+                    Term::prim(Primitive::Move),
+                    Term::prim(Primitive::Left),
+                )),
+                Action::MoveRight => Some(Term::app(
+                    Term::prim(Primitive::Move),
+                    Term::prim(Primitive::Right),
+                )),
                 Action::DropItem => Some(Term::prim(Primitive::Drop)),
                 Action::PickupItem => Some(Term::prim(Primitive::Pickup)),
                 _ => None,
@@ -632,27 +734,69 @@ impl Engine {
 
                                 // Spawn visual effect
                                 let color = match anomaly.reality_signature.active_style.archetype {
-                                    crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
-                                    crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
-                                    crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
-                                    crate::reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],
-                                    crate::reality_types::RealityArchetype::HyperNature => [0.0, 0.8, 0.2, 1.0],
-                                    crate::reality_types::RealityArchetype::Genie => [1.0, 0.0, 1.0, 1.0],
-                                    crate::reality_types::RealityArchetype::Void => [0.1, 0.1, 0.1, 1.0],
-                                    crate::reality_types::RealityArchetype::Glitch => [0.0, 1.0, 0.0, 1.0],
-                                    crate::reality_types::RealityArchetype::Steampunk => [0.8, 0.5, 0.2, 1.0],
-                                    crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
-                                    crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
-                                    crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
-                                    crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
-                                    crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
-                                    crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
-                                    crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
-                                    crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
-                                    crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
-                                    crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
-                                    crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
-                                    crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
+                                    crate::reality_types::RealityArchetype::SciFi => {
+                                        [0.0, 1.0, 1.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Horror => {
+                                        [1.0, 0.0, 0.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Fantasy => {
+                                        [0.0, 1.0, 0.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Toon => {
+                                        [1.0, 1.0, 0.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::HyperNature => {
+                                        [0.0, 0.8, 0.2, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Genie => {
+                                        [1.0, 0.0, 1.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Void => {
+                                        [0.1, 0.1, 0.1, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Glitch => {
+                                        [0.0, 1.0, 0.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Steampunk => {
+                                        [0.8, 0.5, 0.2, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Vaporwave => {
+                                        [1.0, 0.0, 1.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Noir => {
+                                        [0.5, 0.5, 0.5, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::CyberSpace => {
+                                        [0.0, 1.0, 1.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Dream => {
+                                        [0.8, 0.6, 1.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::ObraDinn => {
+                                        [0.9, 0.9, 0.8, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::SolarPunk => {
+                                        [0.2, 0.9, 0.4, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Biopunk => {
+                                        [0.8, 0.2, 0.4, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Tron => {
+                                        [0.0, 1.0, 1.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::ColdStorage => {
+                                        [0.6, 0.9, 1.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::LiminalSpace => {
+                                        [0.95, 0.95, 0.8, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Clockwork => {
+                                        [0.8, 0.6, 0.2, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Cottagecore => {
+                                        [0.4, 0.7, 0.3, 1.0]
+                                    }
                                 };
 
                                 self.spell_effects.push(SpellEffect {
@@ -662,7 +806,6 @@ impl Engine {
                                     timer: 0.0,
                                     max_time: 1.5,
                                 });
-
                             } else {
                                 log::warn!(
                                     "Spell Failed: Term did not compile to a valid anomaly."
@@ -748,7 +891,6 @@ impl Engine {
                 _ => {}
             }
         }
-
     }
 
     pub fn process_mouse_down(&mut self, x: f32, y: f32, button: i16) {
@@ -992,7 +1134,8 @@ impl Engine {
                         None
                     }
                     Primitive::Descend => {
-                        self.camera_controller.process_action(Action::Descend, pressed);
+                        self.camera_controller
+                            .process_action(Action::Descend, pressed);
                         None
                     }
                     Primitive::Drop => {
@@ -1004,7 +1147,10 @@ impl Engine {
                                 item.position = self.camera.eye;
                                 item.velocity = forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0;
                                 self.world_state.dropped_items.push(item);
-                                log::info!("Lambda dropped item from inventory at {:?}", self.camera.eye);
+                                log::info!(
+                                    "Lambda dropped item from inventory at {:?}",
+                                    self.camera.eye
+                                );
                             } else {
                                 const MAX_SPAWNED_ITEMS: usize = 100;
                                 if self.world_state.dropped_items.len() < MAX_SPAWNED_ITEMS {
@@ -1017,7 +1163,10 @@ impl Engine {
                                         3,                    // 3x3x3 grid
                                     );
                                     self.world_state.dropped_items.push(new_item);
-                                    log::info!("Lambda dropped new spawned item at {:?}", self.camera.eye);
+                                    log::info!(
+                                        "Lambda dropped new spawned item at {:?}",
+                                        self.camera.eye
+                                    );
                                 } else {
                                     log::warn!("Security Warning: Maximum spawned items limit reached ({}). Cannot drop new item.", MAX_SPAWNED_ITEMS);
                                 }
@@ -1041,19 +1190,36 @@ impl Engine {
 
                             if let Some(idx) = closest_idx {
                                 let item = self.world_state.dropped_items.remove(idx);
-                                log::info!("Lambda picked up item {} from {:?}", item.id, item.position);
+                                log::info!(
+                                    "Lambda picked up item {} from {:?}",
+                                    item.id,
+                                    item.position
+                                );
 
                                 if item.id.starts_with("potential_node_") {
                                     // Absorb the raw potential to expand reality
-                                    self.player_projector.reality_signature.influence_radius += 50.0;
-                                    log::info!("Absorbed raw potential! New influence radius: {}", self.player_projector.reality_signature.influence_radius);
+                                    self.player_projector.reality_signature.influence_radius +=
+                                        50.0;
+                                    log::info!(
+                                        "Absorbed raw potential! New influence radius: {}",
+                                        self.player_projector.reality_signature.influence_radius
+                                    );
 
                                     // Trigger Gaussian Splat generation to anchor the landscape
-                                    let prompt = format!("{:?} landscape", self.player_projector.reality_signature.active_style.archetype);
+                                    let prompt = format!(
+                                        "{:?} landscape",
+                                        self.player_projector
+                                            .reality_signature
+                                            .active_style
+                                            .archetype
+                                    );
                                     // Push a dream so GenieBridge will generate splats around this new anchor
                                     self.pending_dreams.push(prompt.clone());
                                     // Also generate procedural voxel models
-                                    self.pending_models.push((prompt, [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z]));
+                                    self.pending_models.push((
+                                        prompt,
+                                        [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z],
+                                    ));
                                 } else {
                                     // Normal item pickup
                                     self.world_state.player_inventory.push(item);
@@ -1065,14 +1231,32 @@ impl Engine {
                     Primitive::Heal => {
                         if pressed {
                             self.player_projector.reality_signature.fidelity =
-                                (self.player_projector.reality_signature.fidelity + 20.0).min(100.0);
-                            log::info!("Player healed. Current fidelity: {}", self.player_projector.reality_signature.fidelity);
+                                (self.player_projector.reality_signature.fidelity + 20.0)
+                                    .min(100.0);
+                            log::info!(
+                                "Player healed. Current fidelity: {}",
+                                self.player_projector.reality_signature.fidelity
+                            );
                         }
                         None
                     }
-                    _ => self.primitive_to_anomaly(*p, spawn_pos)
+                    Primitive::Gravity => {
+                        if pressed {
+                            self.physics_state = PhysicsState::Gravity;
+                            log::info!("Gravity enabled.");
+                        }
+                        None
+                    }
+                    Primitive::Levitate => {
+                        if pressed {
+                            self.physics_state = PhysicsState::Flying;
+                            log::info!("Levitate enabled (flying).");
+                        }
+                        None
+                    }
+                    _ => self.primitive_to_anomaly(*p, spawn_pos),
                 }
-            },
+            }
             Term::App(func, arg) => {
                 if let Term::Prim(op) = &**func {
                     if *op == Primitive::Stop {
@@ -1082,11 +1266,19 @@ impl Engine {
                     if *op == Primitive::Move {
                         if let Term::Prim(target) = &**arg {
                             match target {
-                                Primitive::Forward => self.camera_controller.process_action(Action::MoveForward, pressed),
-                                Primitive::Backward => self.camera_controller.process_action(Action::MoveBackward, pressed),
-                                Primitive::Left => self.camera_controller.process_action(Action::MoveLeft, pressed),
-                                Primitive::Right => self.camera_controller.process_action(Action::MoveRight, pressed),
-                                _ => ()
+                                Primitive::Forward => self
+                                    .camera_controller
+                                    .process_action(Action::MoveForward, pressed),
+                                Primitive::Backward => self
+                                    .camera_controller
+                                    .process_action(Action::MoveBackward, pressed),
+                                Primitive::Left => self
+                                    .camera_controller
+                                    .process_action(Action::MoveLeft, pressed),
+                                Primitive::Right => self
+                                    .camera_controller
+                                    .process_action(Action::MoveRight, pressed),
+                                _ => (),
                             }
                         }
                         return None;
@@ -1098,7 +1290,10 @@ impl Engine {
                                 log::info!("Triggering DREAM with prompt: {}", prompt);
                                 self.pending_dreams.push(prompt.clone());
                             } else if let Term::Prim(prim_prompt) = &**arg {
-                                log::info!("Triggering DREAM with primitive prompt: {}", prim_prompt);
+                                log::info!(
+                                    "Triggering DREAM with primitive prompt: {}",
+                                    prim_prompt
+                                );
                                 self.pending_dreams.push(prim_prompt.to_string());
                             }
                         }
@@ -1114,25 +1309,44 @@ impl Engine {
                                 "SCIFI" => Some(crate::reality_types::RealityArchetype::SciFi),
                                 "HORROR" => Some(crate::reality_types::RealityArchetype::Horror),
                                 "TOON" => Some(crate::reality_types::RealityArchetype::Toon),
-                                "HYPERNATURE" => Some(crate::reality_types::RealityArchetype::HyperNature),
+                                "HYPERNATURE" => {
+                                    Some(crate::reality_types::RealityArchetype::HyperNature)
+                                }
                                 "GENIE" => Some(crate::reality_types::RealityArchetype::Genie),
                                 "GLITCH" => Some(crate::reality_types::RealityArchetype::Glitch),
-                                "STEAMPUNK" => Some(crate::reality_types::RealityArchetype::Steampunk),
-                                "VAPORWAVE" => Some(crate::reality_types::RealityArchetype::Vaporwave),
+                                "STEAMPUNK" => {
+                                    Some(crate::reality_types::RealityArchetype::Steampunk)
+                                }
+                                "VAPORWAVE" => {
+                                    Some(crate::reality_types::RealityArchetype::Vaporwave)
+                                }
                                 "NOIR" => Some(crate::reality_types::RealityArchetype::Noir),
-                                "CYBERSPACE" => Some(crate::reality_types::RealityArchetype::CyberSpace),
+                                "CYBERSPACE" => {
+                                    Some(crate::reality_types::RealityArchetype::CyberSpace)
+                                }
                                 "DREAM" => Some(crate::reality_types::RealityArchetype::Dream),
-                                "OBRADINN" => Some(crate::reality_types::RealityArchetype::ObraDinn),
-                                "SOLARPUNK" => Some(crate::reality_types::RealityArchetype::SolarPunk),
+                                "OBRADINN" => {
+                                    Some(crate::reality_types::RealityArchetype::ObraDinn)
+                                }
+                                "SOLARPUNK" => {
+                                    Some(crate::reality_types::RealityArchetype::SolarPunk)
+                                }
                                 "BIOPUNK" => Some(crate::reality_types::RealityArchetype::Biopunk),
-                                "CLOCKWORK" => Some(crate::reality_types::RealityArchetype::Clockwork),
-                                "COTTAGECORE" => Some(crate::reality_types::RealityArchetype::Cottagecore),
+                                "CLOCKWORK" => {
+                                    Some(crate::reality_types::RealityArchetype::Clockwork)
+                                }
+                                "COTTAGECORE" => {
+                                    Some(crate::reality_types::RealityArchetype::Cottagecore)
+                                }
                                 "VOID" => Some(crate::reality_types::RealityArchetype::Void),
                                 _ => None,
                             };
 
                             if let Some(a) = arch {
-                                self.player_projector.reality_signature.active_style.archetype = a;
+                                self.player_projector
+                                    .reality_signature
+                                    .active_style
+                                    .archetype = a;
                                 log::info!("Player archetype set to {:?}", a);
                             } else {
                                 log::warn!("Unknown archetype: {}", target);
@@ -1147,7 +1361,8 @@ impl Engine {
                 log::info!("Term resulted in an invalid application: {:?}", term);
 
                 let mut base = self.primitive_to_anomaly(Primitive::Void, spawn_pos)?;
-                base.reality_signature.active_style.archetype = crate::reality_types::RealityArchetype::Glitch;
+                base.reality_signature.active_style.archetype =
+                    crate::reality_types::RealityArchetype::Glitch;
                 Some(base)
             }
 
@@ -1155,7 +1370,8 @@ impl Engine {
             _ => {
                 log::info!("Term unresolved: {:?}", term);
                 let mut base = self.primitive_to_anomaly(Primitive::Void, spawn_pos)?;
-                base.reality_signature.active_style.archetype = crate::reality_types::RealityArchetype::Glitch;
+                base.reality_signature.active_style.archetype =
+                    crate::reality_types::RealityArchetype::Glitch;
                 Some(base)
             }
         }
@@ -1336,6 +1552,8 @@ impl Engine {
         self.lambda_system = LambdaSystem::new();
         let term = lambda::parse("FIRE").unwrap();
         self.lambda_system.set_term(term);
+
+        self.physics_state = PhysicsState::Flying;
 
         log::info!("World State Reset.");
     }

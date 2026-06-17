@@ -1,7 +1,7 @@
 use cgmath::{Point3, Vector3};
 use reality_engine::engine::Engine;
-use reality_engine::visual_lambda::{NodeType, VisualNode};
 use reality_engine::lambda::Term;
+use reality_engine::visual_lambda::{NodeType, VisualNode};
 use std::rc::Rc;
 
 #[test]

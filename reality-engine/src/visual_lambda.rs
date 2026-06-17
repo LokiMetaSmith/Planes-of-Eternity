@@ -376,11 +376,10 @@ impl LambdaRenderer {
             let mut stack = vec![hover_idx];
             while let Some(parent) = stack.pop() {
                 for &(p, c) in edges {
-                    if p == parent
-                        && !highlighted_nodes.contains(&c) {
-                            highlighted_nodes.insert(c);
-                            stack.push(c);
-                        }
+                    if p == parent && !highlighted_nodes.contains(&c) {
+                        highlighted_nodes.insert(c);
+                        stack.push(c);
+                    }
                 }
             }
 
@@ -1087,23 +1086,22 @@ impl LambdaSystem {
 
         while let Some(parent) = stack.pop() {
             for &(p, c) in &self.edges {
-                if p == parent
-                    && !visited.contains(&c) {
-                        visited.insert(c);
-                        // Set scale based on visibility and type
-                        if !visible {
-                            self.nodes[c].scale = 0.0;
-                        } else {
-                            // Restore default scale
-                            self.nodes[c].scale = match self.nodes[c].node_type {
-                                NodeType::Abs(_) => 3.0,
-                                NodeType::Port => 0.2,
-                                NodeType::App => 0.5,
-                                _ => 1.0,
-                            };
-                        }
-                        stack.push(c);
+                if p == parent && !visited.contains(&c) {
+                    visited.insert(c);
+                    // Set scale based on visibility and type
+                    if !visible {
+                        self.nodes[c].scale = 0.0;
+                    } else {
+                        // Restore default scale
+                        self.nodes[c].scale = match self.nodes[c].node_type {
+                            NodeType::Abs(_) => 3.0,
+                            NodeType::Port => 0.2,
+                            NodeType::App => 0.5,
+                            _ => 1.0,
+                        };
                     }
+                    stack.push(c);
+                }
             }
         }
     }
@@ -1640,6 +1638,8 @@ impl LambdaSystem {
             Primitive::Fog => [0.8, 0.8, 0.8, 0.8],  // Light gray
             Primitive::Cloud => [0.9, 0.9, 0.9, 0.8], // White
             Primitive::Rain => [0.5, 0.5, 1.0, 0.8], // Light blue
+            Primitive::Gravity => [0.4, 0.3, 0.5, 1.0], // Dark purple
+            Primitive::Levitate => [0.8, 0.9, 1.0, 1.0], // Light blue-white
         }
     }
 }

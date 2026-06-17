@@ -23,13 +23,16 @@ pub fn install_crash_hook() {
 
         let message = info.to_string();
 
-        let stack = js_sys::Reflect::get(&js_sys::Error::new(&message), &JsValue::from_str("stack"))
-            .ok()
-            .and_then(|v| v.as_string())
-            .unwrap_or_else(|| "Unknown stack".to_string());
+        let stack =
+            js_sys::Reflect::get(&js_sys::Error::new(&message), &JsValue::from_str("stack"))
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_else(|| "Unknown stack".to_string());
 
         let navigator = window.navigator();
-        let user_agent = navigator.user_agent().unwrap_or_else(|_| "Unknown UA".to_string());
+        let user_agent = navigator
+            .user_agent()
+            .unwrap_or_else(|_| "Unknown UA".to_string());
 
         let uptime = if let Some(perf) = window.performance() {
             perf.now()

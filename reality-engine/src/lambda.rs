@@ -29,6 +29,8 @@ pub enum Primitive {
     Fog,
     Cloud,
     Rain,
+    Gravity,
+    Levitate,
 }
 
 impl fmt::Display for Primitive {
@@ -60,6 +62,8 @@ impl fmt::Display for Primitive {
             Primitive::Fog => write!(f, "FOG"),
             Primitive::Cloud => write!(f, "CLOUD"),
             Primitive::Rain => write!(f, "RAIN"),
+            Primitive::Gravity => write!(f, "GRAVITY"),
+            Primitive::Levitate => write!(f, "LEVITATE"),
         }
     }
 }
@@ -95,6 +99,8 @@ impl std::str::FromStr for Primitive {
             "FOG" => Ok(Primitive::Fog),
             "CLOUD" => Ok(Primitive::Cloud),
             "RAIN" => Ok(Primitive::Rain),
+            "GRAVITY" => Ok(Primitive::Gravity),
+            "LEVITATE" => Ok(Primitive::Levitate),
             _ => Err(()),
         }
     }

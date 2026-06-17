@@ -1,4 +1,3 @@
-
 #[test]
 fn test_render_pipeline() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
@@ -24,7 +23,8 @@ fn test_render_pipeline() {
             memory_hints: wgpu::MemoryHints::Performance,
         },
         None,
-    )).expect("Failed to create device");
+    ))
+    .expect("Failed to create device");
 
     let splat_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Splat Shader"),
@@ -37,56 +37,9 @@ fn test_render_pipeline() {
     });
 
     // Create necessary bind group layouts for the pipeline validation
-    let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-        label: Some("camera_bind_group_layout"),
-    });
-
-    let voxel_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-            // voxel density texture
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: wgpu::TextureViewDimension::D3,
-                    sample_type: wgpu::TextureSampleType::Uint,
-                },
-                count: None,
-            },
-        ],
-        label: Some("voxel_bind_group_layout"),
-    });
-
-    let reality_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
+    let camera_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
@@ -95,21 +48,68 @@ fn test_render_pipeline() {
                     min_binding_size: None,
                 },
                 count: None,
-            },
-        ],
-        label: Some("reality_bind_group_layout"),
-    });
-
-    let voxel_pipeline_layout =
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Voxel Pipeline Layout"),
-            bind_group_layouts: &[
-                &camera_bind_group_layout,
-                &voxel_bind_group_layout,
-                &reality_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
+            }],
+            label: Some("camera_bind_group_layout"),
         });
+
+    let voxel_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                // voxel density texture
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        sample_type: wgpu::TextureSampleType::Uint,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("voxel_bind_group_layout"),
+        });
+
+    let reality_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("reality_bind_group_layout"),
+        });
+
+    let voxel_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Voxel Pipeline Layout"),
+        bind_group_layouts: &[
+            &camera_bind_group_layout,
+            &voxel_bind_group_layout,
+            &reality_bind_group_layout,
+        ],
+        push_constant_ranges: &[],
+    });
 
     let _voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Voxel Render Pipeline"),
@@ -155,16 +155,15 @@ fn test_render_pipeline() {
         multiview: None,
     });
 
-    let splat_pipeline_layout =
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Splat Pipeline Layout"),
-            bind_group_layouts: &[
-                &camera_bind_group_layout,
-                &voxel_bind_group_layout,
-                &reality_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
+    let splat_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Splat Pipeline Layout"),
+        bind_group_layouts: &[
+            &camera_bind_group_layout,
+            &voxel_bind_group_layout,
+            &reality_bind_group_layout,
+        ],
+        push_constant_ranges: &[],
+    });
 
     let _splat_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Splat Render Pipeline"),
@@ -240,7 +239,8 @@ fn test_render_all_archetypes() {
             memory_hints: wgpu::MemoryHints::Performance,
         },
         None,
-    )).expect("Failed to create device");
+    ))
+    .expect("Failed to create device");
 
     let _shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Main Shader"),
@@ -255,23 +255,9 @@ fn test_render_all_archetypes() {
     // Let's create the basic wgpu pipelines that use this shader just to verify the WGSL is 100% valid
     // for all functions (including the huge archetype switch statements).
 
-    let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-        label: Some("camera_bind_group_layout_main"),
-    });
-
-    let reality_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
+    let camera_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
@@ -280,22 +266,32 @@ fn test_render_all_archetypes() {
                     min_binding_size: None,
                 },
                 count: None,
-            },
-        ],
-        label: Some("reality_bind_group_layout_main"),
-    });
+            }],
+            label: Some("camera_bind_group_layout_main"),
+        });
+
+    let reality_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("reality_bind_group_layout_main"),
+        });
 
     let _main_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Main Pipeline Layout"),
-        bind_group_layouts: &[
-            &camera_bind_group_layout,
-            &reality_bind_group_layout,
-        ],
+        bind_group_layouts: &[&camera_bind_group_layout, &reality_bind_group_layout],
         push_constant_ranges: &[],
     });
 
     println!("Successfully verified the main shader.");
-
 }
 
 #[test]
@@ -323,26 +319,28 @@ fn test_render_lambda_pipeline() {
             memory_hints: wgpu::MemoryHints::Performance,
         },
         None,
-    )).expect("Failed to create device");
+    ))
+    .expect("Failed to create device");
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Lambda Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("../src/shader_lambda.wgsl").into()),
     });
 
-    let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-        label: Some("camera_bind_group_layout"),
-    });
+    let camera_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("camera_bind_group_layout"),
+        });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Lambda Pipeline Layout"),

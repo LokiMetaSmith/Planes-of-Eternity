@@ -1,5 +1,5 @@
-use crate::voxel::{Chunk, Voxel, CHUNK_SIZE};
 use crate::splat::SplatVertex;
+use crate::voxel::{Chunk, Voxel, CHUNK_SIZE};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -102,7 +102,6 @@ impl GenieBridge {
     }
 
     pub fn request_splat_generation(&self, prompt: String) {
-
         let pending_ref = Arc::clone(&self.pending_splats);
 
         #[cfg(target_arch = "wasm32")]
@@ -111,12 +110,11 @@ impl GenieBridge {
             wasm_bindgen_futures::spawn_local(async move {
                 log::info!("Spawning Web Worker for Splat Generation: {}", prompt_clone);
 
-                use wasm_bindgen::JsCast;
-                use wasm_bindgen::prelude::Closure;
                 use std::cell::RefCell;
                 use std::collections::HashMap;
                 use std::sync::atomic::{AtomicUsize, Ordering};
-
+                use wasm_bindgen::prelude::Closure;
+                use wasm_bindgen::JsCast;
 
                 // Lazy-load a global worker and a map of callbacks
                 thread_local! {
@@ -141,13 +139,16 @@ impl GenieBridge {
                                 if let Some(id) = id_val.as_f64().map(|f| f as usize) {
                                     CALLBACKS.with(|callbacks| {
                                         if let Some(cb) = callbacks.borrow_mut().remove(&id) {
-                                            let cb_fn: &js_sys::Function = cb.as_ref().unchecked_ref();
-                                            let _ = cb_fn.call1(&wasm_bindgen::JsValue::NULL, &data);
+                                            let cb_fn: &js_sys::Function =
+                                                cb.as_ref().unchecked_ref();
+                                            let _ =
+                                                cb_fn.call1(&wasm_bindgen::JsValue::NULL, &data);
                                         }
                                     });
                                 }
                             }
-                        }) as Box<dyn FnMut(_)>);
+                        })
+                            as Box<dyn FnMut(_)>);
                         w.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
                         onmessage.forget(); // Leak once globally
 
@@ -162,16 +163,22 @@ impl GenieBridge {
                 js_sys::Reflect::set(&msg, &"task_id".into(), &(task_id as f64).into()).unwrap();
 
                 let promise = js_sys::Promise::new(&mut |resolve, reject| {
-
                     let resolve_clone = resolve.clone();
                     let reject_clone = reject.clone();
 
                     let callback = Closure::wrap(Box::new(move |data: wasm_bindgen::JsValue| {
-                        let success = js_sys::Reflect::get(&data, &"success".into()).unwrap().as_bool().unwrap_or(false);
+                        let success = js_sys::Reflect::get(&data, &"success".into())
+                            .unwrap()
+                            .as_bool()
+                            .unwrap_or(false);
 
                         if success {
-                            let splats_json = js_sys::Reflect::get(&data, &"splats_json".into()).unwrap().as_string().unwrap_or_else(|| "[]".into());
-                            let _ = resolve_clone.call1(&wasm_bindgen::JsValue::NULL, &splats_json.into());
+                            let splats_json = js_sys::Reflect::get(&data, &"splats_json".into())
+                                .unwrap()
+                                .as_string()
+                                .unwrap_or_else(|| "[]".into());
+                            let _ = resolve_clone
+                                .call1(&wasm_bindgen::JsValue::NULL, &splats_json.into());
                         } else {
                             let error_msg = js_sys::Reflect::get(&data, &"error".into()).unwrap();
                             let _ = reject_clone.call1(&wasm_bindgen::JsValue::NULL, &error_msg);
@@ -190,7 +197,9 @@ impl GenieBridge {
                 match wasm_bindgen_futures::JsFuture::from(promise).await {
                     Ok(splats_json_val) => {
                         if let Some(splats_json) = splats_json_val.as_string() {
-                            if let Ok(splats) = serde_json::from_str::<Vec<SplatVertex>>(&splats_json) {
+                            if let Ok(splats) =
+                                serde_json::from_str::<Vec<SplatVertex>>(&splats_json)
+                            {
                                 if let Ok(mut pending) = pending_ref.lock() {
                                     pending.push(splats);
                                     log::info!("Web Worker Splat Generation complete and applied.");
@@ -205,9 +214,8 @@ impl GenieBridge {
             });
         }
         #[cfg(not(target_arch = "wasm32"))]
-
         {
-            use reality_genie::splat_gen::{SplatGenerator, GenieSplatGenerator};
+            use reality_genie::splat_gen::{GenieSplatGenerator, SplatGenerator};
             let gen = GenieSplatGenerator::new();
             let raw_splats = gen.generate_splats_from_prompt(&prompt);
 
@@ -226,7 +234,6 @@ impl GenieBridge {
                 pending.push(direct_splats);
             }
         }
-
     }
 }
 

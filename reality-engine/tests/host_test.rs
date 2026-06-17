@@ -641,8 +641,16 @@ fn test_bound_variable_labels() {
 #[test]
 fn test_splat_vertex_alignment() {
     use reality_engine::splat::SplatVertex;
-    assert_eq!(std::mem::size_of::<SplatVertex>(), 68, "SplatVertex should be exactly 68 bytes");
-    assert_eq!(std::mem::align_of::<SplatVertex>(), 4, "SplatVertex should be 4-byte aligned");
+    assert_eq!(
+        std::mem::size_of::<SplatVertex>(),
+        68,
+        "SplatVertex should be exactly 68 bytes"
+    );
+    assert_eq!(
+        std::mem::align_of::<SplatVertex>(),
+        4,
+        "SplatVertex should be 4-byte aligned"
+    );
 }
 
 #[test]
@@ -660,11 +668,17 @@ fn test_generate_splats() {
     assert_eq!(splats.len(), 2, "Should generate exactly 2 splats");
 
     // Verify Fog properties (id == 8)
-    let fog_splat = splats.iter().find(|s| s.color[3] == 0.5).expect("Should have a fog splat with opacity 0.5");
+    let fog_splat = splats
+        .iter()
+        .find(|s| s.color[3] == 0.5)
+        .expect("Should have a fog splat with opacity 0.5");
     assert_eq!(fog_splat.scale[0], 1.5, "Fog scale should be 1.5");
 
     // Verify Water properties (id == 4)
-    let water_splat = splats.iter().find(|s| s.color[3] == 0.8).expect("Should have a water splat with opacity 0.8");
+    let water_splat = splats
+        .iter()
+        .find(|s| s.color[3] == 0.8)
+        .expect("Should have a water splat with opacity 0.8");
     assert_eq!(water_splat.scale[0], 1.0, "Water scale should be 1.0");
 }
 
@@ -686,7 +700,8 @@ fn test_vr_performance_limits_arm() {
             let mut sig = RealitySignature::default();
             sig.active_style.archetype = RealityArchetype::SciFi;
             sig.fidelity = 100.0;
-            let anomaly = RealityProjector::new(Point3::new(i as f32 * 10.0, 0.0, j as f32 * 10.0), sig);
+            let anomaly =
+                RealityProjector::new(Point3::new(i as f32 * 10.0, 0.0, j as f32 * 10.0), sig);
             engine.world_state.add_anomaly(anomaly);
         }
     }
@@ -700,7 +715,11 @@ fn test_vr_performance_limits_arm() {
 
     // Ensure 60 frames under heavy VR load on host resolves well under real-time (1 second)
     // to give headroom for ARM execution
-    assert!(duration.as_secs_f32() < 0.25, "Engine physics and generation took too long for VR limitations: {:?}", duration);
+    assert!(
+        duration.as_secs_f32() < 0.25,
+        "Engine physics and generation took too long for VR limitations: {:?}",
+        duration
+    );
 
     // Memory overhead check (rough proxy by checking length of data)
     assert!(engine.world_state.chunks.len() > 0);

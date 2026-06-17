@@ -32,9 +32,9 @@ pub mod network;
 pub mod persistence;
 pub mod projector;
 pub mod reality_types;
+pub mod splat;
 mod texture;
 pub mod visual_lambda;
-pub mod splat;
 pub mod voxel;
 pub mod voxelizer;
 pub mod world;
@@ -812,7 +812,7 @@ impl State {
                 label: Some("Splat Pipeline Layout"),
                 bind_group_layouts: &[
                     &camera_bind_group_layout,  // Group 0
-                    &voxel_bind_group_layout, // Group 1
+                    &voxel_bind_group_layout,   // Group 1
                     &reality_bind_group_layout, // Group 2
                 ],
                 push_constant_ranges: &[],
@@ -867,7 +867,9 @@ impl State {
                 previous_position: [0.0, 0.0, 0.0],
                 color: [0.0, 0.0, 0.0, 0.0],
             }]),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST,
         });
 
         // Setup compute shaders for Bitonic Sort
@@ -878,67 +880,69 @@ impl State {
             ))),
         });
 
-        let sort_bind_group_layout_0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Sort Bind Group Layout 0"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let sort_bind_group_layout_0 =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Sort Bind Group Layout 0"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                ],
+            });
 
-        let sort_bind_group_layout_1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Sort Bind Group Layout 1"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let sort_bind_group_layout_1 =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Sort Bind Group Layout 1"),
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: true,
-                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<splat::BitonicUniforms>() as _),
+                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<
+                            splat::BitonicUniforms,
+                        >() as _),
                     },
                     count: None,
-                },
-            ],
-        });
+                }],
+            });
 
         let sort_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Sort Pipeline Layout"),
@@ -946,14 +950,15 @@ impl State {
             push_constant_ranges: &[],
         });
 
-        let compute_distances_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Compute Distances Pipeline"),
-            layout: Some(&sort_pipeline_layout),
-            cache: None,
-            module: &sort_shader,
-            entry_point: Some("compute_distances"),
-            compilation_options: Default::default(),
-        });
+        let compute_distances_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Compute Distances Pipeline"),
+                layout: Some(&sort_pipeline_layout),
+                cache: None,
+                module: &sort_shader,
+                entry_point: Some("compute_distances"),
+                compilation_options: Default::default(),
+            });
 
         let sort_step_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Sort Step Pipeline"),
@@ -964,14 +969,15 @@ impl State {
             compilation_options: Default::default(),
         });
 
-        let apply_sort_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Apply Sort Pipeline"),
-            layout: Some(&sort_pipeline_layout),
-            cache: None,
-            module: &sort_shader,
-            entry_point: Some("apply_sort"),
-            compilation_options: Default::default(),
-        });
+        let apply_sort_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Apply Sort Pipeline"),
+                layout: Some(&sort_pipeline_layout),
+                cache: None,
+                module: &sort_shader,
+                entry_point: Some("apply_sort"),
+                compilation_options: Default::default(),
+            });
 
         let max_splat_capacity = 256; // Starting capacity
 
@@ -993,7 +999,11 @@ impl State {
                 // Must pad to 256 bytes for dynamic uniform buffer offset
                 // BitonicUniforms is 16 bytes. We need 256 bytes total.
                 let mut data = [0u8; 256];
-                let uniform = splat::BitonicUniforms { j, k, padding: [0, 0] };
+                let uniform = splat::BitonicUniforms {
+                    j,
+                    k,
+                    padding: [0, 0],
+                };
                 let bytes = bytemuck::bytes_of(&uniform);
                 data[0..16].copy_from_slice(bytes);
                 bitonic_uniforms.extend_from_slice(&data);
@@ -1011,14 +1021,16 @@ impl State {
 
         let unsorted_splat_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Unsorted Splat Buffer"),
-            size: (max_splat_capacity as usize * std::mem::size_of::<splat::SplatVertex>()) as wgpu::BufferAddress,
+            size: (max_splat_capacity as usize * std::mem::size_of::<splat::SplatVertex>())
+                as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let sort_entries_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Sort Entries Buffer"),
-            size: (max_splat_capacity as usize * std::mem::size_of::<splat::SortEntry>()) as wgpu::BufferAddress,
+            size: (max_splat_capacity as usize * std::mem::size_of::<splat::SortEntry>())
+                as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -1026,16 +1038,14 @@ impl State {
         let sort_bind_group_1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Sort Bind Group 1"),
             layout: &sort_bind_group_layout_1,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &bitonic_uniform_buffer,
-                        offset: 0,
-                        size: wgpu::BufferSize::new(std::mem::size_of::<splat::BitonicUniforms>() as _),
-                    }),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &bitonic_uniform_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(std::mem::size_of::<splat::BitonicUniforms>() as _),
+                }),
+            }],
         });
 
         let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1483,7 +1493,8 @@ impl State {
         }
 
         // Sync WGPU buffers with Engine State
-        self.camera_uniform.update_view_proj(&self.engine.camera, self.engine.time);
+        self.camera_uniform
+            .update_view_proj(&self.engine.camera, self.engine.time);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -1541,7 +1552,9 @@ impl State {
             let dz_b = b.location.z - cam_pos.z;
             let dist_b = dx_b * dx_b + dy_b * dy_b + dz_b * dz_b;
 
-            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+            dist_a
+                .partial_cmp(&dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Reset all slots
@@ -1606,7 +1619,9 @@ impl State {
             let dz_b = b.location.z - cam_pos.z;
             let dist_b = dx_b * dx_b + dy_b * dy_b + dz_b * dz_b;
 
-            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+            dist_a
+                .partial_cmp(&dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let nodes_count = std::cmp::min(15, permanent_anomalies.len());
@@ -1686,7 +1701,9 @@ impl State {
                 crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
                 crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
             };
-            let scale = if npc.reality_signature.active_style.archetype == crate::reality_types::RealityArchetype::Tron {
+            let scale = if npc.reality_signature.active_style.archetype
+                == crate::reality_types::RealityArchetype::Tron
+            {
                 -1.0 // negative scale triggers the bit geometry logic in shader_lambda if added
             } else {
                 1.0
@@ -1881,34 +1898,50 @@ impl State {
 
                 self.splat_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Splat Instance Buffer"),
-                    size: (self.max_splat_capacity as usize * std::mem::size_of::<splat::SplatVertex>()) as wgpu::BufferAddress,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    size: (self.max_splat_capacity as usize
+                        * std::mem::size_of::<splat::SplatVertex>())
+                        as wgpu::BufferAddress,
+                    usage: wgpu::BufferUsages::VERTEX
+                        | wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
 
                 self.unsorted_splat_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Unsorted Splat Buffer"),
-                    size: (self.max_splat_capacity as usize * std::mem::size_of::<splat::SplatVertex>()) as wgpu::BufferAddress,
+                    size: (self.max_splat_capacity as usize
+                        * std::mem::size_of::<splat::SplatVertex>())
+                        as wgpu::BufferAddress,
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
 
                 self.sort_entries_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Sort Entries Buffer"),
-                    size: (self.max_splat_capacity as usize * std::mem::size_of::<splat::SortEntry>()) as wgpu::BufferAddress,
+                    size: (self.max_splat_capacity as usize
+                        * std::mem::size_of::<splat::SortEntry>())
+                        as wgpu::BufferAddress,
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
             }
 
-            self.queue.write_buffer(&self.unsorted_splat_buffer, 0, bytemuck::cast_slice(&active_splats));
+            self.queue.write_buffer(
+                &self.unsorted_splat_buffer,
+                0,
+                bytemuck::cast_slice(&active_splats),
+            );
 
             // Setup Sort Uniforms
             let sort_uniforms = splat::SortUniforms {
                 camera_pos: [cam_pos.x, cam_pos.y, cam_pos.z],
                 num_splats: self.num_splats,
             };
-            self.queue.write_buffer(&self.sort_uniform_buffer, 0, bytemuck::cast_slice(&[sort_uniforms]));
+            self.queue.write_buffer(
+                &self.sort_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[sort_uniforms]),
+            );
 
             // Create ephemeral Bind Group 0 (since it relies on dynamically resized buffers)
             let sort_bind_group_0 = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1958,7 +1991,11 @@ impl State {
                 let mut j = k >> 1;
                 while j > 0 {
                     compute_pass.set_pipeline(&self.sort_step_pipeline);
-                    compute_pass.set_bind_group(1, &self.sort_bind_group_1, &[uniform_offset_index * 256]);
+                    compute_pass.set_bind_group(
+                        1,
+                        &self.sort_bind_group_1,
+                        &[uniform_offset_index * 256],
+                    );
                     compute_pass.dispatch_workgroups(workgroups, 1, 1);
 
                     uniform_offset_index += 1;
@@ -2108,9 +2145,7 @@ impl GameClient {
             // Optimization: Use `js_sys::Uint8Array::view` to create a direct view into WASM memory.
             // This entirely eliminates the O(N) allocation and copying of bytes at the JS/WASM boundary
             // every single frame, significantly improving performance.
-            unsafe {
-                js_sys::Uint8Array::view(&state.labels_buffer)
-            }
+            unsafe { js_sys::Uint8Array::view(&state.labels_buffer) }
         } else {
             // Return an empty array if we cannot borrow the state to avoid panicking
             js_sys::Uint8Array::new(&js_sys::ArrayBuffer::new(0))
@@ -2285,7 +2320,11 @@ impl GameClient {
         }
     }
 
-    pub fn set_custom_spell_binding(&self, key_code: js_sys::JsString, spell_str: js_sys::JsString) {
+    pub fn set_custom_spell_binding(
+        &self,
+        key_code: js_sys::JsString,
+        spell_str: js_sys::JsString,
+    ) {
         let mut state = self.state.borrow_mut();
         const MAX_KEY_CODE_LEN: u32 = 64;
         const MAX_SPELL_LEN: u32 = 256;
@@ -2295,7 +2334,11 @@ impl GameClient {
         }
         let key_code_str: String = key_code.into();
         let spell_string: String = spell_str.into();
-        state.engine.input_config.custom_spell_bindings.insert(key_code_str, spell_string);
+        state
+            .engine
+            .input_config
+            .custom_spell_bindings
+            .insert(key_code_str, spell_string);
         self.save_state(&state);
     }
 
@@ -2306,7 +2349,12 @@ impl GameClient {
             return "".to_string();
         }
         let key_code_str: String = key_code.into();
-        if let Some(spell) = state.engine.input_config.custom_spell_bindings.get(&key_code_str) {
+        if let Some(spell) = state
+            .engine
+            .input_config
+            .custom_spell_bindings
+            .get(&key_code_str)
+        {
             return spell.clone();
         }
         "".to_string()
@@ -2319,13 +2367,18 @@ impl GameClient {
             return;
         }
         let key_code_str: String = key_code.into();
-        state.engine.input_config.custom_spell_bindings.remove(&key_code_str);
+        state
+            .engine
+            .input_config
+            .custom_spell_bindings
+            .remove(&key_code_str);
         self.save_state(&state);
     }
 
     pub fn get_all_custom_spell_bindings_json(&self) -> String {
         let state = self.state.borrow();
-        serde_json::to_string(&state.engine.input_config.custom_spell_bindings).unwrap_or_else(|_| "{}".to_string())
+        serde_json::to_string(&state.engine.input_config.custom_spell_bindings)
+            .unwrap_or_else(|_| "{}".to_string())
     }
 
     pub fn get_key_binding(&self, action_name: js_sys::JsString) -> String {
@@ -2618,17 +2671,26 @@ impl GameClient {
 
                         let trigger = js_sys::Reflect::get(&buttons, &JsValue::from(0)).ok();
                         if let Some(t) = trigger {
-                            let pressed = js_sys::Reflect::get(&t, &JsValue::from_str("pressed")).ok().and_then(|v| v.as_bool()).unwrap_or(false);
+                            let pressed = js_sys::Reflect::get(&t, &JsValue::from_str("pressed"))
+                                .ok()
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
                             if pressed {
                                 trigger_pressed = true;
                             }
                         }
 
-                        let x_axis = js_sys::Reflect::get(&axes, &JsValue::from(2)).ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-                        let y_axis = js_sys::Reflect::get(&axes, &JsValue::from(3)).ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                        let x_axis = js_sys::Reflect::get(&axes, &JsValue::from(2))
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0) as f32;
+                        let y_axis = js_sys::Reflect::get(&axes, &JsValue::from(3))
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0) as f32;
 
                         if x_axis.abs() > 0.1 || y_axis.abs() > 0.1 {
-                             // E.g. basic controller look/move logic
+                            // E.g. basic controller look/move logic
                         }
                     }
                 }
@@ -2738,7 +2800,10 @@ impl GameClient {
             // Process XR Inputs
             let input_sources = session_clone.input_sources();
             for i in 0..input_sources.length() {
-                if let Some(input_source) = input_sources.get(i).map(|s| s.unchecked_into::<web_sys::XrInputSource>()) {
+                if let Some(input_source) = input_sources
+                    .get(i)
+                    .map(|s| s.unchecked_into::<web_sys::XrInputSource>())
+                {
                     if let Some(gamepad) = input_source.gamepad() {
                         let buttons = gamepad.buttons();
 
@@ -2747,12 +2812,19 @@ impl GameClient {
                         // For the Steam Frame controller, we'll map the primary trigger to CastSpell or jump
                         // For demonstration, map Trigger (button 0) to CastSpell
                         if buttons.length() > 0 {
-                            let trigger_button = buttons.get(0).unchecked_into::<web_sys::GamepadButton>();
+                            let trigger_button =
+                                buttons.get(0).unchecked_into::<web_sys::GamepadButton>();
                             let pressed = trigger_button.pressed();
                             let idx = (i as usize).min(3);
                             if pressed && !last_trigger_pressed[idx] {
-                                state.engine.camera_controller.process_action(input::Action::CastSpell, true);
-                                state.engine.camera_controller.process_action(input::Action::CastSpell, false);
+                                state
+                                    .engine
+                                    .camera_controller
+                                    .process_action(input::Action::CastSpell, true);
+                                state
+                                    .engine
+                                    .camera_controller
+                                    .process_action(input::Action::CastSpell, false);
                             }
                             last_trigger_pressed[idx] = pressed;
                         }
@@ -2764,10 +2836,22 @@ impl GameClient {
                             let y_axis = axes.get(3).as_f64().unwrap_or(0.0) as f32;
 
                             const DEADZONE: f32 = 0.1;
-                            state.engine.camera_controller.process_action(input::Action::MoveRight, x_axis > DEADZONE);
-                            state.engine.camera_controller.process_action(input::Action::MoveLeft, x_axis < -DEADZONE);
-                            state.engine.camera_controller.process_action(input::Action::MoveBackward, y_axis > DEADZONE);
-                            state.engine.camera_controller.process_action(input::Action::MoveForward, y_axis < -DEADZONE);
+                            state
+                                .engine
+                                .camera_controller
+                                .process_action(input::Action::MoveRight, x_axis > DEADZONE);
+                            state
+                                .engine
+                                .camera_controller
+                                .process_action(input::Action::MoveLeft, x_axis < -DEADZONE);
+                            state
+                                .engine
+                                .camera_controller
+                                .process_action(input::Action::MoveBackward, y_axis > DEADZONE);
+                            state
+                                .engine
+                                .camera_controller
+                                .process_action(input::Action::MoveForward, y_axis < -DEADZONE);
                         }
                     }
                 }
@@ -2994,7 +3078,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
                     document.exit_pointer_lock();
                 }
 
-                if let Ok(js_val) = js_sys::Reflect::get(&window, &wasm_bindgen::JsValue::from_str("showInscribeOverlay")) {
+                if let Ok(js_val) = js_sys::Reflect::get(
+                    &window,
+                    &wasm_bindgen::JsValue::from_str("showInscribeOverlay"),
+                ) {
                     if let Ok(func) = js_val.dyn_into::<js_sys::Function>() {
                         let _ = func.call0(&wasm_bindgen::JsValue::NULL);
                     }
@@ -3142,7 +3229,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let ndc_x = (x / width) * 2.0 - 1.0;
         let ndc_y = -((y / height) * 2.0 - 1.0);
 
-        state_dblclick.borrow_mut().engine.process_double_click(ndc_x, ndc_y);
+        state_dblclick
+            .borrow_mut()
+            .engine
+            .process_double_click(ndc_x, ndc_y);
     }) as Box<dyn FnMut(_)>);
 
     canvas
@@ -3188,9 +3278,15 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             if button == 2 {
                 // Right click behavior
                 if elapsed < 300.0 {
-                    state_up.borrow_mut().engine.process_right_click(ndc_x, ndc_y);
+                    state_up
+                        .borrow_mut()
+                        .engine
+                        .process_right_click(ndc_x, ndc_y);
                 } else {
-                    state_up.borrow_mut().engine.process_right_hold(ndc_x, ndc_y);
+                    state_up
+                        .borrow_mut()
+                        .engine
+                        .process_right_hold(ndc_x, ndc_y);
                 }
             } else if button == 0 {
                 // Left click behavior (will update in next step)
@@ -3401,11 +3497,20 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
-
     pub fn get_minimap_data_json(&self) -> String {
         if let Ok(state) = self.state.try_borrow() {
-            let chunks: Vec<[i32; 2]> = state.engine.world_state.chunks.keys().map(|id| [id.x, id.z]).collect();
-            let player_pos = [state.engine.player_projector.location.x, state.engine.player_projector.location.y, state.engine.player_projector.location.z];
+            let chunks: Vec<[i32; 2]> = state
+                .engine
+                .world_state
+                .chunks
+                .keys()
+                .map(|id| [id.x, id.z])
+                .collect();
+            let player_pos = [
+                state.engine.player_projector.location.x,
+                state.engine.player_projector.location.y,
+                state.engine.player_projector.location.z,
+            ];
 
             let data = serde_json::json!({
                 "chunks": chunks,
@@ -3420,7 +3525,8 @@ impl GameClient {
 
     pub fn get_inventory_json(&self) -> String {
         if let Ok(state) = self.state.try_borrow() {
-            serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())
+            serde_json::to_string(&state.engine.world_state.player_inventory)
+                .unwrap_or_else(|_| "[]".to_string())
         } else {
             "[]".to_string()
         }
@@ -3453,7 +3559,9 @@ impl GameClient {
     pub fn get_npc_state_json(&self, uuid: js_sys::JsString) -> String {
         const MAX_UUID_LEN: u32 = 64;
         if uuid.length() > MAX_UUID_LEN {
-            log::warn!("Security Warning: UUID exceeded length limit. Rejecting get_npc_state_json.");
+            log::warn!(
+                "Security Warning: UUID exceeded length limit. Rejecting get_npc_state_json."
+            );
             return "{}".to_string();
         }
         let uuid_str: String = uuid.into();
@@ -3498,7 +3606,11 @@ impl GameClient {
         }
     }
 
-    pub fn execute_npc_action_json(&self, uuid: js_sys::JsString, action_json: js_sys::JsString) -> bool {
+    pub fn execute_npc_action_json(
+        &self,
+        uuid: js_sys::JsString,
+        action_json: js_sys::JsString,
+    ) -> bool {
         let mut state = self.state.borrow_mut();
 
         // Security Enhancement: Prevent DoS by limiting JSON payload length
@@ -3515,7 +3627,8 @@ impl GameClient {
         let uuid_str: String = uuid.into();
         let action_json_str: String = action_json.into();
 
-        if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(&action_json_str) {
+        if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(&action_json_str)
+        {
             if let Some(npc) = state
                 .engine
                 .world_state
@@ -3552,7 +3665,8 @@ impl GameClient {
                         .collect();
 
                     log::info!("NPC {} says: {}", uuid_str, sanitized);
-                    npc.chat_message = Some((sanitized.clone(), crate::projector::get_current_timestamp()));
+                    npc.chat_message =
+                        Some((sanitized.clone(), crate::projector::get_current_timestamp()));
                     // Could add to an in-game chat log here
                 }
                 return true;
@@ -3574,7 +3688,7 @@ pub fn get_engine_version() -> String {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn generate_splats_worker_entry(prompt: String) -> String {
-    use reality_genie::splat_gen::{SplatGenerator, GenieSplatGenerator};
+    use reality_genie::splat_gen::{GenieSplatGenerator, SplatGenerator};
 
     let model_url = "/models/diffusion_model.safetensors";
     let data = match reality_genie::fetch_weights::fetch_safetensors(model_url).await {

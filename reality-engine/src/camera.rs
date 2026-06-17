@@ -20,6 +20,8 @@ pub struct Camera {
     pub yaw: f32,
     pub pitch: f32,
     pub projection_override: Option<Matrix4<f32>>,
+    pub velocity: Vector3<f32>,
+    pub is_grounded: bool,
 }
 
 impl Camera {
@@ -78,6 +80,7 @@ pub struct CameraController {
     is_right_pressed: bool,
     is_up_pressed: bool,
     is_down_pressed: bool,
+    pub is_crouching: bool,
 }
 
 impl CameraController {
@@ -90,6 +93,7 @@ impl CameraController {
             is_right_pressed: false,
             is_up_pressed: false,
             is_down_pressed: false,
+            is_crouching: false,
         }
     }
 
@@ -100,7 +104,10 @@ impl CameraController {
             Action::MoveLeft => self.is_left_pressed = pressed,
             Action::MoveRight => self.is_right_pressed = pressed,
             Action::Jump => self.is_up_pressed = pressed,
-            Action::Descend => self.is_down_pressed = pressed,
+            Action::Descend => {
+                self.is_down_pressed = pressed;
+                self.is_crouching = pressed;
+            }
             _ => (),
         }
     }
@@ -128,7 +135,7 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&self, camera: &mut Camera) {
+    pub fn update_camera(&self, camera: &mut Camera, has_gravity: bool) {
         // Calculate forward direction on XZ plane for movement
         let (sin_y, cos_y) = camera.yaw.sin_cos();
         // Optimization: Vector3::new(sin_y, 0.0, cos_y) is mathematically guaranteed to be unit length (sin^2 + cos^2 = 1)
@@ -136,29 +143,52 @@ impl CameraController {
         // Optimization: Cross product of two orthogonal unit vectors is a unit vector
         let right_xz = forward_xz.cross(Vector3::unit_y());
 
+        let mut speed = self.speed;
+        if self.is_crouching && has_gravity {
+            speed *= 0.5;
+        }
+
         if self.is_forward_pressed {
-            camera.eye += forward_xz * self.speed;
+            camera.eye += forward_xz * speed;
         }
         if self.is_backward_pressed {
-            camera.eye -= forward_xz * self.speed;
+            camera.eye -= forward_xz * speed;
         }
         if self.is_right_pressed {
-            camera.eye += right_xz * self.speed;
+            camera.eye += right_xz * speed;
         }
         if self.is_left_pressed {
-            camera.eye -= right_xz * self.speed;
+            camera.eye -= right_xz * speed;
         }
 
-        if self.is_up_pressed {
-            camera.eye.y += self.speed;
-        }
-        if self.is_down_pressed {
-            camera.eye.y -= self.speed;
+        if has_gravity {
+            if self.is_up_pressed && camera.is_grounded {
+                camera.velocity.y = 5.0; // Jump impulse
+                camera.is_grounded = false;
+            }
+
+            // Crouching handles height in Engine::update or we can apply it locally.
+            // But we actually just want eye.y to be lower when crouching.
+            // A simple approach is modifying a target_eye_y based on crouching, or adjusting it in the engine.
+        } else {
+            // Fly mode
+            camera.velocity.y = 0.0;
+            if self.is_up_pressed {
+                camera.eye.y += speed;
+            }
+            if self.is_down_pressed {
+                camera.eye.y -= speed;
+            }
         }
 
-        // Floor collision
-        if camera.eye.y < 1.0 {
-            camera.eye.y = 1.0;
+        // Floor collision fallback
+        let target_floor = if self.is_crouching && has_gravity {
+            0.5
+        } else {
+            1.0
+        };
+        if camera.eye.y < target_floor && !has_gravity {
+            camera.eye.y = target_floor;
         }
 
         // Update target based on new eye position

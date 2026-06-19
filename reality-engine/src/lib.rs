@@ -2182,7 +2182,10 @@ impl GameClient {
     }
 
     pub fn set_anomaly_archetype(&self, archetype_id: i32) {
-        let mut state = self.state.borrow_mut();
+        let mut state = match self.state.try_borrow_mut() {
+            Ok(s) => s,
+            Err(_) => return, // Ignore if already borrowed by requestAnimationFrame
+        };
         let archetype = match archetype_id {
             0 => reality_types::RealityArchetype::Fantasy,
             1 => reality_types::RealityArchetype::SciFi,

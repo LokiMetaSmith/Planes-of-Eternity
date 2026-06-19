@@ -279,6 +279,25 @@ pub struct Chunk {
     pub splats: Vec<crate::splat::SplatVertex>,
 }
 
+fn noise2d(x: f32, z: f32) -> f32 {
+    let xi = x.floor() as i32;
+    let zi = z.floor() as i32;
+    let xf = x - x.floor();
+    let zf = z - z.floor();
+
+    let bl = hash(xi, 0, zi).abs();
+    let br = hash(xi + 1, 0, zi).abs();
+    let tl = hash(xi, 0, zi + 1).abs();
+    let tr = hash(xi + 1, 0, zi + 1).abs();
+
+    let u = xf * xf * (3.0 - 2.0 * xf);
+    let v = zf * zf * (3.0 - 2.0 * zf);
+
+    let b = bl + u * (br - bl);
+    let t = tl + u * (tr - tl);
+    b + v * (t - b)
+}
+
 fn hash(x: i32, y: i32, z: i32) -> f32 {
     let mut n = x.wrapping_mul(374761393) ^ y.wrapping_mul(668265263) ^ z.wrapping_mul(393555907);
     n = (n ^ (n >> 13)).wrapping_mul(1274126177);
@@ -434,48 +453,76 @@ impl Chunk {
                     let mut voxel = Voxel::default();
 
                     match base_archetype {
-                        Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
-                            // Ground
-                            if wy == -1 {
-                                voxel.id = 5;
+                                                Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
+                            // Procedural Rolling Hills Terrain
+                            let nx = wx as f32 * 0.05;
+                            let nz = wz as f32 * 0.05;
+                            // Add octaves for more organic hills
+                            let height_noise = (noise2d(nx, nz) * 0.5 + noise2d(nx * 2.0, nz * 2.0) * 0.25) * 20.0 - 5.0;
+                            let terrain_height = height_noise as i32;
+
+                            if wy <= terrain_height {
+                                if wy == terrain_height {
+                                    voxel.id = 5; // Grass
+                                } else if wy > terrain_height - 3 {
+                                    voxel.id = 8; // Dirt
+                                } else {
+                                    voxel.id = 1; // Stone
+                                }
                             }
 
-                            // Castle (Procedural)
+                            // Water Level (Ocean/Lakes)
+                            if wy <= -2 && voxel.id == 0 {
+                                voxel.id = 4; // Water
+                            }
+
+                            // Sand on shores
+                            if wy == terrain_height && wy >= -2 && wy <= 0 && voxel.id == 5 {
+                                voxel.id = 9; // Sand
+                            }
+
+                            // Trees
+                            // We check tree placement deterministically on a local grid (e.g. 10x10)
+                            if wy > terrain_height && terrain_height > 0 && voxel.id == 0 {
+                                let cell_x = wx / 8;
+                                let cell_z = wz / 8;
+                                // Tree anchor point in this cell
+                                let tx = cell_x * 8 + (hash(cell_x, 0, cell_z).abs() * 8.0) as i32;
+                                let tz = cell_z * 8 + (hash(cell_z, 0, cell_x).abs() * 8.0) as i32;
+
+                                if wx == tx && wz == tz {
+                                    // Tree trunk
+                                    if wy <= terrain_height + 4 {
+                                        voxel.id = 6; // Wood
+                                    }
+                                }
+
+                                // Tree canopy (Leaves)
+                                let dx = (wx - tx).abs();
+                                let dy = (wy - (terrain_height + 4)).abs();
+                                let dz = (wz - tz).abs();
+
+                                if dy <= 2 && dx * dx + dy * dy + dz * dz <= 5 && voxel.id == 0 {
+                                    if hash(wx, wy, wz).abs() > 0.1 {
+                                        voxel.id = 7; // Leaves
+                                    }
+                                }
+                            }
+
+                            // Castle (Procedural) - Keeping for backwards compatibility
                             if (-9..=9).contains(&wx)
                                 && (-9..=9).contains(&wz)
                                 && (0..10).contains(&wy)
                                 && (wx.abs() > 8 || wz.abs() > 8 || wy == 0)
                             {
-                                voxel.id = 1;
+                                voxel.id = 1; // Stone
                             }
 
-                            // Bridge
-                            if wz == 0 && (11..30).contains(&wx) && wy == 5 {
-                                voxel.id = 6;
-                            }
-
-                            // Volcano
-                            let vx = wx - 40;
-                            let vz = wz;
-                            // Optimization: Use integer arithmetic and squared distances to eliminate expensive f32 conversions
-                            // and float sqrt() calls in this tight chunk generation loop.
-                            if (0..=20).contains(&wy) {
-                                let dist_sq = vx * vx + vz * vz;
-                                let max_dist = 20 - wy;
-                                if dist_sq <= max_dist * max_dist {
-                                    if dist_sq < 4 {
-                                        voxel.id = 2;
-                                    } else {
-                                        voxel.id = 1;
-                                    }
-                                }
-                            }
-
-                            // Fire Noise
-                            if voxel.id == 0 && wy > 0 {
+                            // Fire Noise (Fireflies or embers)
+                            if voxel.id == 0 && wy > terrain_height + 5 && wy < terrain_height + 10 {
                                 let n = hash(wx, wy, wz);
-                                if n > 0.995 {
-                                    voxel.id = 3;
+                                if n > 0.999 {
+                                    voxel.id = 3; // Fire
                                 }
                             }
                         }
@@ -637,18 +684,21 @@ impl Chunk {
     }
 
     pub fn get_color_for_id(id: VoxelId) -> [f32; 3] {
-        match id {
-            1 => [0.5, 0.5, 0.5],  // Stone
-            2 => [1.0, 0.3, 0.0],  // Lava
-            3 => [1.0, 0.8, 0.0],  // Fire
-            4 => [0.0, 0.0, 1.0],  // Water
-            5 => [0.4, 0.2, 0.0],  // Wood
-            6 => [0.2, 0.6, 0.2],  // Leaves
-            7 => [0.2, 1.0, 0.2],  // Acid
-            8 => [0.7, 0.7, 0.8],  // Fog
-            9 => [0.9, 0.9, 0.95], // Cloud
-            10 => [0.4, 0.5, 0.8], // Rain
-            _ => [1.0, 0.0, 1.0],  // Magenta error
+                        match id {
+            1 => [0.5, 0.5, 0.5],   // 1: Stone
+            2 => [1.0, 0.3, 0.0],   // 2: Lava
+            3 => [1.0, 0.8, 0.0],   // 3: Fire
+            4 => [0.0, 0.5, 1.0],   // 4: Water
+            5 => [0.2, 0.8, 0.2],   // 5: Grass
+            6 => [0.4, 0.2, 0.0],   // 6: Wood
+            7 => [0.2, 0.6, 0.2],   // 7: Leaves
+            8 => [0.4, 0.3, 0.2],   // 8: Dirt
+            9 => [0.8, 0.8, 0.6],   // 9: Sand
+            10 => [0.2, 1.0, 0.2],  // 10: Acid
+            11 => [0.7, 0.7, 0.8],  // 11: Fog
+            12 => [0.9, 0.9, 0.95], // 12: Cloud
+            13 => [0.4, 0.5, 0.8],  // 13: Rain
+            _ => [1.0, 0.0, 1.0],   // Magenta error
         }
     }
 
@@ -761,19 +811,22 @@ impl Chunk {
         let offset_z = self.key.z as f32 * CHUNK_SIZE as f32;
 
         fn get_color(id: VoxelId) -> [f32; 3] {
-            match id {
-                1 => [0.5, 0.5, 0.5],  // Stone
-                2 => [1.0, 0.3, 0.0],  // Lava
-                3 => [1.0, 0.8, 0.0],  // Fire
-                4 => [0.0, 0.0, 1.0],  // Water
-                5 => [0.0, 0.8, 0.0],  // Grass
-                6 => [0.6, 0.4, 0.2],  // Wood
-                7 => [0.2, 1.0, 0.2],  // Acid
-                8 => [0.8, 0.8, 0.8],  // Fog
-                9 => [0.9, 0.9, 0.9],  // Cloud
-                10 => [0.5, 0.5, 1.0], // Rain
-                _ => [1.0, 0.0, 1.0],
-            }
+                    match id {
+            1 => [0.5, 0.5, 0.5],   // 1: Stone
+            2 => [1.0, 0.3, 0.0],   // 2: Lava
+            3 => [1.0, 0.8, 0.0],   // 3: Fire
+            4 => [0.0, 0.5, 1.0],   // 4: Water
+            5 => [0.2, 0.8, 0.2],   // 5: Grass
+            6 => [0.4, 0.2, 0.0],   // 6: Wood
+            7 => [0.2, 0.6, 0.2],   // 7: Leaves
+            8 => [0.4, 0.3, 0.2],   // 8: Dirt
+            9 => [0.8, 0.8, 0.6],   // 9: Sand
+            10 => [0.2, 1.0, 0.2],  // 10: Acid
+            11 => [0.7, 0.7, 0.8],  // 11: Fog
+            12 => [0.9, 0.9, 0.95], // 12: Cloud
+            13 => [0.4, 0.5, 0.8],  // 13: Rain
+            _ => [1.0, 0.0, 1.0],   // Magenta error
+        }
         }
 
         let mut mask = [0i16; CHUNK_SIZE * CHUNK_SIZE]; // Max size is 32x32

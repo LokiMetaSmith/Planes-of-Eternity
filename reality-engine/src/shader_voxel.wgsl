@@ -100,22 +100,26 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     let time = reality.global_offset.z;
     var animated_pos = model.position;
 
+        let r = model.color.r;
+    let g = model.color.g;
+    let b = model.color.b;
+
     // Liquid and Gas logic
-    if (model.color.r < 0.3 && model.color.g > 0.9 && model.color.b < 0.3) {
+    if (abs(r - 0.2) < 0.01 && abs(g - 1.0) < 0.01 && abs(b - 0.2) < 0.01) {
         // Acid
         animated_pos.y += sin(time * 3.0 + model.position.x * 2.0 + model.position.z * 2.0) * 0.1;
-    } else if (model.color.r < 0.1 && model.color.g < 0.1 && model.color.b > 0.9) {
+    } else if (abs(r - 0.0) < 0.01 && abs(g - 0.5) < 0.01 && abs(b - 1.0) < 0.01) {
         // Water
         animated_pos.y += sin(time * 1.5 + model.position.x + model.position.z) * 0.15;
-    } else if (model.color.r > 0.9 && model.color.g < 0.4 && model.color.b < 0.1) {
+    } else if (abs(r - 1.0) < 0.01 && abs(g - 0.3) < 0.01 && abs(b - 0.0) < 0.01) {
         // Lava
         animated_pos.y += sin(time * 0.5 + model.position.x * 0.5 + model.position.z * 0.5) * 0.05;
-    } else if ((model.color.r > 0.7 && model.color.g > 0.7 && model.color.b > 0.7) || (model.color.b > 0.9 && model.color.r > 0.4 && model.color.g > 0.4 && model.color.r < 0.6)) {
+    } else if ((r > 0.7 && g > 0.7 && b > 0.7) || (b > 0.9 && r > 0.4 && g > 0.4 && r < 0.6)) {
         // Gasses/Weather (Fog, Cloud, Rain)
         animated_pos.x += sin(time * 0.5 + model.position.y) * 0.2;
         animated_pos.z += cos(time * 0.5 + model.position.y) * 0.2;
-    } else if (model.color.g > 0.6 || (model.color.r > 0.4 && model.color.b < 0.4)) {
-        // Existing Landscape (Grass tops/wood wobble slightly in wind)
+    } else if (abs(r - 0.2) < 0.01 && abs(g - 0.8) < 0.01 && abs(b - 0.2) < 0.01) || (abs(r - 0.2) < 0.01 && abs(g - 0.6) < 0.01 && abs(b - 0.2) < 0.01) {
+        // Existing Landscape (Grass tops / leaves wobble slightly in wind)
         if (model.normal.y > 0.5) {
             animated_pos.x += sin(time * 2.0 + model.position.y) * 0.05;
         }
@@ -131,42 +135,56 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // 1. Material Logic
+        // 1. Material Logic
     var offset = vec2<f32>(0.0, 0.0); // Stone
     var specular_strength = 0.0;
     var emissive_strength = 0.0;
 
-    // Check Material based on color
-    if (in.color.r > 0.8) {
-        if (in.color.g < 0.6) {
-            // Lava (TR)
-            offset = vec2<f32>(0.5, 0.0);
-            specular_strength = 0.5;
-            emissive_strength = 0.8;
-        } else {
-            // Fire (BL)
-            offset = vec2<f32>(0.0, 0.5);
-            emissive_strength = 1.0;
-        }
-    } else if (in.color.b > 0.8 && in.color.g < 0.2 && in.color.r < 0.2) {
-        // Water (Stone texture + Blue tint + Shiny)
+    let r = in.color.r;
+    let g = in.color.g;
+    let b = in.color.b;
+
+    // Check Material based on exact color mapping
+    if (abs(r - 0.5) < 0.01 && abs(g - 0.5) < 0.01 && abs(b - 0.5) < 0.01) {
+        // 1: Stone
         offset = vec2<f32>(0.0, 0.0);
+    } else if (abs(r - 1.0) < 0.01 && abs(g - 0.3) < 0.01 && abs(b - 0.0) < 0.01) {
+        // 2: Lava
+        offset = vec2<f32>(0.25, 0.0);
+        specular_strength = 0.5;
+        emissive_strength = 0.8;
+    } else if (abs(r - 1.0) < 0.01 && abs(g - 0.8) < 0.01 && abs(b - 0.0) < 0.01) {
+        // 3: Fire
+        offset = vec2<f32>(0.5, 0.0);
+        emissive_strength = 1.0;
+    } else if (abs(r - 0.0) < 0.01 && abs(g - 0.5) < 0.01 && abs(b - 1.0) < 0.01) {
+        // 4: Water
+        offset = vec2<f32>(0.0, 0.5);
         specular_strength = 1.0;
-    } else if (in.color.g > 0.9 && in.color.r < 0.3 && in.color.b < 0.3) {
-        // Acid
-        offset = vec2<f32>(0.0, 0.0);
+    } else if (abs(r - 0.2) < 0.01 && abs(g - 0.8) < 0.01 && abs(b - 0.2) < 0.01) {
+        // 5: Grass
+        offset = vec2<f32>(0.0, 0.25);
+    } else if (abs(r - 0.4) < 0.01 && abs(g - 0.2) < 0.01 && abs(b - 0.0) < 0.01) {
+        // 6: Wood
+        offset = vec2<f32>(0.75, 0.0);
+    } else if (abs(r - 0.2) < 0.01 && abs(g - 0.6) < 0.01 && abs(b - 0.2) < 0.01) {
+        // 7: Leaves
+        offset = vec2<f32>(0.25, 0.25);
+    } else if (abs(r - 0.4) < 0.01 && abs(g - 0.3) < 0.01 && abs(b - 0.2) < 0.01) {
+        // 8: Dirt
+        offset = vec2<f32>(0.5, 0.25);
+    } else if (abs(r - 0.8) < 0.01 && abs(g - 0.8) < 0.01 && abs(b - 0.6) < 0.01) {
+        // 9: Sand
+        offset = vec2<f32>(0.75, 0.25);
+    } else if (abs(r - 0.2) < 0.01 && abs(g - 1.0) < 0.01 && abs(b - 0.2) < 0.01) {
+        // 10: Acid
+        offset = vec2<f32>(0.0, 0.0); // using stone as base, colored by albedo
         specular_strength = 0.8;
         emissive_strength = 0.5;
     } else if ((in.color.r > 0.7 && in.color.g > 0.7 && in.color.b > 0.7) || (in.color.b > 0.9 && in.color.r > 0.4 && in.color.g > 0.4 && in.color.r < 0.6)) {
-        // Fog/Cloud/Rain
+        // 11/12/13: Fog/Cloud/Rain
         offset = vec2<f32>(0.0, 0.0);
         specular_strength = 0.1;
-    } else if (in.color.g > 0.6 || (in.color.r > 0.4 && in.color.b < 0.4)) {
-        // Wood/Grass (BR)
-        offset = vec2<f32>(0.5, 0.5);
-    } else {
-        // Stone (TL)
-        offset = vec2<f32>(0.0, 0.0);
     }
 
     // 2. Triplanar UV
@@ -180,9 +198,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         uv = in.world_pos.xy;
     }
 
-    // Scale to 0.5 quadrant size
+    // Scale to 0.25 quadrant size (since it's a 4x4 grid now)
     // fract(uv) is 0..1 per block
-    let uv_scaled = fract(uv) * 0.5;
+    let uv_scaled = fract(uv) * 0.25;
     let final_uv = uv_scaled + offset;
 
     let tex_color = textureSample(t_atlas, s_atlas, final_uv);

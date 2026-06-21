@@ -132,3 +132,6 @@
 - [x] **WebXR Input Bindings**: Implemented OpenXR Steam Frame Controller mappings using WebXR Gamepad API for in-headset controls.
 - [x] **Android Build Wrapper**: Configured Android/APK build instructions utilizing cross compilation.
 - [x] **Android Build Environment**: Configure the sandboxed CI/CD environment with a valid Android Studio and NDK configuration to enable automated `cargo tauri android build` execution.
+
+## Critical Fixes
+- [x] **Fix Global Pitch Darkness Bug**: Fix the issue where looking up and down drastically causes the background or chunks to go completely dark (except the UI). This involves ensuring the WGSL lighting fallback logic (e.g. \`ray_march_shadow\` and \`sky_color\` reflections) handles the scenario when pointing at the void correctly and returning a valid sky color.

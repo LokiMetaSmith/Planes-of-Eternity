@@ -6,13 +6,14 @@ struct CameraUniform {
 var<uniform> camera: CameraUniform;
 
 struct RealityUniform {
-    proj1_pos_fid: vec4<f32>,
-    proj1_params: vec4<f32>,
-    proj1_color: vec4<f32>,
-    proj2_pos_fid: vec4<f32>,
-    proj2_params: vec4<f32>,
-    proj2_color: vec4<f32>,
-    global_offset: vec4<f32>, // z is time
+    proj_pos_fid: array<vec4<f32>, 5>,
+    proj_params: array<vec4<f32>, 5>,
+    proj_color: array<vec4<f32>, 5>,
+    global_offset: vec4<f32>,
+    nodes_pos_fid: array<vec4<f32>, 15>,
+    nodes_params: array<vec4<f32>, 15>,
+    nodes_color: array<vec4<f32>, 15>,
+    num_nodes: vec4<u32>,
 };
 @group(2) @binding(0) var<uniform> reality: RealityUniform;
 

@@ -13,13 +13,14 @@ var s_atlas: sampler;
 var t_density: texture_3d<u32>;
 
 struct RealityUniform {
-    proj1_pos_fid: vec4<f32>,
-    proj1_params: vec4<f32>,
-    proj1_color: vec4<f32>,
-    proj2_pos_fid: vec4<f32>,
-    proj2_params: vec4<f32>,
-    proj2_color: vec4<f32>,
-    global_offset: vec4<f32>, // z is time
+    proj_pos_fid: array<vec4<f32>, 5>,
+    proj_params: array<vec4<f32>, 5>,
+    proj_color: array<vec4<f32>, 5>,
+    global_offset: vec4<f32>,
+    nodes_pos_fid: array<vec4<f32>, 15>,
+    nodes_params: array<vec4<f32>, 15>,
+    nodes_color: array<vec4<f32>, 15>,
+    num_nodes: vec4<u32>,
 };
 @group(2) @binding(0) var<uniform> reality: RealityUniform;
 
@@ -214,24 +215,33 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let view_dir = normalize(camera.camera_pos.xyz - in.world_pos);
 
-    let dist1 = max(distance(in.world_pos, reality.proj1_pos_fid.xyz), 1.0);
-    let str1 = reality.proj1_pos_fid.w / dist1;
-    let dist2 = max(distance(in.world_pos, reality.proj2_pos_fid.xyz), 1.0);
-    let str2 = reality.proj2_pos_fid.w / dist2;
+    var total_str = 0.0;
+    var strengths: array<f32, 5>;
 
-    let total_str = str1 + str2;
-    var w1 = 0.0;
-    var w2 = 0.0;
-    if (total_str > 0.0001) {
-        w1 = str1 / total_str;
-        w2 = str2 / total_str;
+    for (var i = 0u; i < 5u; i = i + 1u) {
+        let dist = max(distance(in.world_pos, reality.proj_pos_fid[i].xyz), 1.0);
+        let strength = reality.proj_pos_fid[i].w / dist;
+        strengths[i] = strength;
+        total_str = total_str + strength;
     }
 
-    let l1 = get_lighting_info(reality.proj1_params.w);
-    let l2 = get_lighting_info(reality.proj2_params.w);
+    var directional_weight = 0.0;
+    var ambient_strength = 0.0;
 
-    let directional_weight = l1.x * w1 + l2.x * w2;
-    let ambient_strength = l1.y * w1 + l2.y * w2;
+    if (total_str > 0.0001) {
+        for (var i = 0u; i < 5u; i = i + 1u) {
+            let weight = strengths[i] / total_str;
+            if (weight > 0.001) {
+                let l_info = get_lighting_info(reality.proj_params[i].w);
+                directional_weight = directional_weight + l_info.x * weight;
+                ambient_strength = ambient_strength + l_info.y * weight;
+            }
+        }
+    } else {
+        let l_info = get_lighting_info(-1.0);
+        directional_weight = l_info.x;
+        ambient_strength = l_info.y;
+    }
 
     // Ambient varies with Day/Night ONLY if there is directional light.
     var ambient = ambient_strength;

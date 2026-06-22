@@ -316,6 +316,8 @@ pub struct State {
     // time moved to engine
     pub engine: engine::Engine,
 
+    pub npc_splats: Vec<splat::SplatVertex>,
+
     pub depth_texture: texture::Texture,
     pub voxel_world: voxel::VoxelWorld,
     pub voxel_pipeline: wgpu::RenderPipeline,
@@ -1137,6 +1139,35 @@ impl State {
             sort_bind_group_1,
             max_splat_capacity,
 
+            npc_splats: {
+                let mut splats = Vec::new();
+                let count = 64;
+                for i in 0..count {
+                    let t = i as f32 / count as f32;
+                    let angle = t * std::f32::consts::PI * 8.0;
+                    let radius = 0.5 + 0.2 * (t * 10.0).sin();
+                    let y = (t - 0.5) * 2.0; // -1 to 1
+
+                    splats.push(splat::SplatVertex {
+                        position: [
+                            angle.cos() * radius,
+                            y,
+                            angle.sin() * radius,
+                        ],
+                        rotation: [0.0, 0.0, 0.0, 1.0],
+                        scale: [0.2, 0.2, 0.2],
+                        previous_position: [0.0, 0.0, 0.0],
+                        color: [
+                            0.5 + 0.5 * angle.cos(),
+                            0.5 + 0.5 * angle.sin(),
+                            1.0,
+                            0.8,
+                        ],
+                    });
+                }
+                splats
+            },
+
             voxel_meshes: std::collections::HashMap::new(),
             voxel_dirty: false,
             last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
@@ -1686,45 +1717,8 @@ impl State {
             scale: (p1.reality_signature.fidelity / 100.0).clamp(0.1, 1.0),
         });
 
-        // 2. Add NPCs
-        for npc in &self.engine.world_state.npcs {
-            let color = match npc.reality_signature.active_style.archetype {
-                crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
-                crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
-                crate::reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],
-                crate::reality_types::RealityArchetype::HyperNature => [0.0, 0.8, 0.2, 1.0],
-                crate::reality_types::RealityArchetype::Genie => [1.0, 0.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::Void => [0.1, 0.1, 0.1, 1.0],
-                crate::reality_types::RealityArchetype::Glitch => [0.0, 1.0, 0.0, 1.0],
-                crate::reality_types::RealityArchetype::Steampunk => [0.8, 0.5, 0.2, 1.0],
-                crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
-                crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
-                crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
-                crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
-                crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
-                crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
-                crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
-            };
-            let scale = if npc.reality_signature.active_style.archetype
-                == crate::reality_types::RealityArchetype::Tron
-            {
-                -1.0 // negative scale triggers the bit geometry logic in shader_lambda if added
-            } else {
-                1.0
-            };
-
-            entity_instances.push(visual_lambda::LambdaInstance {
-                position: [npc.location.x, npc.location.y - 1.0, npc.location.z],
-                color,
-                scale,
-            });
-        }
+        // 2. NPCs are now rendered using Gaussian Splats further down in active_splats processing
+        // (Removed LambdaInstance rendering for NPCs)
 
         // 3. Add Dropped Items
         for item in &self.engine.world_state.dropped_items {
@@ -1893,6 +1887,51 @@ impl State {
 
             if is_aabb_visible(aabb_min, aabb_max, &frustum_planes) {
                 active_splats.extend(chunk.splats.iter().cloned());
+            }
+        }
+
+        // Add NPC Splats
+        for npc in &self.engine.world_state.npcs {
+            let color = match npc.reality_signature.active_style.archetype {
+                crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::HyperNature => [0.0, 0.8, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Genie => [1.0, 0.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Void => [0.1, 0.1, 0.1, 1.0],
+                crate::reality_types::RealityArchetype::Glitch => [0.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Steampunk => [0.8, 0.5, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
+                crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
+                crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
+                crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
+                crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
+                crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
+            };
+
+            for mut splat in self.npc_splats.iter().cloned() {
+                splat.position[0] += npc.location.x;
+                splat.position[1] += npc.location.y - 1.0;
+                splat.position[2] += npc.location.z;
+
+                splat.previous_position[0] += npc.location.x;
+                splat.previous_position[1] += npc.location.y - 1.0;
+                splat.previous_position[2] += npc.location.z;
+
+                // Modulate the splat's base color with the NPC's archetype color
+                splat.color[0] *= color[0];
+                splat.color[1] *= color[1];
+                splat.color[2] *= color[2];
+                // Keep the splat's original opacity
+
+                active_splats.push(splat);
             }
         }
 

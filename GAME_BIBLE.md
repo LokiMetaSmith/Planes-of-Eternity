@@ -75,5 +75,5 @@ The engine supports immersive Augmented Reality via WebXR.
 ## Future Roadmap & TODOs
 *(Sourced from `TODO.md`)*
 Currently, all major milestones (Voxel rendering, LOD, shadows, AR, Lambda interactions, Net-sync, persistence) are marked as complete. Future additions could include:
-*   Expanding Host Test Coverage for platform-specific rendering logic.
+*   [x] Expanding Host Test Coverage for platform-specific rendering logic.
 *   Further expansion of the Reality Archetype logic and emergent genre conflicts.

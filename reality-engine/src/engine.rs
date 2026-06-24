@@ -166,6 +166,7 @@ impl Engine {
                         energy: 100.0,
                         mutation_progress: 0.0,
                         hostile: arch == RealityArchetype::Horror,
+                        goal_stack: Vec::new(),
                     });
                     world_state.npcs.push(npc);
                 }
@@ -255,124 +256,310 @@ impl Engine {
         let mut npcs = std::mem::take(&mut self.world_state.npcs);
 
         for npc in &mut npcs {
-            let mut speed = 2.0;
+            use crate::projector::{Goal, GoalStatus};
+            use cgmath::InnerSpace;
 
+            // 1. Evaluate Interrupts (Reactive events)
             if let Some(behavior) = &mut npc.behavior {
-                let current_archetype = self.world_state.get_dominant_archetype_at(npc.location);
-                if let Some(arch) = current_archetype {
-                    if arch == behavior.preferred_archetype {
-                        // Thriving: Habitate
-                        speed = 0.5;
-                        behavior.energy = (behavior.energy + 5.0 * dt).min(100.0);
-                        behavior.mutation_progress =
-                            (behavior.mutation_progress - 10.0 * dt).max(0.0);
+                let dir_to_player = self.camera.eye - npc.location;
+                let dist_to_player_sq = dir_to_player.magnitude2();
 
-                        // Small chance to stop and enjoy the area
-                        if npc.target_location.is_some() && rand::random::<f32>() < 0.05 * dt {
-                            npc.target_location = None;
+                let mut interrupt_triggered = false;
+
+                if behavior.hostile && dist_to_player_sq < 400.0 {
+                    // Aggro radius (20 units squared)
+                    let current_is_attack = match behavior.goal_stack.last() {
+                        Some(Goal::Attack(_)) => true,
+                        _ => false,
+                    };
+
+                    if !current_is_attack {
+                        behavior.goal_stack.clear();
+                        behavior.goal_stack.push(Goal::Attack("player".to_string()));
+                        interrupt_triggered = true;
+                        let _ = interrupt_triggered;
+                    }
+                } else if dist_to_player_sq < 25.0 {
+                    // Startled by player getting too close (5 units)
+                    let current_is_escape = match behavior.goal_stack.last() {
+                        Some(Goal::Escape) => true,
+                        Some(Goal::Attack(_)) => true, // hostile overrides
+                        _ => false,
+                    };
+
+                    if !current_is_escape && !behavior.hostile {
+                        behavior.goal_stack.clear();
+                        behavior.goal_stack.push(Goal::Escape);
+                        interrupt_triggered = true;
+                        let _ = interrupt_triggered;
+                    }
+                }
+
+                // If remote script sets target location, interrupt and wander there
+                if !interrupt_triggered && npc.target_location.is_some() {
+                    let current_is_wander = match behavior.goal_stack.last() {
+                        Some(Goal::Wander) => true,
+                        _ => false,
+                    };
+
+                    if !current_is_wander {
+                        behavior.goal_stack.clear();
+                        behavior.goal_stack.push(Goal::Wander);
+                        interrupt_triggered = true;
+                        let _ = interrupt_triggered;
+                    }
+                }
+
+                // 2. High-level brain (Assign top-level goals if stack is empty)
+                if behavior.goal_stack.is_empty() {
+                    let current_archetype = self.world_state.get_dominant_archetype_at(npc.location);
+
+                    if let Some(arch) = current_archetype {
+                        if arch == behavior.preferred_archetype {
+                            // Thriving
+                            if rand::random::<f32>() < 0.2 {
+                                behavior.goal_stack.push(Goal::ExpandInfluence);
+                            } else if rand::random::<f32>() < 0.5 {
+                                behavior.goal_stack.push(Goal::GatherResource("".to_string()));
+                            } else {
+                                behavior.goal_stack.push(Goal::Wander);
+                                behavior.goal_stack.push(Goal::Idle(2.0));
+                            }
+                        } else {
+                            // Agitated
+                            if behavior.mutation_progress >= 100.0 {
+                                behavior.goal_stack.push(Goal::Evolve);
+                            } else if rand::random::<f32>() < 0.6 {
+                                behavior.goal_stack.push(Goal::Escape);
+                            } else {
+                                behavior.goal_stack.push(Goal::Wander);
+                            }
                         }
                     } else {
-                        // Agitated: Escape or Evolve
-                        speed = 4.0;
-                        behavior.energy = (behavior.energy - 2.0 * dt).max(0.0);
-                        behavior.mutation_progress += 15.0 * dt;
+                        // Void / Neutral
+                        behavior.goal_stack.push(Goal::Wander);
+                    }
+                }
+            }
 
-                        if behavior.mutation_progress >= 100.0 {
-                            // Evolve!
-                            behavior.preferred_archetype = arch;
-                            npc.reality_signature.active_style.archetype = arch;
-                            behavior.mutation_progress = 0.0;
-                            behavior.energy = 50.0;
+            // 3. Update top goal
+            let mut goal_status = GoalStatus::Continue;
+            let mut top_goal = None;
+            if let Some(behavior) = &mut npc.behavior {
+                if let Some(goal) = behavior.goal_stack.last().cloned() {
+                    top_goal = Some(goal);
+                }
+            }
+
+            if let Some(goal) = top_goal {
+                // Execute goal
+                goal_status = match goal {
+                    Goal::Idle(time_left) => {
+                        if let Some(behavior) = &mut npc.behavior {
+                            let new_time = time_left - dt;
+                            if new_time <= 0.0 {
+                                GoalStatus::Success
+                            } else {
+                                // Replace with updated time
+                                behavior.goal_stack.pop();
+                                behavior.goal_stack.push(Goal::Idle(new_time));
+                                GoalStatus::Continue
+                            }
+                        } else {
+                            GoalStatus::Failure
                         }
-
-                        // Try to find a new target location randomly if we don't have one
-                        if npc.target_location.is_none() && rand::random::<f32>() < 0.5 * dt {
+                    }
+                    Goal::Wander => {
+                        let mut status = GoalStatus::Continue;
+                        if npc.target_location.is_none() {
                             let angle = rand::random::<f32>() * std::f32::consts::PI * 2.0;
-                            let radius = 10.0 + rand::random::<f32>() * 20.0;
+                            let radius = 10.0 + rand::random::<f32>() * 15.0;
                             npc.target_location = Some(cgmath::Point3::new(
                                 npc.location.x + angle.cos() * radius,
                                 1.0,
                                 npc.location.z + angle.sin() * radius,
                             ));
                         }
-                    }
-                } else {
-                    // No dominant archetype, slightly agitated
-                    speed = 2.5;
-                    behavior.mutation_progress += 2.0 * dt;
-                    if npc.target_location.is_none() && rand::random::<f32>() < 0.1 * dt {
-                        let angle = rand::random::<f32>() * std::f32::consts::PI * 2.0;
-                        let radius = 15.0;
-                        npc.target_location = Some(cgmath::Point3::new(
-                            npc.location.x + angle.cos() * radius,
-                            1.0,
-                            npc.location.z + angle.sin() * radius,
-                        ));
-                    }
-                }
-            }
 
-            if let Some(behavior) = &npc.behavior {
-                if behavior.hostile {
-                    use cgmath::InnerSpace;
-                    let dir_to_player = self.camera.eye - npc.location;
-                    let dist_to_player_sq = dir_to_player.magnitude2();
-                    if dist_to_player_sq < 400.0 {
-                        // 20 units squared
-                        npc.target_location = Some(self.camera.eye);
-                        speed = 6.0;
+                        if let Some(target) = npc.target_location {
+                            let dir = target - npc.location;
+                            let dist_sq = dir.magnitude2();
+                            if dist_sq > 0.1 && dist_sq.is_finite() {
+                                let move_vec = dir * (2.0 * dt / dist_sq.sqrt());
+                                npc.location += move_vec;
+                            } else {
+                                npc.target_location = None;
+                                status = GoalStatus::Success;
+                            }
+                        } else {
+                            status = GoalStatus::Failure;
+                        }
 
-                        if dist_to_player_sq < 4.0 {
-                            // 2 units squared
-                            // Push back the player
-                            let push_dir =
-                                dir_to_player * (5.0 / dist_to_player_sq.sqrt().max(0.1));
-                            self.camera.eye += push_dir;
+                        if let Some(behavior) = &mut npc.behavior {
+                            let current_arch = self.world_state.get_dominant_archetype_at(npc.location);
+                            if current_arch == Some(behavior.preferred_archetype) {
+                                behavior.energy = (behavior.energy + 5.0 * dt).min(100.0);
+                                behavior.mutation_progress = (behavior.mutation_progress - 10.0 * dt).max(0.0);
+                            } else {
+                                behavior.energy = (behavior.energy - 2.0 * dt).max(0.0);
+                                behavior.mutation_progress += 2.0 * dt;
+                            }
+                        }
+
+                        status
+                    }
+                    Goal::Escape => {
+                        let mut status = GoalStatus::Continue;
+                        if npc.target_location.is_none() {
+                            let angle = rand::random::<f32>() * std::f32::consts::PI * 2.0;
+                            let radius = 20.0 + rand::random::<f32>() * 20.0;
+                            npc.target_location = Some(cgmath::Point3::new(
+                                npc.location.x + angle.cos() * radius,
+                                1.0,
+                                npc.location.z + angle.sin() * radius,
+                            ));
+                        }
+
+                        if let Some(target) = npc.target_location {
+                            let dir = target - npc.location;
+                            let dist_sq = dir.magnitude2();
+                            if dist_sq > 0.1 && dist_sq.is_finite() {
+                                let move_vec = dir * (5.0 * dt / dist_sq.sqrt());
+                                npc.location += move_vec;
+                            } else {
+                                npc.target_location = None;
+                                status = GoalStatus::Success;
+                            }
+                        }
+
+                        if let Some(behavior) = &mut npc.behavior {
+                            behavior.energy = (behavior.energy - 5.0 * dt).max(0.0);
+                            behavior.mutation_progress += 15.0 * dt;
+                        }
+
+                        status
+                    }
+                    Goal::Evolve => {
+                        if let Some(behavior) = &mut npc.behavior {
+                            let current_arch = self.world_state.get_dominant_archetype_at(npc.location);
+                            if let Some(arch) = current_arch {
+                                behavior.preferred_archetype = arch;
+                                npc.reality_signature.active_style.archetype = arch;
+                                behavior.mutation_progress = 0.0;
+                                behavior.energy = 100.0;
+                                GoalStatus::Success
+                            } else {
+                                GoalStatus::Failure
+                            }
+                        } else {
+                            GoalStatus::Failure
                         }
                     }
+                    Goal::Attack(_) => {
+                        npc.target_location = Some(self.camera.eye);
+                        let dir = self.camera.eye - npc.location;
+                        let dist_sq = dir.magnitude2();
+
+                        if dist_sq < 4.0 {
+                            // Player hit
+                            let push_dir = dir * (10.0 / dist_sq.sqrt().max(0.1));
+                            self.camera.eye += push_dir;
+                            // Attack successful, end goal
+                            npc.target_location = None;
+                            GoalStatus::Success
+                        } else if dist_sq > 625.0 {
+                            // Player escaped (25 units away)
+                            npc.target_location = None;
+                            GoalStatus::Failure
+                        } else {
+                            // Chase
+                            if dist_sq.is_finite() && dist_sq > 0.01 {
+                                let move_vec = dir * (6.0 * dt / dist_sq.sqrt());
+                                npc.location += move_vec;
+                            }
+                            GoalStatus::Continue
+                        }
+                    }
+                    Goal::GatherResource(_) => {
+                        let mut status = GoalStatus::Continue;
+                        // Find closest item
+                        let mut closest_item_idx = None;
+                        let mut min_dist_sq = 900.0; // max search radius 30 units
+
+                        for (i, item) in self.world_state.dropped_items.iter().enumerate() {
+                            let d_sq = (item.position - npc.location).magnitude2();
+                            if d_sq < min_dist_sq {
+                                min_dist_sq = d_sq;
+                                closest_item_idx = Some(i);
+                            }
+                        }
+
+                        if let Some(idx) = closest_item_idx {
+                            let item_pos = self.world_state.dropped_items[idx].position;
+                            if min_dist_sq < 2.0 {
+                                // Pick it up
+                                self.world_state.dropped_items.remove(idx);
+                                if let Some(behavior) = &mut npc.behavior {
+                                    behavior.energy = (behavior.energy + 20.0).min(100.0);
+                                }
+                                status = GoalStatus::Success;
+                            } else {
+                                // Move towards it
+                                let dir = item_pos - npc.location;
+                                if min_dist_sq.is_finite() && min_dist_sq > 0.01 {
+                                    let move_vec = dir * (3.0 * dt / min_dist_sq.sqrt());
+                                    npc.location += move_vec;
+                                }
+                            }
+                        } else {
+                            status = GoalStatus::Failure; // No resources found
+                        }
+
+                        status
+                    }
+                    Goal::ExpandInfluence => {
+                        // Drop a potential node to expand reality
+                        if let Some(behavior) = &mut npc.behavior {
+                            if behavior.energy > 50.0 {
+                                behavior.energy -= 30.0;
+                                let drop_pos = npc.location + cgmath::Vector3::new(0.0, 1.0, 0.0);
+                                let new_item = crate::reality_types::DroppedItem::new_cube(
+                                    format!("potential_node_npc_{}", uuid::Uuid::new_v4()),
+                                    drop_pos,
+                                    cgmath::Vector3::new(0.0, 2.0, 0.0),
+                                    0.3,
+                                    [1.0, 0.5, 0.0, 1.0], // Orange node
+                                    3,
+                                );
+                                self.world_state.dropped_items.push(new_item);
+                                GoalStatus::Success
+                            } else {
+                                GoalStatus::Failure
+                            }
+                        } else {
+                            GoalStatus::Failure
+                        }
+                    }
+                };
+            }
+
+            // 4. Pop stack on Success/Failure
+            if goal_status != GoalStatus::Continue {
+                if let Some(behavior) = &mut npc.behavior {
+                    behavior.goal_stack.pop();
+
+                    if goal_status == GoalStatus::Failure {
+                        // Clear stack on failure to cause re-evaluation next frame
+                        behavior.goal_stack.clear();
+                    }
                 }
             }
 
-            if let Some(target) = npc.target_location {
-                // Move towards target
-                use cgmath::InnerSpace;
-
-                let dir = target - npc.location;
-                // Optimization: Avoid duplicate magnitude calculation by computing squared distance,
-                // checking against a squared threshold, and then extracting the square root just once
-                // to multiply it back as a scalar, instead of calling `.magnitude()` and then `.normalize()`.
-                let dist_sq = dir.magnitude2();
-                // Security Enhancement: Prevent NaN propagation DoS if target coordinates are excessively large (e.g. 1e38).
-                // Squaring massive finite floats overflows to Infinity. Infinity * 0.0 results in NaN, corrupting the NPC's location.
-                if dist_sq > 0.01 && dist_sq.is_finite() {
-                    // 0.1 squared
-                    let dist = dist_sq.sqrt();
-                    let move_vec = dir * (speed * dt / dist);
-                    npc.location += move_vec;
-                } else {
-                    npc.target_location = None; // Reached target or invalid
-                }
-            } else {
-                // Fallback deterministic wandering
-                let mut seed = 0.0;
-                for b in npc.uuid.bytes() {
-                    seed += b as f32;
-                }
-                seed %= 100.0;
-
-                let move_x = (self.time + seed).cos() * speed * dt;
-                let move_z = (self.time + seed * 1.5).sin() * speed * dt;
-
-                npc.location.x += move_x;
-                npc.location.z += move_z;
-            }
-
-            // Keep them somewhat grounded
+            // Keep somewhat grounded
             npc.location.y = 1.0;
 
             npcs_to_update.push(npc.clone());
         }
-
         // Put the modified npcs back
         self.world_state.npcs = npcs;
 
@@ -1522,6 +1709,7 @@ impl Engine {
                 energy: 100.0,
                 mutation_progress: 0.0,
                 hostile: arch == RealityArchetype::Horror,
+                goal_stack: Vec::new(),
             });
             self.world_state.npcs.push(npc);
         }

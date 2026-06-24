@@ -1,6 +1,25 @@
 use crate::reality_types::{BlendResult, RealityArchetype, RealitySignature};
 use cgmath::{MetricSpace, Point3};
 use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum Goal {
+    Idle(f32), // time left
+    Wander,
+    Escape,
+    Evolve,
+    Attack(String),
+    GatherResource(String),
+    ExpandInfluence,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GoalStatus {
+    Continue,
+    Success,
+    Failure,
+}
+
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -10,6 +29,8 @@ pub struct NpcBehavior {
     pub mutation_progress: f32,
     #[serde(default)]
     pub hostile: bool,
+    #[serde(default)]
+    pub goal_stack: Vec<Goal>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

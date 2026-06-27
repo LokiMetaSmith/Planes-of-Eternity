@@ -147,6 +147,7 @@ impl Engine {
                     RealityArchetype::Tron,
                     RealityArchetype::Clockwork,
                     RealityArchetype::Cottagecore,
+                    RealityArchetype::WildWest,
                 ];
                 for (i, arch) in archetypes.into_iter().enumerate() {
                     let mut sig = RealitySignature::default();
@@ -854,6 +855,9 @@ impl Engine {
                             crate::reality_types::RealityArchetype::Cottagecore => {
                                 [0.4, 0.7, 0.3, 1.0]
                             }
+                            crate::reality_types::RealityArchetype::WildWest => {
+                                [0.8, 0.5, 0.2, 1.0]
+                            }
                         };
 
                         self.spell_effects.push(SpellEffect {
@@ -983,6 +987,9 @@ impl Engine {
                                     }
                                     crate::reality_types::RealityArchetype::Cottagecore => {
                                         [0.4, 0.7, 0.3, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::WildWest => {
+                                        [0.8, 0.5, 0.2, 1.0]
                                     }
                                 };
 
@@ -1525,6 +1532,9 @@ impl Engine {
                                 "COTTAGECORE" => {
                                     Some(crate::reality_types::RealityArchetype::Cottagecore)
                                 }
+                                "WILDWEST" => {
+                                    Some(crate::reality_types::RealityArchetype::WildWest)
+                                }
                                 "VOID" => Some(crate::reality_types::RealityArchetype::Void),
                                 _ => None,
                             };
@@ -1690,6 +1700,7 @@ impl Engine {
             RealityArchetype::Tron,
             RealityArchetype::Clockwork,
             RealityArchetype::Cottagecore,
+            RealityArchetype::WildWest,
         ];
         for (i, arch) in archetypes.into_iter().enumerate() {
             let mut sig = RealitySignature::default();

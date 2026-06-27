@@ -1566,6 +1566,7 @@ impl State {
                 reality_types::RealityArchetype::LiminalSpace => (17.0, [0.95, 0.95, 0.8, 1.0]), // Fluorescent yellow-white
                 reality_types::RealityArchetype::Clockwork => (18.0, [0.8, 0.6, 0.2, 1.0]), // Brass/Gold
                 reality_types::RealityArchetype::Cottagecore => (19.0, [0.4, 0.7, 0.3, 1.0]), // Floral Green
+                reality_types::RealityArchetype::WildWest => (20.0, [0.8, 0.5, 0.2, 1.0]), // Dusty Orange
             }
         }
 
@@ -1914,6 +1915,7 @@ impl State {
                 crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
                 crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
                 crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
+                crate::reality_types::RealityArchetype::WildWest => [0.8, 0.5, 0.2, 1.0],
             };
 
             for mut splat in self.npc_splats.iter().cloned() {
@@ -2246,6 +2248,7 @@ impl GameClient {
             17 => reality_types::RealityArchetype::LiminalSpace,
             18 => reality_types::RealityArchetype::Clockwork,
             19 => reality_types::RealityArchetype::Cottagecore,
+            20 => reality_types::RealityArchetype::WildWest,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -2278,6 +2281,7 @@ impl GameClient {
             17 => reality_types::RealityArchetype::LiminalSpace,
             18 => reality_types::RealityArchetype::Clockwork,
             19 => reality_types::RealityArchetype::Cottagecore,
+            20 => reality_types::RealityArchetype::WildWest,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -2302,6 +2306,7 @@ impl GameClient {
             17 => reality_types::RealityArchetype::LiminalSpace,
             18 => reality_types::RealityArchetype::Clockwork,
             19 => reality_types::RealityArchetype::Cottagecore,
+            20 => reality_types::RealityArchetype::WildWest,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -2365,6 +2370,7 @@ impl GameClient {
                 reality_types::RealityArchetype::LiminalSpace => 17,
                 reality_types::RealityArchetype::Clockwork => 18,
                 reality_types::RealityArchetype::Cottagecore => 19,
+                reality_types::RealityArchetype::WildWest => 20,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

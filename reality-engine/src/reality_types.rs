@@ -24,6 +24,7 @@ pub enum RealityArchetype {
     LiminalSpace, // Infinite empty hallways and backrooms
     Clockwork,    // Giant gears, brass, precise ticking mechanisms
     Cottagecore,  // Cozy, pastoral, floral
+    WildWest,     // Dusty, saloons, tumbleweeds
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

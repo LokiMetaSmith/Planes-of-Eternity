@@ -122,6 +122,7 @@
 ## NPC Chat System
 - [x] Add NPC Chat bubbles to the UI via HTML Overlays.
 - [x] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
+- [x] Convert spell effect rendering to use Gaussian Splats instead of Lambda bubbles.
 
 ## Build / Technical Debt
 - [x] **WebXR Compilation Errors**: Fix unresolved WebXR imports (`XrEye`, `XrFrame`, etc.) when compiling for `wasm32-unknown-unknown`.

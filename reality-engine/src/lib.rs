@@ -1730,23 +1730,8 @@ impl State {
             });
         }
 
-        // 4. Add Spell Effects (Particles)
-        for effect in &self.engine.spell_effects {
-            let progress = effect.timer / effect.max_time;
-            // Scale expands over time
-            let current_scale = effect.scale * (progress * 2.0).min(1.0);
-
-            // Pulse opacity
-            let alpha = 1.0 - progress;
-            let mut color = effect.color;
-            color[3] = alpha;
-
-            entity_instances.push(visual_lambda::LambdaInstance {
-                position: [effect.position.x, effect.position.y, effect.position.z],
-                color,
-                scale: current_scale,
-            });
-        }
+        // 4. Add Spell Effects (Particles) - NOW MOVED TO GAUSSIAN SPLATS
+        // We will render these down below in the active_splats section
 
         self.num_entities = entity_instances.len() as u32;
 
@@ -1889,6 +1874,26 @@ impl State {
             if is_aabb_visible(aabb_min, aabb_max, &frustum_planes) {
                 active_splats.extend(chunk.splats.iter().cloned());
             }
+        }
+
+        // Add Spell Effects (Particles) as Splats
+        for effect in &self.engine.spell_effects {
+            let progress = effect.timer / effect.max_time;
+            // Scale expands over time
+            let current_scale = effect.scale * (progress * 2.0).min(1.0);
+
+            // Pulse opacity
+            let alpha = 1.0 - progress;
+            let mut color = effect.color;
+            color[3] = alpha;
+
+            active_splats.push(splat::SplatVertex {
+                position: [effect.position.x, effect.position.y, effect.position.z],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [current_scale, current_scale, current_scale],
+                color,
+                previous_position: [effect.position.x, effect.position.y, effect.position.z],
+            });
         }
 
         // Add NPC Splats

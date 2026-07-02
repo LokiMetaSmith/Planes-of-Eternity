@@ -56,6 +56,37 @@ pub struct Engine {
     pub physics_state: PhysicsState,
 }
 
+
+fn move_npc(npc: &mut crate::projector::RealityProjector, move_vec: cgmath::Vector3<f32>, vw: &mut Option<&mut crate::voxel::VoxelWorld>) {
+    if let Some(ref mut vw) = vw {
+        let npc_radius = 0.3;
+        let mut next_pos = npc.location + move_vec;
+        let vy_body = (npc.location.y).floor() as i32;
+
+        // Check X
+        let target_vx = (next_pos.x + move_vec.x.signum() * npc_radius).floor() as i32;
+        let current_vz = npc.location.z.floor() as i32;
+        if let Some(voxel) = vw.get_voxel_at(target_vx, vy_body, current_vz) {
+            if voxel.id != 0 {
+                next_pos.x = npc.location.x;
+            }
+        }
+
+        // Check Z
+        let current_vx = npc.location.x.floor() as i32;
+        let target_vz = (next_pos.z + move_vec.z.signum() * npc_radius).floor() as i32;
+        if let Some(voxel) = vw.get_voxel_at(current_vx, vy_body, target_vz) {
+            if voxel.id != 0 {
+                next_pos.z = npc.location.z;
+            }
+        }
+
+        npc.location = next_pos;
+    } else {
+        npc.location += move_vec;
+    }
+}
+
 impl Engine {
     pub fn new(width: u32, height: u32, initial_state: Option<GameState>) -> Self {
         let mut camera = Camera {
@@ -226,6 +257,7 @@ impl Engine {
         }
     }
 
+
     pub fn update(
         &mut self,
         dt: f32,
@@ -255,6 +287,7 @@ impl Engine {
         let mut npcs_to_update = Vec::new();
         // First we extract the npcs into a temporary vector so we don't have multiple mutable borrows to self.world_state
         let mut npcs = std::mem::take(&mut self.world_state.npcs);
+
 
         for npc in &mut npcs {
             use crate::projector::{Goal, GoalStatus};
@@ -387,7 +420,7 @@ impl Engine {
                             let dist_sq = dir.magnitude2();
                             if dist_sq > 0.1 && dist_sq.is_finite() {
                                 let move_vec = dir * (2.0 * dt / dist_sq.sqrt());
-                                npc.location += move_vec;
+                                move_npc(npc, move_vec, &mut voxel_world);
                             } else {
                                 npc.target_location = None;
                                 status = GoalStatus::Success;
@@ -426,7 +459,7 @@ impl Engine {
                             let dist_sq = dir.magnitude2();
                             if dist_sq > 0.1 && dist_sq.is_finite() {
                                 let move_vec = dir * (5.0 * dt / dist_sq.sqrt());
-                                npc.location += move_vec;
+                                move_npc(npc, move_vec, &mut voxel_world);
                             } else {
                                 npc.target_location = None;
                                 status = GoalStatus::Success;
@@ -476,7 +509,7 @@ impl Engine {
                             // Chase
                             if dist_sq.is_finite() && dist_sq > 0.01 {
                                 let move_vec = dir * (6.0 * dt / dist_sq.sqrt());
-                                npc.location += move_vec;
+                                move_npc(npc, move_vec, &mut voxel_world);
                             }
                             GoalStatus::Continue
                         }
@@ -509,7 +542,7 @@ impl Engine {
                                 let dir = item_pos - npc.location;
                                 if min_dist_sq.is_finite() && min_dist_sq > 0.01 {
                                     let move_vec = dir * (3.0 * dt / min_dist_sq.sqrt());
-                                    npc.location += move_vec;
+                                    move_npc(npc, move_vec, &mut voxel_world);
                                 }
                             }
                         } else {
@@ -673,24 +706,44 @@ impl Engine {
         if has_gravity {
             self.camera.velocity.y -= 9.8 * dt; // Apply gravity
 
-            let next_pos = self.camera.eye + self.camera.velocity * dt;
+            let mut next_pos = self.camera.eye + self.camera.velocity * dt;
             let mut hit_ground = false;
-
-            // Simple Voxel Collision for the player
+// Voxel Collision for the player (AABB)
             if let Some(ref mut vw) = voxel_world {
-                let vx = next_pos.x.floor() as i32;
-                // Check foot position, crouch height affects checking
-                let foot_y_offset = if self.camera_controller.is_crouching {
-                    0.5
-                } else {
-                    1.0
-                };
-                let vy = (next_pos.y - foot_y_offset).floor() as i32;
-                let vz = next_pos.z.floor() as i32;
+                let foot_y_offset = if self.camera_controller.is_crouching { 0.5 } else { 1.0 };
 
-                if let Some(voxel) = vw.get_voxel_at(vx, vy, vz) {
+                // 1. Check Floor (Y axis)
+                let vx = next_pos.x.floor() as i32;
+                let vy_floor = (next_pos.y - foot_y_offset).floor() as i32;
+                let vz = next_pos.z.floor() as i32;
+                if let Some(voxel) = vw.get_voxel_at(vx, vy_floor, vz) {
                     if voxel.id != 0 {
                         hit_ground = true;
+                    }
+                }
+
+                // 2. Check Walls (X and Z axis)
+                let player_radius = 0.3; // Half-width of player
+                // We check the torso level
+                let vy_body = (self.camera.eye.y - foot_y_offset + 0.5).floor() as i32;
+
+                // Check X movement
+                let target_vx = (next_pos.x + self.camera.velocity.x.signum() * player_radius).floor() as i32;
+                let current_vz = self.camera.eye.z.floor() as i32;
+                if let Some(voxel) = vw.get_voxel_at(target_vx, vy_body, current_vz) {
+                    if voxel.id != 0 {
+                        // Wall hit on X
+                        next_pos.x = self.camera.eye.x; // Block movement
+                    }
+                }
+
+                // Check Z movement
+                let current_vx = self.camera.eye.x.floor() as i32;
+                let target_vz = (next_pos.z + self.camera.velocity.z.signum() * player_radius).floor() as i32;
+                if let Some(voxel) = vw.get_voxel_at(current_vx, vy_body, target_vz) {
+                    if voxel.id != 0 {
+                        // Wall hit on Z
+                        next_pos.z = self.camera.eye.z; // Block movement
                     }
                 }
             }

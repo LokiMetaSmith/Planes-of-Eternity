@@ -298,6 +298,38 @@ fn noise2d(x: f32, z: f32) -> f32 {
     b + v * (t - b)
 }
 
+fn noise3d(x: f32, y: f32, z: f32) -> f32 {
+    let xi = x.floor() as i32;
+    let yi = y.floor() as i32;
+    let zi = z.floor() as i32;
+    let xf = x - x.floor();
+    let yf = y - y.floor();
+    let zf = z - z.floor();
+
+    let c000 = hash(xi, yi, zi);
+    let c100 = hash(xi + 1, yi, zi);
+    let c010 = hash(xi, yi + 1, zi);
+    let c110 = hash(xi + 1, yi + 1, zi);
+    let c001 = hash(xi, yi, zi + 1);
+    let c101 = hash(xi + 1, yi, zi + 1);
+    let c011 = hash(xi, yi + 1, zi + 1);
+    let c111 = hash(xi + 1, yi + 1, zi + 1);
+
+    let u = xf * xf * (3.0 - 2.0 * xf);
+    let v = yf * yf * (3.0 - 2.0 * yf);
+    let w = zf * zf * (3.0 - 2.0 * zf);
+
+    let x00 = c000 + u * (c100 - c000);
+    let x10 = c010 + u * (c110 - c010);
+    let x01 = c001 + u * (c101 - c001);
+    let x11 = c011 + u * (c111 - c011);
+
+    let y0 = x00 + v * (x10 - x00);
+    let y1 = x01 + v * (x11 - x01);
+
+    y0 + w * (y1 - y0)
+}
+
 fn hash(x: i32, y: i32, z: i32) -> f32 {
     let mut n = x.wrapping_mul(374761393) ^ y.wrapping_mul(668265263) ^ z.wrapping_mul(393555907);
     n = (n ^ (n >> 13)).wrapping_mul(1274126177);
@@ -525,6 +557,17 @@ impl Chunk {
                                     voxel.id = 3; // Fire
                                 }
                             }
+
+                            // Caves (3D Noise)
+                            if wy < terrain_height - 3 && voxel.id == 1 {
+                                let cave_noise = noise3d(wx as f32 * 0.05, wy as f32 * 0.05, wz as f32 * 0.05);
+                                if cave_noise > 0.6 {
+                                    voxel.id = 0; // Air (Cave)
+                                } else if cave_noise > 0.55 && hash(wx, wy, wz).abs() > 0.95 {
+                                    voxel.id = 3; // Occasional glowing mushroom/fire in caves
+                                }
+                            }
+
                         }
                         Some(crate::reality_types::RealityArchetype::SciFi) => {
                             // Metal/Stone Ground

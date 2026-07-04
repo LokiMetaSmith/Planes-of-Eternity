@@ -814,6 +814,7 @@ impl Engine {
                         );
 
                         let color = match anomaly.reality_signature.active_style.archetype {
+                            crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
                             crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
                             crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
                             crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
@@ -990,6 +991,9 @@ impl Engine {
                                     }
                                     crate::reality_types::RealityArchetype::WildWest => {
                                         [0.8, 0.5, 0.2, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Fractal => {
+                                        [1.0, 0.5, 0.0, 1.0]
                                     }
                                 };
 

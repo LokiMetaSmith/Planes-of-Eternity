@@ -485,7 +485,7 @@ impl Chunk {
                     let mut voxel = Voxel::default();
 
                     match base_archetype {
-                                                Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
+                                                Some(crate::reality_types::RealityArchetype::Fractal) | Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
                             // Procedural Rolling Hills Terrain
                             let nx = wx as f32 * 0.05;
                             let nz = wz as f32 * 0.05;
@@ -522,32 +522,127 @@ impl Chunk {
                                 let tx = cell_x * 8 + (hash(cell_x, 0, cell_z).abs() * 8.0) as i32;
                                 let tz = cell_z * 8 + (hash(cell_z, 0, cell_x).abs() * 8.0) as i32;
 
-                                if wx == tx && wz == tz {
-                                    // Tree trunk
-                                    if wy <= terrain_height + 4 {
-                                        voxel.id = 6; // Wood
+                                // Base tree height on hash
+                                let tree_seed = hash(cell_x, cell_z, 0).abs();
+
+                                if tree_seed < 0.3 {
+                                    // Normal simple tree
+                                    if wx == tx && wz == tz {
+                                        if wy <= terrain_height + 4 {
+                                            voxel.id = 6; // Wood
+                                        }
                                     }
-                                }
 
-                                // Tree canopy (Leaves)
-                                let dx = (wx - tx).abs();
-                                let dy = (wy - (terrain_height + 4)).abs();
-                                let dz = (wz - tz).abs();
+                                    let dx = (wx - tx).abs();
+                                    let dy = (wy - (terrain_height + 4)).abs();
+                                    let dz = (wz - tz).abs();
 
-                                if dy <= 2 && dx * dx + dy * dy + dz * dz <= 5 && voxel.id == 0 {
-                                    if hash(wx, wy, wz).abs() > 0.1 {
-                                        voxel.id = 7; // Leaves
+                                    if dy <= 2 && dx * dx + dy * dy + dz * dz <= 5 && voxel.id == 0 {
+                                        if hash(wx, wy, wz).abs() > 0.1 {
+                                            voxel.id = 7; // Leaves
+                                        }
+                                    }
+                                } else {
+                                    // L-System Tree
+                                    // To make it efficient, we only evaluate if we are close to the tree base (within bounds)
+                                    let max_tree_radius = 8;
+                                    let max_tree_height = 15;
+
+                                    if (wx - tx).abs() <= max_tree_radius && (wz - tz).abs() <= max_tree_radius && wy <= terrain_height + max_tree_height {
+                                        // Evaluate L-system for this specific tree deterministicly
+                                        let mut lsys = crate::lsystem::LSystem::new("F");
+                                        lsys.add_rule('F', "F[-F]F[+F]F");
+                                        let sentence = lsys.evaluate(2); // Keep iterations low for performance
+
+                                        // Different trees can have different angles
+                                        let angle = 25.0 + (hash(tx, 0, tz).abs() * 15.0);
+
+                                        let mut turtle = crate::lsystem::LSystemTurtle::new(
+                                            cgmath::Point3::new(tx, terrain_height, tz),
+                                            angle,
+                                            1.5
+                                        );
+
+                                        // To add variety to 3D rotation, pitch a bit randomly
+                                        turtle.generate(&sentence);
+
+                                        // Check if our current (wx, wy, wz) is in the generated voxels
+                                        // Because iterating through turtle.voxels per voxel is slow, we check bounds first
+                                        let target = cgmath::Point3::new(wx, wy, wz);
+                                        for v in &turtle.voxels {
+                                            if *v == target {
+                                                voxel.id = 6; // Wood for branches
+                                                break;
+                                            } else if (v.x - target.x).abs() <= 1 && (v.y - target.y).abs() <= 1 && (v.z - target.z).abs() <= 1 {
+                                                 if hash(wx, wy, wz).abs() > 0.3 {
+                                                     // Leaves around branches
+                                                     if voxel.id == 0 {
+                                                        voxel.id = 7;
+                                                     }
+                                                 }
+                                            }
+                                        }
                                     }
                                 }
                             }
 
-                            // Castle (Procedural) - Keeping for backwards compatibility
-                            if (-9..=9).contains(&wx)
-                                && (-9..=9).contains(&wz)
-                                && (0..10).contains(&wy)
-                                && (wx.abs() > 8 || wz.abs() > 8 || wy == 0)
-                            {
-                                voxel.id = 1; // Stone
+                            // Castle (CFG)
+                            // Center of the chunk
+                            let cx = 0;
+                            let cz = 0;
+
+                            // Check if inside a general generous bounding box for the castle area
+                            if (wx - cx).abs() <= 15 && (wz - cz).abs() <= 15 && wy >= 0 && wy <= 20 {
+                                let mut cfg = crate::cfg::CFG::new("Castle");
+                                cfg.add_rule("Castle", vec!["Base", "Mid", "Top"]);
+                                cfg.add_rule("Castle", vec!["Base", "Tower", "Mid", "Tower", "Top"]);
+                                cfg.add_rule("Base", vec!["SolidBase"]);
+                                cfg.add_rule("Mid", vec!["HollowMid"]);
+                                cfg.add_rule("Top", vec!["Spire"]);
+                                cfg.add_rule("Top", vec!["FlatRoof"]);
+                                cfg.add_rule("Tower", vec!["SmallTower"]);
+
+                                // Evaluate the grammar for the chunk (deterministic seed from chunk pos)
+                                let seed = (self.key.x.wrapping_mul(73856093).wrapping_add(self.key.z.wrapping_mul(19349663))) as u32;
+                                let sequence = cfg.evaluate(5, seed);
+
+                                let mut current_y = 0;
+                                for term in sequence {
+                                    if term == "SolidBase" {
+                                        if (wx - cx).abs() <= 8 && (wz - cz).abs() <= 8 && wy >= current_y && wy < current_y + 4 {
+                                            voxel.id = 1; // Stone
+                                        }
+                                        current_y += 4;
+                                    } else if term == "HollowMid" {
+                                        if (wx - cx).abs() <= 8 && (wz - cz).abs() <= 8 && wy >= current_y && wy < current_y + 6 {
+                                            if (wx - cx).abs() == 8 || (wz - cz).abs() == 8 {
+                                                voxel.id = 1;
+                                            } else {
+                                                // interior hollow
+                                            }
+                                        }
+                                        current_y += 6;
+                                    } else if term == "Spire" {
+                                        let h = current_y + 8 - wy;
+                                        if h > 0 {
+                                            let radius = h / 2;
+                                            if (wx - cx).abs() <= radius && (wz - cz).abs() <= radius && wy >= current_y && wy < current_y + 8 {
+                                                voxel.id = 1;
+                                            }
+                                        }
+                                        current_y += 8;
+                                    } else if term == "FlatRoof" {
+                                        if (wx - cx).abs() <= 9 && (wz - cz).abs() <= 9 && wy == current_y {
+                                            voxel.id = 1;
+                                        }
+                                        current_y += 1;
+                                    } else if term == "SmallTower" {
+                                        // Four corner towers
+                                        if ((wx - cx).abs() == 9 && (wz - cz).abs() == 9) && wy >= current_y && wy < current_y + 10 {
+                                            voxel.id = 1;
+                                        }
+                                    }
+                                }
                             }
 
                             // Fire Noise (Fireflies or embers)

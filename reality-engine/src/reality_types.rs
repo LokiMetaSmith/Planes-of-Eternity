@@ -25,6 +25,7 @@ pub enum RealityArchetype {
     Clockwork,    // Giant gears, brass, precise ticking mechanisms
     Cottagecore,  // Cozy, pastoral, floral
     WildWest,     // Dusty, saloons, tumbleweeds
+    Fractal,      // L-Systems and CFG structures
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

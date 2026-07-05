@@ -49,6 +49,7 @@ pub mod xr;
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
+    inv_view_proj: [[f32; 4]; 4],
     camera_pos: [f32; 4], // xyz, w=padding
     time: [f32; 4],       // x=time, yzw=padding
 }
@@ -58,6 +59,7 @@ impl CameraUniform {
         use cgmath::SquareMatrix;
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
+            inv_view_proj: cgmath::Matrix4::identity().into(),
             camera_pos: [0.0; 4],
             time: [0.0; 4],
         }
@@ -65,6 +67,7 @@ impl CameraUniform {
 
     fn update_view_proj(&mut self, camera: &camera::Camera, time: f32) {
         self.view_proj = camera.build_view_projection_matrix().into();
+        self.inv_view_proj = camera.build_inverse_view_projection_matrix().into();
         self.camera_pos = [camera.eye.x, camera.eye.y, camera.eye.z, 1.0];
         self.time[0] = time;
     }
@@ -284,6 +287,7 @@ struct ChunkData {
 #[cfg(target_arch = "wasm32")]
 pub struct State {
     surface: wgpu::Surface<'static>,
+    pub sky_pipeline: wgpu::RenderPipeline,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -600,6 +604,58 @@ impl State {
                 resource: reality_buffer.as_entire_binding(),
             }],
             label: Some("reality_bind_group"),
+        });
+
+
+        let sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Sky Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader_sky.wgsl").into()),
+        });
+
+        let sky_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Sky Pipeline Layout"),
+            bind_group_layouts: &[&camera_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Sky Pipeline"),
+            layout: Some(&sky_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &sky_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[], // No vertex buffers
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &sky_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: false, // Don't write to depth buffer
+                depth_compare: wgpu::CompareFunction::Always, // Always draw
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
         });
 
         let render_pipeline_layout =
@@ -1109,6 +1165,7 @@ impl State {
             queue,
             config,
             render_pipeline,
+            sky_pipeline,
             vertex_buffer,
             index_buffer,
             num_indices,
@@ -2167,6 +2224,14 @@ impl State {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+
+
+            // Draw Sky (fullscreen quad)
+            if !self.in_xr || self.in_vr { // Don't draw sky in AR
+                render_pass.set_pipeline(&self.sky_pipeline);
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.draw(0..3, 0..1);
+            }
 
             // Draw Terrain
             render_pass.set_pipeline(&self.render_pipeline);

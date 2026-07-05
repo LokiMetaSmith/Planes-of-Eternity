@@ -171,3 +171,30 @@ fn get_local_storage() -> Result<Option<Storage>, web_sys::wasm_bindgen::JsValue
     let window = web_sys::window().ok_or("No window found")?;
     window.local_storage()
 }
+
+#[cfg(target_arch = "wasm32")]
+pub fn save_raw_to_local_storage(key: &str, data: &str) {
+    if let Ok(Some(storage)) = get_local_storage() {
+        if let Err(e) = storage.set_item(key, data) {
+            log::error!("Failed to save raw data to local storage: {:?}", e);
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_raw_to_local_storage(_key: &str, _data: &str) {}
+
+#[cfg(target_arch = "wasm32")]
+pub fn load_raw_from_local_storage(key: &str) -> Option<String> {
+    if let Ok(Some(storage)) = get_local_storage() {
+        if let Ok(Some(data)) = storage.get_item(key) {
+            return Some(data);
+        }
+    }
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_raw_from_local_storage(_key: &str) -> Option<String> {
+    None
+}

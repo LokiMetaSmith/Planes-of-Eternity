@@ -227,6 +227,8 @@ impl GenieBridge {
                     scale: [s[7], s[8], s[9]],
                     color: [s[10], s[11], s[12], s[13]],
                     previous_position: [s[0], s[1], s[2]],
+                    archetype_id: 5, // Genie archetype default
+                    padding: [0; 2],
                 });
             }
 

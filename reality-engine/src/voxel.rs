@@ -927,6 +927,8 @@ impl Chunk {
                             scale,
                             color: [color_3[0], color_3[1], color_3[2], opacity],
                             previous_position,
+                            archetype_id: 0, // Voxel splats are default
+                            padding: [0; 2],
                         });
                     }
                 }

@@ -1,6 +1,8 @@
 struct CameraUniform {
     view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
+    time: vec4<f32>,
 };
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -122,7 +124,13 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     } else if (abs(r - 0.2) < 0.01 && abs(g - 0.8) < 0.01 && abs(b - 0.2) < 0.01) || (abs(r - 0.2) < 0.01 && abs(g - 0.6) < 0.01 && abs(b - 0.2) < 0.01) {
         // Existing Landscape (Grass tops / leaves wobble slightly in wind)
         if (model.normal.y > 0.5) {
-            animated_pos.x += sin(time * 2.0 + model.position.y) * 0.05;
+            let is_stormy = sin(time * 0.05) > 0.8;
+            let wind_strength = select(0.05, 0.2, is_stormy);
+            let wind_speed = select(2.0, 8.0, is_stormy);
+            animated_pos.x += sin(time * wind_speed + model.position.y) * wind_strength;
+            if (is_stormy) {
+                animated_pos.z += cos(time * wind_speed + model.position.y) * wind_strength;
+            }
         }
     }
 
@@ -255,6 +263,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         shadow = ray_march_shadow(in.world_pos, light_dir);
     } else {
         shadow = 0.0; // No direct sun at night or if ambient only
+    }
+
+    // Storm Lightning Flash
+    let is_stormy = sin(time * 0.05) > 0.8;
+    if (is_stormy && light_y < 0.2) {
+        let lightning_noise = fract(sin(dot(vec2<f32>(time * 10.0, 0.0), vec2<f32>(12.9898, 78.233))) * 43758.5453);
+        if (lightning_noise > 0.98) {
+            ambient = ambient + 1.5;
+        }
     }
 
     let diff = max(dot(in.normal, light_dir), 0.0) * shadow * directional_weight;

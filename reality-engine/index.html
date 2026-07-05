@@ -708,6 +708,8 @@
                 [Mouse] Click to Move Anomaly<br>
                 [Click Node] Reduce Lambda<br>
                 [F] Cast Spell (Lambda)<br>
+                [R] Toggle 4D Recording<br>
+                [P] Play Last Recording<br>
                 [Sliders] Adjust Reality Params<br>
                 [H] Toggle UI
             </div>
@@ -1222,6 +1224,20 @@
                 window.addEventListener('keydown', (e) => {
                     // Ignore if typing in input
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                    if (e.code === 'KeyR') {
+                        if (window.gameClient) {
+                            const recording = window.gameClient.toggle_recording();
+                            log(recording ? "> 4D RECORDING STARTED" : "> 4D RECORDING STOPPED AND ENCODED");
+                        }
+                    }
+
+                    if (e.code === 'KeyP') {
+                        if (window.gameClient) {
+                            window.gameClient.play_last_recording();
+                            log("> PLAYING LAST 4D RECORDING");
+                        }
+                    }
 
                     if (e.code === 'KeyH') {
                         const uiLayer = document.getElementById('ui-layer');

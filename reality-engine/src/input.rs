@@ -21,6 +21,8 @@ pub enum Action {
     DropItem,
     PickupItem,
     StoreSpell,
+    SplatRecordToggle,
+    SplatPlaybackToggle,
     // Add more actions as needed
 }
 
@@ -45,6 +47,8 @@ impl Action {
             "DropItem" => Some(Action::DropItem),
             "PickupItem" => Some(Action::PickupItem),
             "StoreSpell" => Some(Action::StoreSpell),
+            "SplatRecordToggle" => Some(Action::SplatRecordToggle),
+            "SplatPlaybackToggle" => Some(Action::SplatPlaybackToggle),
             _ => None,
         }
     }
@@ -71,6 +75,8 @@ impl std::fmt::Display for Action {
             Action::DropItem => "DropItem",
             Action::PickupItem => "PickupItem",
             Action::StoreSpell => "StoreSpell",
+            Action::SplatRecordToggle => "SplatRecordToggle",
+            Action::SplatPlaybackToggle => "SplatPlaybackToggle",
         };
         write!(f, "{}", s)
     }
@@ -101,7 +107,7 @@ impl Default for InputConfig {
         bindings.insert(Action::Inscribe, "KeyI".to_string());
         bindings.insert(Action::ToggleAutoReduce, "KeyR".to_string());
         bindings.insert(Action::Step, "KeyE".to_string());
-        bindings.insert(Action::TogglePause, "KeyP".to_string());
+        bindings.insert(Action::TogglePause, "KeyK".to_string());
         bindings.insert(Action::VoxelDiffusion, "KeyY".to_string());
         bindings.insert(Action::VoxelTimeReverse, "KeyT".to_string());
         bindings.insert(Action::VoxelDream, "KeyG".to_string());

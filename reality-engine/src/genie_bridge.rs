@@ -228,7 +228,8 @@ impl GenieBridge {
                     color: [s[10], s[11], s[12], s[13]],
                     previous_position: [s[0], s[1], s[2]],
                     archetype_id: 5, // Genie archetype default
-                    padding: [0; 2],
+                    target_archetype_id: 5,
+                    morph_weight: 0.0,
                 });
             }
 

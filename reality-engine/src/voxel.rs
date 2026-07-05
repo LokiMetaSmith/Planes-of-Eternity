@@ -435,6 +435,93 @@ impl Chunk {
                                 }
                             }
                         }
+                        Some(crate::reality_types::RealityArchetype::Fractal) => {
+                            // Geometric Floating Islands
+                            let fx = wx as f32 * 0.1;
+                            let fy = wy as f32 * 0.1;
+                            let fz = wz as f32 * 0.1;
+                            let val = (fx.sin() * fy.cos() + fy.sin() * fz.cos() + fz.sin() * fx.cos()).abs();
+                            if val > 1.2 && wy > 5 {
+                                voxel.id = 1; // Stone islands
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Tron) => {
+                            // Grid Forests
+                            if wy == -1 {
+                                voxel.id = 1; // Dark metal floor
+                            }
+                            if (wx % 8 == 0 || wz % 8 == 0) && wy == -1 {
+                                voxel.id = 4; // Glowing grid lines
+                            }
+                            if wx % 16 == 0 && wz % 16 == 0 && wy >= 0 && wy <= 12 {
+                                voxel.id = 4; // Neon pillars
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Biopunk) => {
+                            // Fleshy Organic Structures
+                            let n = noise3d(wx as f32 * 0.1, wy as f32 * 0.1, wz as f32 * 0.1);
+                            if n > 0.5 {
+                                voxel.id = 2; // "Flesh" (using lava ID for now)
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Fractal) => {
+                            // Geometric Floating Islands
+                            let fx = wx as f32 * 0.1;
+                            let fy = wy as f32 * 0.1;
+                            let fz = wz as f32 * 0.1;
+                            let val = (fx.sin() * fy.cos() + fy.sin() * fz.cos() + fz.sin() * fx.cos()).abs();
+                            if val > 1.2 && wy > 5 {
+                                voxel.id = 1; // Stone islands
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Tron) => {
+                            // Grid Forests
+                            if wy == -1 {
+                                voxel.id = 1; // Dark metal floor
+                            }
+                            if (wx % 8 == 0 || wz % 8 == 0) && wy == -1 {
+                                voxel.id = 4; // Glowing grid lines
+                            }
+                            if wx % 16 == 0 && wz % 16 == 0 && wy >= 0 && wy <= 12 {
+                                voxel.id = 4; // Neon pillars
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Biopunk) => {
+                            // Fleshy Organic Structures
+                            let n = noise3d(wx as f32 * 0.1, wy as f32 * 0.1, wz as f32 * 0.1);
+                            if n > 0.5 {
+                                voxel.id = 2; // "Flesh" (using lava ID for now)
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Fractal) => {
+                            // Geometric Floating Islands
+                            let fx = wx as f32 * 0.1;
+                            let fy = wy as f32 * 0.1;
+                            let fz = wz as f32 * 0.1;
+                            let val = (fx.sin() * fy.cos() + fy.sin() * fz.cos() + fz.sin() * fx.cos()).abs();
+                            if val > 1.2 && wy > 5 {
+                                voxel.id = 1; // Stone islands
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Tron) => {
+                            // Grid Forests
+                            if wy == -1 {
+                                voxel.id = 1; // Dark metal floor
+                            }
+                            if (wx % 8 == 0 || wz % 8 == 0) && wy == -1 {
+                                voxel.id = 4; // Glowing grid lines
+                            }
+                            if wx % 16 == 0 && wz % 16 == 0 && wy >= 0 && wy <= 12 {
+                                voxel.id = 4; // Neon pillars
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Biopunk) => {
+                            // Fleshy Organic Structures
+                            let n = noise3d(wx as f32 * 0.1, wy as f32 * 0.1, wz as f32 * 0.1);
+                            if n > 0.5 {
+                                voxel.id = 2; // "Flesh" (using lava ID for now)
+                            }
+                        }
                     }
 
                     // Pick most common non-air voxel
@@ -928,7 +1015,8 @@ impl Chunk {
                             color: [color_3[0], color_3[1], color_3[2], opacity],
                             previous_position,
                             archetype_id: 0, // Voxel splats are default
-                            padding: [0; 2],
+                            target_archetype_id: 0,
+                            morph_weight: 0.0,
                         });
                     }
                 }

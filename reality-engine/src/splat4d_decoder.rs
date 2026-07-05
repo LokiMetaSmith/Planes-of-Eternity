@@ -53,7 +53,8 @@ impl Splat4DDecoder {
                 color,
                 previous_position: pos,
                 archetype_id: 0,
-                padding: [0; 2],
+                target_archetype_id: 0,
+                morph_weight: 0.0,
             });
         }
         frames.push(current_frame.clone());
@@ -82,7 +83,8 @@ impl Splat4DDecoder {
                         color,
                         previous_position: prev.position,
                         archetype_id: 0,
-                        padding: [0; 2],
+                        target_archetype_id: 0,
+                        morph_weight: 0.0,
                     };
                     delta_idx += 1;
                 } else {

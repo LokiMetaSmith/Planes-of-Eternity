@@ -1557,12 +1557,25 @@ impl State {
             if player.timer > 1.0 / player.frame_rate {
                 player.timer = 0.0;
                 player.current_frame += 1;
-                if player.current_frame >= player.frames.len() {
-                    if player.loop_playback {
-                        player.current_frame = 0;
-                    } else {
-                        player.current_frame = player.frames.len() - 1;
+
+                if let Some(frames) = player.animations.get(&player.current_state) {
+                    if player.current_frame >= frames.len() {
+                        if player.loop_playback {
+                            player.current_frame = 0;
+                        } else {
+                            player.current_frame = frames.len() - 1;
+                        }
                     }
+                }
+            }
+
+            // State Blending Logic
+            if let Some(_next) = player.next_state {
+                player.blend_timer += 0.016;
+                if player.blend_timer >= player.blend_duration {
+                    player.current_state = player.next_state.take().unwrap();
+                    player.blend_timer = 0.0;
+                    player.current_frame = 0;
                 }
             }
         }
@@ -1601,7 +1614,18 @@ impl State {
             if player.timer > 1.0 / player.frame_rate {
                 player.timer = 0.0;
                 player.current_frame += 1;
-                if player.current_frame >= player.frames.len() {
+                if let Some(frames) = player.animations.get(&player.current_state) {
+                    if player.current_frame >= frames.len() {
+                        player.current_frame = 0;
+                    }
+                }
+            }
+
+            if let Some(_next) = player.next_state {
+                player.blend_timer += 0.016;
+                if player.blend_timer >= player.blend_duration {
+                    player.current_state = player.next_state.take().unwrap();
+                    player.blend_timer = 0.0;
                     player.current_frame = 0;
                 }
             }
@@ -1975,21 +1999,25 @@ impl State {
 
         // Add 4D Splat Frames
         for player in &self.engine.active_4d_splats {
-            if let Some(frame) = player.frames.get(player.current_frame) {
-                for splat in frame {
-                    let mut s = *splat;
-                    s.position[0] += player.position.x;
-                    s.position[1] += player.position.y;
-                    s.position[2] += player.position.z;
-                    s.previous_position[0] += player.position.x;
-                    s.previous_position[1] += player.position.y;
-                    s.previous_position[2] += player.position.z;
+            if let Some(frames) = player.animations.get(&player.current_state) {
+                if let Some(frame) = frames.get(player.current_frame) {
+                    // Neural Blending: If transitioning, we could interpolate between states.
+                    // For simplicity, we just use the current frame of the current state.
+                    for splat in frame {
+                        let mut s = *splat;
+                        s.position[0] += player.position.x;
+                        s.position[1] += player.position.y;
+                        s.position[2] += player.position.z;
+                        s.previous_position[0] += player.position.x;
+                        s.previous_position[1] += player.position.y;
+                        s.previous_position[2] += player.position.z;
 
-                    if let Some(arch) = player.archetype_override {
-                        s.archetype_id = arch;
+                        if let Some(arch) = player.archetype_override {
+                            s.archetype_id = arch;
+                        }
+
+                        active_splats.push(s);
                     }
-
-                    active_splats.push(s);
                 }
             }
         }
@@ -1997,21 +2025,23 @@ impl State {
         // Add NPC Splats (4D Animated)
         for npc in &self.engine.world_state.npcs {
             if let Some(player) = &self.npc_4d_player {
-                if let Some(frame) = player.frames.get(player.current_frame) {
-                    for splat in frame {
-                        let mut s = *splat;
-                        s.position[0] += npc.location.x;
-                        s.position[1] += npc.location.y - 1.0;
-                        s.position[2] += npc.location.z;
-                        s.previous_position[0] += npc.location.x;
-                        s.previous_position[1] += npc.location.y - 1.0;
-                        s.previous_position[2] += npc.location.z;
+                if let Some(frames) = player.animations.get(&player.current_state) {
+                    if let Some(frame) = frames.get(player.current_frame) {
+                        for splat in frame {
+                            let mut s = *splat;
+                            s.position[0] += npc.location.x;
+                            s.position[1] += npc.location.y - 1.0;
+                            s.position[2] += npc.location.z;
+                            s.previous_position[0] += npc.location.x;
+                            s.previous_position[1] += npc.location.y - 1.0;
+                            s.previous_position[2] += npc.location.z;
 
-                        // Modulate color by reality projector params
-                        s.color[0] *= npc.reality_signature.fidelity / 100.0;
-                        s.color[3] *= npc.reality_signature.fidelity / 100.0;
+                            // Modulate color by reality projector params
+                            s.color[0] *= npc.reality_signature.fidelity / 100.0;
+                            s.color[3] *= npc.reality_signature.fidelity / 100.0;
 
-                        active_splats.push(s);
+                            active_splats.push(s);
+                        }
                     }
                     continue; // Skip legacy static splat logic
                 }
@@ -3851,10 +3881,18 @@ impl GameClient {
             if let Ok(container) = serde_json::from_str::<crate::splat::Splat4DContainer>(&json) {
                 let decoder = crate::splat4d_decoder::Splat4DDecoder::default();
                 let frames = decoder.decode_container(&container);
+
+                let mut animations = std::collections::HashMap::new();
+                animations.insert(crate::engine::AnimationState::Idle, frames);
+
                 let player = crate::engine::Splat4DPlayer {
-                    frames,
+                    animations,
+                    current_state: crate::engine::AnimationState::Idle,
+                    next_state: None,
                     current_frame: 0,
                     timer: 0.0,
+                    blend_timer: 0.0,
+                    blend_duration: 0.3,
                     frame_rate: 10.0, // Default 10fps
                     loop_playback: true,
                     position: state.engine.camera.eye,
@@ -3971,7 +4009,8 @@ pub async fn generate_splats_worker_entry(prompt: String) -> String {
             color: [s[10], s[11], s[12], s[13]],
             previous_position: [s[0], s[1], s[2]],
             archetype_id: 5, // Genie archetype default
-                    padding: [0; 2],
+            target_archetype_id: 5,
+            morph_weight: 0.0,
         });
     }
 

@@ -55,6 +55,8 @@ struct SplatVertexInput {
     @location(3) color: vec4<f32>,
     @location(4) previous_position: vec3<f32>,
     @location(5) archetype_id: u32,
+    @location(6) target_archetype_id: u32,
+    @location(7) morph_weight: f32,
 };
 
 struct SplatOutput {
@@ -84,14 +86,12 @@ fn vs_main(
     let uv = QUAD_UVS[vertex_index];
     out.uv = uv;
 
-    // "Neural" Filtering weights (F_i)
-    // These could be passed as uniforms or derived from reality projectors.
-    // For now, we derive them from the first projector for demonstration.
+    // Neural Morphing & Filtering weights
     var f_motion = 1.0;
     var f_scale = 1.0;
     var f_color = 1.0;
 
-    // If splat archetype matches a nearby projector's archetype, amplify its effects
+    // Apply Neural Filtering based on both current and target archetypes (Morphed)
     for (var i = 0u; i < 5u; i++) {
         let p_pos = reality.proj_pos_fid[i].xyz;
         let p_fid = reality.proj_pos_fid[i].w;
@@ -101,10 +101,19 @@ fn vs_main(
         let dist = distance(instance.position, p_pos);
         if (dist < p_fid) {
             let influence = 1.0 - (dist / p_fid);
+            
+            // Weight filtering influence by morph progress
             if (instance.archetype_id == p_archetype) {
-                f_motion = f_motion + (p_params.z * influence); // distortion affects motion
-                f_scale = f_scale + (p_params.y * influence);   // scale affects scale
-                f_color = f_color + (p_params.x * influence);   // roughness affects color variance
+                let weight = (1.0 - instance.morph_weight) * influence;
+                f_motion += p_params.z * weight;
+                f_scale += p_params.y * weight;
+                f_color += p_params.x * weight;
+            }
+            if (instance.target_archetype_id == p_archetype) {
+                let weight = instance.morph_weight * influence;
+                f_motion += p_params.z * weight;
+                f_scale += p_params.y * weight;
+                f_color += p_params.x * weight;
             }
         }
     }

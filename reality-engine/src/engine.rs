@@ -34,10 +34,22 @@ pub enum PhysicsState {
     Gravity,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AnimationState {
+    Idle,
+    Walk,
+    Attack,
+    Interact,
+}
+
 pub struct Splat4DPlayer {
-    pub frames: Vec<Vec<crate::splat::SplatVertex>>,
+    pub animations: std::collections::HashMap<AnimationState, Vec<Vec<crate::splat::SplatVertex>>>,
+    pub current_state: AnimationState,
+    pub next_state: Option<AnimationState>,
     pub current_frame: usize,
     pub timer: f32,
+    pub blend_timer: f32,
+    pub blend_duration: f32,
     pub frame_rate: f32,
     pub loop_playback: bool,
     pub position: cgmath::Point3<f32>,
@@ -576,6 +588,7 @@ impl Engine {
             }
 
             // Keep somewhat grounded
+
             npc.location.y = 1.0;
 
             npcs_to_update.push(npc.clone());

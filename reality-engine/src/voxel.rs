@@ -485,7 +485,7 @@ impl Chunk {
                     let mut voxel = Voxel::default();
 
                     match base_archetype {
-                                                Some(crate::reality_types::RealityArchetype::Fractal) | Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
+                                                Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
                             // Procedural Rolling Hills Terrain
                             let nx = wx as f32 * 0.05;
                             let nz = wz as f32 * 0.05;
@@ -677,6 +677,16 @@ impl Chunk {
                                 } else {
                                     voxel.id = 1; // Metal pillar
                                 }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Fractal) => {
+                            // Geometric Floating Islands
+                            let fx = wx as f32 * 0.1;
+                            let fy = wy as f32 * 0.1;
+                            let fz = wz as f32 * 0.1;
+                            let val = (fx.sin() * fy.cos() + fy.sin() * fz.cos() + fz.sin() * fx.cos()).abs();
+                            if val > 1.2 && wy > 5 {
+                                voxel.id = 1; // Stone islands
                             }
                         }
                         Some(crate::reality_types::RealityArchetype::Horror) => {
@@ -927,8 +937,9 @@ impl Chunk {
                             scale,
                             color: [color_3[0], color_3[1], color_3[2], opacity],
                             previous_position,
-                            archetype_id: 0, // Voxel splats are default
-                            padding: [0; 2],
+                            archetype_id: 0,
+                            target_archetype_id: 0,
+                            morph_weight: 0.0,
                         });
                     }
                 }

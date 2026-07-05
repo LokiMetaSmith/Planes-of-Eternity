@@ -35,13 +35,10 @@ pub enum PhysicsState {
 }
 
 pub struct Splat4DPlayer {
-    pub frames: Vec<Vec<crate::splat::SplatVertex>>,
-    pub current_frame: usize,
-    pub timer: f32,
-    pub frame_rate: f32,
+    pub container: crate::splat::Splat4DContainer,
+    pub current_frame: f32,
+    pub is_playing: bool,
     pub loop_playback: bool,
-    pub position: cgmath::Point3<f32>,
-    pub archetype_override: Option<u32>,
 }
 
 pub struct Engine {
@@ -61,15 +58,14 @@ pub struct Engine {
     pub spell_effects: Vec<SpellEffect>,
     pub pending_dreams: Vec<String>,
     pub pending_models: Vec<(String, [f32; 3])>,
-
-    pub is_recording_splats: bool,
-    pub splat_recording_buffer: Vec<Vec<crate::splat::SplatVertex>>,
-
-    pub active_4d_splats: Vec<Splat4DPlayer>,
-
     pub anchor_distance: f32,
     pub fbm_noise: Fbm<Simplex>,
     pub physics_state: PhysicsState,
+
+    // 4D Splat Recording/Playback
+    pub is_recording: bool,
+    pub recording_buffer: Vec<Vec<crate::splat::SplatVertex>>,
+    pub playback_active: Option<Splat4DPlayer>,
 }
 
 impl Engine {
@@ -184,6 +180,7 @@ impl Engine {
                         mutation_progress: 0.0,
                         hostile: arch == RealityArchetype::Horror,
                         goal_stack: Vec::new(),
+                        animation: crate::projector::AnimationState::default(),
                     });
                     world_state.npcs.push(npc);
                 }
@@ -224,12 +221,13 @@ impl Engine {
             spell_effects: Vec::new(),
             pending_dreams: Vec::new(),
             pending_models: Vec::new(),
-            is_recording_splats: false,
-            splat_recording_buffer: Vec::new(),
-            active_4d_splats: Vec::new(),
             anchor_distance: 8.0,
             fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
             physics_state: PhysicsState::Flying,
+
+            is_recording: false,
+            recording_buffer: Vec::new(),
+            playback_active: None,
         }
     }
 
@@ -768,6 +766,21 @@ impl Engine {
         }
         self.spell_effects.retain(|e| e.timer < e.max_time);
 
+        // Update 4D Playback
+        if let Some(ref mut player) = self.playback_active {
+            if player.is_playing {
+                player.current_frame += dt * 30.0; // Assume 30fps container
+                let max_frames = player.container.gops.len() * player.container.header.gop_size as usize;
+                if player.current_frame >= max_frames as f32 {
+                    if player.loop_playback {
+                        player.current_frame = 0.0;
+                    } else {
+                        player.is_playing = false;
+                    }
+                }
+            }
+        }
+
         // --- Background Potential Node Spawning ---
         // We use 3D Simplex noise with fBm to determine if a node of raw potential should spawn.
         use noise::NoiseFn;
@@ -1101,6 +1114,36 @@ impl Engine {
                             } else {
                                 log::warn!("Security Warning: Maximum spawned items limit reached ({}). Cannot drop new item.", MAX_SPAWNED_ITEMS);
                             }
+                        }
+                    }
+                }
+                Action::SplatRecordToggle => {
+                    if pressed {
+                        if self.is_recording {
+                            // Stop & Encode
+                            self.is_recording = false;
+                            let encoder = crate::splat4d_encoder::Splat4DEncoder::default();
+                            let container = encoder.encode_sequence(&self.recording_buffer, 0);
+                            self.playback_active = Some(Splat4DPlayer {
+                                container,
+                                current_frame: 0.0,
+                                is_playing: false,
+                                loop_playback: true,
+                            });
+                            self.recording_buffer.clear();
+                            log::info!("4D Recording Finished & Encoded.");
+                        } else {
+                            self.is_recording = true;
+                            self.recording_buffer.clear();
+                            log::info!("4D Recording Started...");
+                        }
+                    }
+                }
+                Action::SplatPlaybackToggle => {
+                    if pressed {
+                        if let Some(ref mut player) = self.playback_active {
+                            player.is_playing = !player.is_playing;
+                            log::info!("4D Playback: {}", if player.is_playing { "Playing" } else { "Paused" });
                         }
                     }
                 }
@@ -1744,6 +1787,7 @@ impl Engine {
                 mutation_progress: 0.0,
                 hostile: arch == RealityArchetype::Horror,
                 goal_stack: Vec::new(),
+                animation: crate::projector::AnimationState::default(),
             });
             self.world_state.npcs.push(npc);
         }

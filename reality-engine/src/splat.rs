@@ -9,7 +9,8 @@ pub struct SplatVertex {
     pub color: [f32; 4],
     pub previous_position: [f32; 3],
     pub archetype_id: u32,
-    pub padding: [u32; 2], // 80 bytes total (20 u32s)
+    pub target_archetype_id: u32,
+    pub morph_weight: f32, // 80 bytes total (20 u32s)
 }
 
 /// 4D Splat Header: Metadata for the stream.
@@ -38,6 +39,8 @@ pub struct Splat4DKeyframe {
     pub rotations: Vec<[i8; 4]>,
     pub scales: Vec<[i8; 3]>,
     pub colors: Vec<[u8; 4]>,
+    pub archetype_ids: Vec<u16>,
+    pub morph_weights: Vec<u8>,
 }
 
 /// 4D Splat Delta: Stores quantized changes for a subset of dynamic splats.
@@ -49,6 +52,7 @@ pub struct Splat4DDelta {
     pub rotation_deltas: Vec<[i8; 4]>,
     pub scale_deltas: Vec<[i8; 3]>,
     pub color_deltas: Vec<[i8; 4]>,
+    pub morph_deltas: Vec<i8>,
 }
 
 /// Group of Pictures (GOP) for 4D Splat streaming.
@@ -130,6 +134,20 @@ impl SplatVertex {
                         as wgpu::BufferAddress,
                     shader_location: 5,
                     format: wgpu::VertexFormat::Uint32,
+                },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 3]>() * 3
+                        + std::mem::size_of::<[f32; 4]>() * 2
+                        + std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Uint32,
+                },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 3]>() * 3
+                        + std::mem::size_of::<[f32; 4]>() * 2
+                        + std::mem::size_of::<u32>() * 2) as wgpu::BufferAddress,
+                    shader_location: 7,
+                    format: wgpu::VertexFormat::Float32,
                 },
             ],
         }

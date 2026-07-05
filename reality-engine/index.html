@@ -708,8 +708,9 @@
                 [Mouse] Click to Move Anomaly<br>
                 [Click Node] Reduce Lambda<br>
                 [F] Cast Spell (Lambda)<br>
-                [R] Toggle 4D Recording<br>
-                [P] Play Last Recording<br>
+                [I] Toggle 3D Inventory<br>
+                [U] Toggle 4D Recording<br>
+                [O] Toggle 4D Playback<br>
                 [Sliders] Adjust Reality Params<br>
                 [H] Toggle UI
             </div>
@@ -1225,17 +1226,24 @@
                     // Ignore if typing in input
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-                    if (e.code === 'KeyR') {
+                    if (e.code === 'KeyI') {
+                        if (window.gameClient) {
+                            const show = window.gameClient.toggle_3d_inventory();
+                            log(show ? "> 3D INVENTORY ENABLED" : "> 3D INVENTORY DISABLED");
+                        }
+                    }
+
+                    if (e.code === 'KeyU') {
                         if (window.gameClient) {
                             const recording = window.gameClient.toggle_recording();
                             log(recording ? "> 4D RECORDING STARTED" : "> 4D RECORDING STOPPED AND ENCODED");
                         }
                     }
 
-                    if (e.code === 'KeyP') {
+                    if (e.code === 'KeyO') {
                         if (window.gameClient) {
-                            window.gameClient.play_last_recording();
-                            log("> PLAYING LAST 4D RECORDING");
+                            const playing = window.gameClient.toggle_playback();
+                            log(playing ? "> 4D PLAYBACK STARTED" : "> 4D PLAYBACK PAUSED");
                         }
                     }
 
@@ -1397,7 +1405,7 @@
                     "CastSpell", "Inscribe", "StoreSpell",
                     "ToggleAutoReduce", "Step", "TogglePause",
                     "VoxelDiffusion", "VoxelTimeReverse", "VoxelDream", "VoxelDiffuse",
-                    "DropItem", "PickupItem"
+                "DropItem", "PickupItem", "SplatRecordToggle", "SplatPlaybackToggle"
                 ];
                 let currentlyRebinding = null;
                 let currentRebindHandler = null;

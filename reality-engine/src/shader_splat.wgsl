@@ -54,7 +54,6 @@ struct SplatVertexInput {
     @location(2) scale: vec3<f32>,
     @location(3) color: vec4<f32>,
     @location(4) previous_position: vec3<f32>,
-    @location(5) archetype_id: u32,
 };
 
 struct SplatOutput {
@@ -84,31 +83,6 @@ fn vs_main(
     let uv = QUAD_UVS[vertex_index];
     out.uv = uv;
 
-    // "Neural" Filtering weights (F_i)
-    // These could be passed as uniforms or derived from reality projectors.
-    // For now, we derive them from the first projector for demonstration.
-    var f_motion = 1.0;
-    var f_scale = 1.0;
-    var f_color = 1.0;
-
-    // If splat archetype matches a nearby projector's archetype, amplify its effects
-    for (var i = 0u; i < 5u; i++) {
-        let p_pos = reality.proj_pos_fid[i].xyz;
-        let p_fid = reality.proj_pos_fid[i].w;
-        let p_params = reality.proj_params[i];
-        let p_archetype = u32(p_params.w);
-
-        let dist = distance(instance.position, p_pos);
-        if (dist < p_fid) {
-            let influence = 1.0 - (dist / p_fid);
-            if (instance.archetype_id == p_archetype) {
-                f_motion = f_motion + (p_params.z * influence); // distortion affects motion
-                f_scale = f_scale + (p_params.y * influence);   // scale affects scale
-                f_color = f_color + (p_params.x * influence);   // roughness affects color variance
-            }
-        }
-    }
-
     // Calculate rotation matrix from quaternion
     let q = instance.rotation;
     let R = mat3x3<f32>(
@@ -118,17 +92,20 @@ fn vs_main(
     );
 
     let S = mat3x3<f32>(
-        instance.scale.x * f_scale, 0.0, 0.0,
-        0.0, instance.scale.y * f_scale, 0.0,
-        0.0, 0.0, instance.scale.z * f_scale
+        instance.scale.x, 0.0, 0.0,
+        0.0, instance.scale.y, 0.0,
+        0.0, 0.0, instance.scale.z
     );
 
     let M = R * S;
 
+    // For a 2D quad billboard facing the camera:
+    // Extract camera right and up vectors from view_proj
+    // (A more accurate implementation would compute 2D covariance projection, but
+    //  a simple billboarded quad scaled by projected covariance is sufficient for prototype)
+
     let tick_alpha = clamp(reality.global_offset.w, 0.0, 1.0);
-    // Apply Neural Motion Filtering (F_motion affects the delta between frames)
-    let delta = instance.position - instance.previous_position;
-    let interpolated_pos = instance.previous_position + (delta * tick_alpha * f_motion);
+    let interpolated_pos = mix(instance.previous_position, instance.position, tick_alpha);
 
     let camera_dir = normalize(camera.camera_pos.xyz - interpolated_pos);
     var up = vec3<f32>(0.0, 1.0, 0.0);
@@ -182,8 +159,6 @@ fn fs_main(in: SplatOutput) -> @location(0) vec4<f32> {
     let ambient = 0.4;
     let lighting = ambient + (0.6 * shadow);
 
-    // Apply Neural Color Filtering
-    // (In a full implementation, we'd have decoupled tracks, for now we modulate the base color)
     let final_color = in.color.rgb * lighting;
 
     return vec4<f32>(final_color, alpha);

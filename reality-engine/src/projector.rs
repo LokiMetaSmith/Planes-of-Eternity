@@ -23,6 +23,25 @@ pub enum GoalStatus {
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AnimationState {
+    pub current_sequence: String, // "idle", "walk", "attack"
+    pub time: f32,
+    pub loop_anim: bool,
+    pub playback_rate: f32,
+}
+
+impl Default for AnimationState {
+    fn default() -> Self {
+        Self {
+            current_sequence: "idle".to_string(),
+            time: 0.0,
+            loop_anim: true,
+            playback_rate: 1.0,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct NpcBehavior {
     pub preferred_archetype: RealityArchetype,
     pub energy: f32,
@@ -31,6 +50,8 @@ pub struct NpcBehavior {
     pub hostile: bool,
     #[serde(default)]
     pub goal_stack: Vec<Goal>,
+    #[serde(default)]
+    pub animation: AnimationState,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

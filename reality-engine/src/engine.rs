@@ -34,6 +34,16 @@ pub enum PhysicsState {
     Gravity,
 }
 
+pub struct Splat4DPlayer {
+    pub frames: Vec<Vec<crate::splat::SplatVertex>>,
+    pub current_frame: usize,
+    pub timer: f32,
+    pub frame_rate: f32,
+    pub loop_playback: bool,
+    pub position: cgmath::Point3<f32>,
+    pub archetype_override: Option<u32>,
+}
+
 pub struct Engine {
     pub world_state: WorldState,
     pub player_projector: RealityProjector,
@@ -51,6 +61,12 @@ pub struct Engine {
     pub spell_effects: Vec<SpellEffect>,
     pub pending_dreams: Vec<String>,
     pub pending_models: Vec<(String, [f32; 3])>,
+
+    pub is_recording_splats: bool,
+    pub splat_recording_buffer: Vec<Vec<crate::splat::SplatVertex>>,
+
+    pub active_4d_splats: Vec<Splat4DPlayer>,
+
     pub anchor_distance: f32,
     pub fbm_noise: Fbm<Simplex>,
     pub physics_state: PhysicsState,
@@ -208,6 +224,9 @@ impl Engine {
             spell_effects: Vec::new(),
             pending_dreams: Vec::new(),
             pending_models: Vec::new(),
+            is_recording_splats: false,
+            splat_recording_buffer: Vec::new(),
+            active_4d_splats: Vec::new(),
             anchor_distance: 8.0,
             fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
             physics_state: PhysicsState::Flying,

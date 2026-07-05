@@ -35,6 +35,8 @@ pub mod persistence;
 pub mod projector;
 pub mod reality_types;
 pub mod splat;
+pub mod splat4d_decoder;
+pub mod splat4d_encoder;
 mod texture;
 pub mod visual_lambda;
 pub mod voxel;
@@ -319,6 +321,7 @@ pub struct State {
     pub engine: engine::Engine,
 
     pub npc_splats: Vec<splat::SplatVertex>,
+    pub npc_4d_player: Option<crate::engine::Splat4DPlayer>,
 
     pub depth_texture: texture::Texture,
     pub voxel_world: voxel::VoxelWorld,
@@ -876,6 +879,8 @@ impl State {
                 scale: [0.0, 0.0, 0.0],
                 previous_position: [0.0, 0.0, 0.0],
                 color: [0.0, 0.0, 0.0, 0.0],
+                archetype_id: 0,
+                padding: [0; 2],
             }]),
             usage: wgpu::BufferUsages::VERTEX
                 | wgpu::BufferUsages::STORAGE
@@ -1141,34 +1146,8 @@ impl State {
             sort_bind_group_1,
             max_splat_capacity,
 
-            npc_splats: {
-                let mut splats = Vec::new();
-                let count = 64;
-                for i in 0..count {
-                    let t = i as f32 / count as f32;
-                    let angle = t * std::f32::consts::PI * 8.0;
-                    let radius = 0.5 + 0.2 * (t * 10.0).sin();
-                    let y = (t - 0.5) * 2.0; // -1 to 1
-
-                    splats.push(splat::SplatVertex {
-                        position: [
-                            angle.cos() * radius,
-                            y,
-                            angle.sin() * radius,
-                        ],
-                        rotation: [0.0, 0.0, 0.0, 1.0],
-                        scale: [0.2, 0.2, 0.2],
-                        previous_position: [0.0, 0.0, 0.0],
-                        color: [
-                            0.5 + 0.5 * angle.cos(),
-                            0.5 + 0.5 * angle.sin(),
-                            1.0,
-                            0.8,
-                        ],
-                    });
-                }
-                splats
-            },
+            npc_splats: Vec::new(),
+            npc_4d_player: None,
 
             voxel_meshes: std::collections::HashMap::new(),
             voxel_dirty: false,
@@ -1507,6 +1486,30 @@ impl State {
             self.voxel_dirty = true;
         }
 
+        if self.engine.is_recording_splats {
+            let mut current_frame = Vec::new();
+            for chunk in self.voxel_world.chunks.values() {
+                current_frame.extend(chunk.splats.iter().cloned());
+            }
+            self.engine.splat_recording_buffer.push(current_frame);
+        }
+
+        // Update active 4D players
+        for player in &mut self.engine.active_4d_splats {
+            player.timer += 0.016;
+            if player.timer > 1.0 / player.frame_rate {
+                player.timer = 0.0;
+                player.current_frame += 1;
+                if player.current_frame >= player.frames.len() {
+                    if player.loop_playback {
+                        player.current_frame = 0;
+                    } else {
+                        player.current_frame = player.frames.len() - 1;
+                    }
+                }
+            }
+        }
+
         // Handle pending dreams from the engine
         for prompt in self.engine.pending_dreams.drain(..) {
             self.voxel_world.genie.request_splat_generation(prompt);
@@ -1532,6 +1535,18 @@ impl State {
             self.update_lods(self.voxel_dirty);
             if self.voxel_dirty {
                 self.update_voxel_texture();
+            }
+        }
+
+        // Update global NPC 4D player
+        if let Some(player) = &mut self.npc_4d_player {
+            player.timer += 0.016;
+            if player.timer > 1.0 / player.frame_rate {
+                player.timer = 0.0;
+                player.current_frame += 1;
+                if player.current_frame >= player.frames.len() {
+                    player.current_frame = 0;
+                }
             }
         }
 
@@ -1896,11 +1911,55 @@ impl State {
                 scale: [current_scale, current_scale, current_scale],
                 color,
                 previous_position: [effect.position.x, effect.position.y, effect.position.z],
+                archetype_id: 0, // Default for effects
+                padding: [0; 2],
             });
         }
 
-        // Add NPC Splats
+        // Add 4D Splat Frames
+        for player in &self.engine.active_4d_splats {
+            if let Some(frame) = player.frames.get(player.current_frame) {
+                for splat in frame {
+                    let mut s = *splat;
+                    s.position[0] += player.position.x;
+                    s.position[1] += player.position.y;
+                    s.position[2] += player.position.z;
+                    s.previous_position[0] += player.position.x;
+                    s.previous_position[1] += player.position.y;
+                    s.previous_position[2] += player.position.z;
+
+                    if let Some(arch) = player.archetype_override {
+                        s.archetype_id = arch;
+                    }
+
+                    active_splats.push(s);
+                }
+            }
+        }
+
+        // Add NPC Splats (4D Animated)
         for npc in &self.engine.world_state.npcs {
+            if let Some(player) = &self.npc_4d_player {
+                if let Some(frame) = player.frames.get(player.current_frame) {
+                    for splat in frame {
+                        let mut s = *splat;
+                        s.position[0] += npc.location.x;
+                        s.position[1] += npc.location.y - 1.0;
+                        s.position[2] += npc.location.z;
+                        s.previous_position[0] += npc.location.x;
+                        s.previous_position[1] += npc.location.y - 1.0;
+                        s.previous_position[2] += npc.location.z;
+
+                        // Modulate color by reality projector params
+                        s.color[0] *= npc.reality_signature.fidelity / 100.0;
+                        s.color[3] *= npc.reality_signature.fidelity / 100.0;
+
+                        active_splats.push(s);
+                    }
+                    continue; // Skip legacy static splat logic
+                }
+            }
+
             let color = match npc.reality_signature.active_style.archetype {
                 crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
                 crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
@@ -3697,6 +3756,51 @@ impl GameClient {
         }
     }
 
+    pub fn toggle_recording(&self) -> bool {
+        let mut state = self.state.borrow_mut();
+        state.engine.is_recording_splats = !state.engine.is_recording_splats;
+
+        if !state.engine.is_recording_splats && !state.engine.splat_recording_buffer.is_empty() {
+            // Encode the recording
+            let encoder = crate::splat4d_encoder::Splat4DEncoder::default();
+            if let Some(container) = encoder.encode_container(&state.engine.splat_recording_buffer) {
+                if let Ok(json) = serde_json::to_string(&container) {
+                    log::info!(
+                        "Encoded 4D Splat Container ({} GOPs, {} dynamic splats)",
+                        container.gops.len(),
+                        container.header.dynamic_count
+                    );
+                    // In a real implementation, we would save this to a file or local storage
+                    persistence::save_raw_to_local_storage("last_4d_splat_recording", &json);
+                }
+            }
+            state.engine.splat_recording_buffer.clear();
+        }
+
+        state.engine.is_recording_splats
+    }
+
+    pub fn play_last_recording(&self) {
+        let mut state = self.state.borrow_mut();
+        if let Some(json) = persistence::load_raw_from_local_storage("last_4d_splat_recording") {
+            if let Ok(container) = serde_json::from_str::<crate::splat::Splat4DContainer>(&json) {
+                let decoder = crate::splat4d_decoder::Splat4DDecoder::default();
+                let frames = decoder.decode_container(&container);
+                let player = crate::engine::Splat4DPlayer {
+                    frames,
+                    current_frame: 0,
+                    timer: 0.0,
+                    frame_rate: 10.0, // Default 10fps
+                    loop_playback: true,
+                    position: state.engine.camera.eye,
+                    archetype_override: None,
+                };
+                state.engine.active_4d_splats.push(player);
+                log::info!("Playing back last 4D recording.");
+            }
+        }
+    }
+
     pub fn execute_npc_action_json(
         &self,
         uuid: js_sys::JsString,
@@ -3801,6 +3905,8 @@ pub async fn generate_splats_worker_entry(prompt: String) -> String {
             scale: [s[7], s[8], s[9]],
             color: [s[10], s[11], s[12], s[13]],
             previous_position: [s[0], s[1], s[2]],
+            archetype_id: 5, // Genie archetype default
+                    padding: [0; 2],
         });
     }
 

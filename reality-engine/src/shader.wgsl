@@ -975,6 +975,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // Storm Lightning Flash
+    var ambient = ambient_strength;
     let is_stormy = sin(time * 0.05) > 0.8;
     if (is_stormy && light_y < 0.2) {
         let lightning_noise = fract(sin(dot(vec2<f32>(time * 10.0, 0.0), vec2<f32>(12.9898, 78.233))) * 43758.5453);
@@ -987,7 +988,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Ambient varies with Day/Night ONLY if there is directional light.
     // If it's pure ambient, keep it constant (e.g. indoor/cyberpunk doesn't get dark at "night")
-    var ambient = ambient_strength;
     if (light_y < 0.0) {
         // Fade out ambient slightly at night based on how directional the area is
         ambient = mix(ambient_strength, 0.05, directional_weight);

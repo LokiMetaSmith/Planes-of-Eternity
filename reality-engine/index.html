@@ -1240,10 +1240,10 @@
                         }
                     }
 
-                    if (e.code === 'KeyO') {
+                    if (e.code === 'KeyP') {
                         if (window.gameClient) {
-                            const playing = window.gameClient.toggle_playback();
-                            log(playing ? "> 4D PLAYBACK STARTED" : "> 4D PLAYBACK PAUSED");
+                            window.gameClient.play_last_recording();
+                            log("> PLAYING LAST 4D RECORDING");
                         }
                     }
 
@@ -1405,7 +1405,7 @@
                     "CastSpell", "Inscribe", "StoreSpell",
                     "ToggleAutoReduce", "Step", "TogglePause",
                     "VoxelDiffusion", "VoxelTimeReverse", "VoxelDream", "VoxelDiffuse",
-                "DropItem", "PickupItem", "SplatRecordToggle", "SplatPlaybackToggle"
+                    "DropItem", "PickupItem"
                 ];
                 let currentlyRebinding = null;
                 let currentRebindHandler = null;

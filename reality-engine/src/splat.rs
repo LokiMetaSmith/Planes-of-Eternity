@@ -39,8 +39,6 @@ pub struct Splat4DKeyframe {
     pub rotations: Vec<[i8; 4]>,
     pub scales: Vec<[i8; 3]>,
     pub colors: Vec<[u8; 4]>,
-    pub archetype_ids: Vec<u16>,
-    pub morph_weights: Vec<u8>,
 }
 
 /// 4D Splat Delta: Stores quantized changes for a subset of dynamic splats.
@@ -52,7 +50,6 @@ pub struct Splat4DDelta {
     pub rotation_deltas: Vec<[i8; 4]>,
     pub scale_deltas: Vec<[i8; 3]>,
     pub color_deltas: Vec<[i8; 4]>,
-    pub morph_deltas: Vec<i8>,
 }
 
 /// Group of Pictures (GOP) for 4D Splat streaming.

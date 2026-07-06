@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use cgmath::{InnerSpace, EuclideanSpace};
+use cgmath::InnerSpace;
 #[cfg(target_arch = "wasm32")]
 use cgmath::{Rotation, SquareMatrix};
 #[cfg(target_arch = "wasm32")]
@@ -35,8 +35,8 @@ pub mod persistence;
 pub mod projector;
 pub mod reality_types;
 pub mod splat;
-pub mod splat4d_encoder;
 pub mod splat4d_decoder;
+pub mod splat4d_encoder;
 mod texture;
 pub mod visual_lambda;
 pub mod voxel;
@@ -325,6 +325,7 @@ pub struct State {
     pub engine: engine::Engine,
 
     pub npc_splats: Vec<splat::SplatVertex>,
+    pub npc_4d_player: Option<crate::engine::Splat4DPlayer>,
 
     pub depth_texture: texture::Texture,
     pub voxel_world: voxel::VoxelWorld,
@@ -936,8 +937,7 @@ impl State {
                 previous_position: [0.0, 0.0, 0.0],
                 color: [0.0, 0.0, 0.0, 0.0],
                 archetype_id: 0,
-                target_archetype_id: 0,
-                morph_weight: 0.0,
+                padding: [0; 2],
             }]),
             usage: wgpu::BufferUsages::VERTEX
                 | wgpu::BufferUsages::STORAGE
@@ -1204,37 +1204,8 @@ impl State {
             sort_bind_group_1,
             max_splat_capacity,
 
-            npc_splats: {
-                let mut splats = Vec::new();
-                let count = 64;
-                for i in 0..count {
-                    let t = i as f32 / count as f32;
-                    let angle = t * std::f32::consts::PI * 8.0;
-                    let radius = 0.5 + 0.2 * (t * 10.0).sin();
-                    let y = (t - 0.5) * 2.0; // -1 to 1
-
-                    splats.push(splat::SplatVertex {
-                        position: [
-                            angle.cos() * radius,
-                            y,
-                            angle.sin() * radius,
-                        ],
-                        rotation: [0.0, 0.0, 0.0, 1.0],
-                        scale: [0.2, 0.2, 0.2],
-                        previous_position: [0.0, 0.0, 0.0],
-                        color: [
-                            0.5 + 0.5 * angle.cos(),
-                            0.5 + 0.5 * angle.sin(),
-                            1.0,
-                            0.8,
-                        ],
-                        archetype_id: 0,
-                        target_archetype_id: 0,
-                        morph_weight: 0.0,
-                    });
-                }
-                splats
-            },
+            npc_splats: Vec::new(),
+            npc_4d_player: None,
 
             voxel_meshes: std::collections::HashMap::new(),
             voxel_dirty: false,
@@ -1574,6 +1545,43 @@ impl State {
             self.voxel_dirty = true;
         }
 
+        if self.engine.is_recording_splats {
+            let mut current_frame = Vec::new();
+            for chunk in self.voxel_world.chunks.values() {
+                current_frame.extend(chunk.splats.iter().cloned());
+            }
+            self.engine.splat_recording_buffer.push(current_frame);
+        }
+
+        // Update active 4D players
+        for player in &mut self.engine.active_4d_splats {
+            player.timer += 0.016;
+            if player.timer > 1.0 / player.frame_rate {
+                player.timer = 0.0;
+                player.current_frame += 1;
+
+                if let Some(frames) = player.animations.get(&player.current_state) {
+                    if player.current_frame >= frames.len() {
+                        if player.loop_playback {
+                            player.current_frame = 0;
+                        } else {
+                            player.current_frame = frames.len() - 1;
+                        }
+                    }
+                }
+            }
+
+            // State Blending Logic
+            if let Some(_next) = player.next_state {
+                player.blend_timer += 0.016;
+                if player.blend_timer >= player.blend_duration {
+                    player.current_state = player.next_state.take().unwrap();
+                    player.blend_timer = 0.0;
+                    player.current_frame = 0;
+                }
+            }
+        }
+
         // Handle pending dreams from the engine
         for prompt in self.engine.pending_dreams.drain(..) {
             self.voxel_world.genie.request_splat_generation(prompt);
@@ -1599,6 +1607,29 @@ impl State {
             self.update_lods(self.voxel_dirty);
             if self.voxel_dirty {
                 self.update_voxel_texture();
+            }
+        }
+
+        // Update global NPC 4D player
+        if let Some(player) = &mut self.npc_4d_player {
+            player.timer += 0.016;
+            if player.timer > 1.0 / player.frame_rate {
+                player.timer = 0.0;
+                player.current_frame += 1;
+                if let Some(frames) = player.animations.get(&player.current_state) {
+                    if player.current_frame >= frames.len() {
+                        player.current_frame = 0;
+                    }
+                }
+            }
+
+            if let Some(_next) = player.next_state {
+                player.blend_timer += 0.016;
+                if player.blend_timer >= player.blend_duration {
+                    player.current_state = player.next_state.take().unwrap();
+                    player.blend_timer = 0.0;
+                    player.current_frame = 0;
+                }
             }
         }
 
@@ -3805,15 +3836,55 @@ impl GameClient {
 
     pub fn toggle_recording(&self) -> bool {
         let mut state = self.state.borrow_mut();
-        // Trigger the engine's recording toggle logic
-        state.engine.process_keyboard("KeyU", true);
-        state.engine.is_recording
+        state.engine.is_recording_splats = !state.engine.is_recording_splats;
+
+        if !state.engine.is_recording_splats && !state.engine.splat_recording_buffer.is_empty() {
+            // Encode the recording
+            let encoder = crate::splat4d_encoder::Splat4DEncoder::default();
+            if let Some(container) = encoder.encode_container(&state.engine.splat_recording_buffer) {
+                if let Ok(json) = serde_json::to_string(&container) {
+                    log::info!(
+                        "Encoded 4D Splat Container ({} GOPs, {} dynamic splats)",
+                        container.gops.len(),
+                        container.header.dynamic_count
+                    );
+                    // In a real implementation, we would save this to a file or local storage
+                    persistence::save_raw_to_local_storage("last_4d_splat_recording", &json);
+                }
+            }
+            state.engine.splat_recording_buffer.clear();
+        }
+
+        state.engine.is_recording_splats
     }
 
-    pub fn toggle_playback(&self) -> bool {
+    pub fn play_last_recording(&self) {
         let mut state = self.state.borrow_mut();
-        state.engine.process_keyboard("KeyO", true);
-        state.engine.playback_active.as_ref().map(|p| p.is_playing).unwrap_or(false)
+        if let Some(json) = persistence::load_raw_from_local_storage("last_4d_splat_recording") {
+            if let Ok(container) = serde_json::from_str::<crate::splat::Splat4DContainer>(&json) {
+                let decoder = crate::splat4d_decoder::Splat4DDecoder::default();
+                let frames = decoder.decode_container(&container);
+
+                let mut animations = std::collections::HashMap::new();
+                animations.insert(crate::engine::AnimationState::Idle, frames);
+
+                let player = crate::engine::Splat4DPlayer {
+                    animations,
+                    current_state: crate::engine::AnimationState::Idle,
+                    next_state: None,
+                    current_frame: 0,
+                    timer: 0.0,
+                    blend_timer: 0.0,
+                    blend_duration: 0.3,
+                    frame_rate: 10.0, // Default 10fps
+                    loop_playback: true,
+                    position: state.engine.camera.eye,
+                    archetype_override: None,
+                };
+                state.engine.active_4d_splats.push(player);
+                log::info!("Playing back last 4D recording.");
+            }
+        }
     }
 
     pub fn execute_npc_action_json(
@@ -3920,8 +3991,8 @@ pub async fn generate_splats_worker_entry(prompt: String) -> String {
             scale: [s[7], s[8], s[9]],
             color: [s[10], s[11], s[12], s[13]],
             previous_position: [s[0], s[1], s[2]],
-            archetype_id: 0,
-            target_archetype_id: 0,
+            archetype_id: 5, // Genie archetype default
+            target_archetype_id: 5,
             morph_weight: 0.0,
         });
     }

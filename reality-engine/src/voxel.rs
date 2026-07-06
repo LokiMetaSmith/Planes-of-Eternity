@@ -434,8 +434,8 @@ impl Chunk {
                                     counts[voxel.id as usize] += 1;
                                 }
                             }
+                            }
                         }
-                    }
 
                     // Pick most common non-air voxel
                     let mut best_id = 0;
@@ -485,7 +485,7 @@ impl Chunk {
                     let mut voxel = Voxel::default();
 
                     match base_archetype {
-                                                Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
+                                                Some(crate::reality_types::RealityArchetype::Fractal) | Some(crate::reality_types::RealityArchetype::Fantasy) | Some(crate::reality_types::RealityArchetype::Fractal) | None => {
                             // Procedural Rolling Hills Terrain
                             let nx = wx as f32 * 0.05;
                             let nz = wz as f32 * 0.05;
@@ -937,7 +937,7 @@ impl Chunk {
                             scale,
                             color: [color_3[0], color_3[1], color_3[2], opacity],
                             previous_position,
-                            archetype_id: 0,
+                            archetype_id: 0, // Voxel splats are default
                             target_archetype_id: 0,
                             morph_weight: 0.0,
                         });

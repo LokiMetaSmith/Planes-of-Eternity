@@ -27,10 +27,11 @@ fn compute_distances(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     if (index < sort_uniforms.num_splats) {
-        // position is the first 3 f32s (12 bytes)
-        let px = bitcast<f32>(unsorted_splats[index * 16u + 0u]);
-        let py = bitcast<f32>(unsorted_splats[index * 16u + 1u]);
-        let pz = bitcast<f32>(unsorted_splats[index * 16u + 2u]);
+        // SplatVertex is 80 bytes = 20 u32s
+        let stride = 20u;
+        let px = bitcast<f32>(unsorted_splats[index * stride + 0u]);
+        let py = bitcast<f32>(unsorted_splats[index * stride + 1u]);
+        let pz = bitcast<f32>(unsorted_splats[index * stride + 2u]);
 
         let splat_pos = vec3<f32>(px, py, pz);
         let diff = splat_pos - sort_uniforms.camera_pos;
@@ -82,9 +83,10 @@ fn apply_sort(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let entry = sort_entries[index];
 
     let src_index = entry.index;
+    let stride = 20u;
 
-    // Copy 16 u32s (64 bytes) per splat
-    for (var i = 0u; i < 16u; i = i + 1u) {
-        sorted_splats[index * 16u + i] = unsorted_splats[src_index * 16u + i];
+    // Copy 20 u32s (80 bytes) per splat
+    for (var i = 0u; i < stride; i = i + 1u) {
+        sorted_splats[index * stride + i] = unsorted_splats[src_index * stride + i];
     }
 }

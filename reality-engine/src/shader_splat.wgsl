@@ -54,6 +54,9 @@ struct SplatVertexInput {
     @location(2) scale: vec3<f32>,
     @location(3) color: vec4<f32>,
     @location(4) previous_position: vec3<f32>,
+    @location(5) archetype_id: u32,
+    @location(6) target_archetype_id: u32,
+    @location(7) morph_weight: f32,
 };
 
 struct SplatOutput {
@@ -83,6 +86,38 @@ fn vs_main(
     let uv = QUAD_UVS[vertex_index];
     out.uv = uv;
 
+    // Neural Morphing & Filtering weights
+    var f_motion = 1.0;
+    var f_scale = 1.0;
+    var f_color = 1.0;
+
+    // Apply Neural Filtering based on both current and target archetypes (Morphed)
+    for (var i = 0u; i < 5u; i++) {
+        let p_pos = reality.proj_pos_fid[i].xyz;
+        let p_fid = reality.proj_pos_fid[i].w;
+        let p_params = reality.proj_params[i];
+        let p_archetype = u32(p_params.w);
+
+        let dist = distance(instance.position, p_pos);
+        if (dist < p_fid) {
+            let influence = 1.0 - (dist / p_fid);
+
+            // Weight filtering influence by morph progress
+            if (instance.archetype_id == p_archetype) {
+                let weight = (1.0 - instance.morph_weight) * influence;
+                f_motion += p_params.z * weight;
+                f_scale += p_params.y * weight;
+                f_color += p_params.x * weight;
+            }
+            if (instance.target_archetype_id == p_archetype) {
+                let weight = instance.morph_weight * influence;
+                f_motion += p_params.z * weight;
+                f_scale += p_params.y * weight;
+                f_color += p_params.x * weight;
+            }
+        }
+    }
+
     // Calculate rotation matrix from quaternion
     let q = instance.rotation;
     let R = mat3x3<f32>(
@@ -92,20 +127,17 @@ fn vs_main(
     );
 
     let S = mat3x3<f32>(
-        instance.scale.x, 0.0, 0.0,
-        0.0, instance.scale.y, 0.0,
-        0.0, 0.0, instance.scale.z
+        instance.scale.x * f_scale, 0.0, 0.0,
+        0.0, instance.scale.y * f_scale, 0.0,
+        0.0, 0.0, instance.scale.z * f_scale
     );
 
     let M = R * S;
 
-    // For a 2D quad billboard facing the camera:
-    // Extract camera right and up vectors from view_proj
-    // (A more accurate implementation would compute 2D covariance projection, but
-    //  a simple billboarded quad scaled by projected covariance is sufficient for prototype)
-
     let tick_alpha = clamp(reality.global_offset.w, 0.0, 1.0);
-    let interpolated_pos = mix(instance.previous_position, instance.position, tick_alpha);
+    // Apply Neural Motion Filtering (F_motion affects the delta between frames)
+    let delta = instance.position - instance.previous_position;
+    let interpolated_pos = instance.previous_position + (delta * tick_alpha * f_motion);
 
     let camera_dir = normalize(camera.camera_pos.xyz - interpolated_pos);
     var up = vec3<f32>(0.0, 1.0, 0.0);
@@ -159,6 +191,8 @@ fn fs_main(in: SplatOutput) -> @location(0) vec4<f32> {
     let ambient = 0.4;
     let lighting = ambient + (0.6 * shadow);
 
+    // Apply Neural Color Filtering
+    // (In a full implementation, we'd have decoupled tracks, for now we modulate the base color)
     let final_color = in.color.rgb * lighting;
 
     return vec4<f32>(final_color, alpha);

@@ -20,9 +20,11 @@ impl Splat4DDecoder {
     pub fn decode_container(&self, container: &Splat4DContainer) -> Vec<Vec<SplatVertex>> {
         let mut all_frames = Vec::new();
 
+        // For simplicity in prototype, we decode all GOPs into a flat sequence
         for gop in &container.gops {
             let mut gop_frames = self.decode_gop(gop, container.header.dynamic_count as usize);
 
+            // Add static splats to each frame
             for frame in &mut gop_frames {
                 frame.extend(container.static_section.splats.iter().cloned());
             }
@@ -36,14 +38,13 @@ impl Splat4DDecoder {
     pub fn decode_gop(&self, gop: &Splat4DGop, dynamic_count: usize) -> Vec<Vec<SplatVertex>> {
         let mut frames = Vec::new();
 
+        // 1. Decode Keyframe
         let mut current_frame = Vec::with_capacity(dynamic_count);
         for i in 0..dynamic_count {
             let pos = self.dequantize_pos(gop.keyframe.positions[i]);
             let rot = self.dequantize_rot(gop.keyframe.rotations[i]);
             let scale = self.dequantize_scale(gop.keyframe.scales[i]);
             let color = self.dequantize_color(gop.keyframe.colors[i]);
-            let archetype_id = gop.keyframe.archetype_ids[i] as u32;
-            let morph_weight = gop.keyframe.morph_weights[i] as f32 / 255.0;
 
             current_frame.push(SplatVertex {
                 position: pos,
@@ -51,18 +52,20 @@ impl Splat4DDecoder {
                 scale,
                 color,
                 previous_position: pos,
-                archetype_id,
-                target_archetype_id: archetype_id,
-                morph_weight,
+                archetype_id: 0,
+                target_archetype_id: 0,
+                morph_weight: 0.0,
             });
         }
         frames.push(current_frame.clone());
 
+        // 2. Decode Delta Frames
         for delta in &gop.delta_frames {
             let mut next_frame = current_frame.clone();
             let mut delta_idx = 0;
 
             for i in 0..dynamic_count {
+                // Check bitmask
                 let is_active = (delta.active_mask[i / 8] & (1 << (i % 8))) != 0;
 
                 if is_active {
@@ -72,7 +75,6 @@ impl Splat4DDecoder {
                     let rot = self.apply_delta_rot(prev.rotation, delta.rotation_deltas[delta_idx]);
                     let scale = self.apply_delta_scale(prev.scale, delta.scale_deltas[delta_idx]);
                     let color = self.apply_delta_color(prev.color, delta.color_deltas[delta_idx]);
-                    let morph_weight = (prev.morph_weight + delta.morph_deltas[delta_idx] as f32 / 255.0).clamp(0.0, 1.0);
 
                     next_frame[i] = SplatVertex {
                         position: pos,
@@ -80,12 +82,13 @@ impl Splat4DDecoder {
                         scale,
                         color,
                         previous_position: prev.position,
-                        archetype_id: prev.archetype_id,
-                        target_archetype_id: prev.target_archetype_id,
-                        morph_weight,
+                        archetype_id: 0,
+                        target_archetype_id: 0,
+                        morph_weight: 0.0,
                     };
                     delta_idx += 1;
                 } else {
+                    // Update previous_position for motion interpolation even if static
                     next_frame[i].previous_position = current_frame[i].position;
                 }
             }

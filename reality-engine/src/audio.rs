@@ -56,6 +56,11 @@ impl AudioManager {
         self.play_tone(220.0, 0.1, "triangle", 0.1);
     }
 
+    pub fn play_impact(&self) {
+        #[cfg(target_arch = "wasm32")]
+        self.play_tone(100.0, 0.2, "sawtooth", 0.2);
+    }
+
     #[cfg(target_arch = "wasm32")]
     fn current_time(&self) -> f64 {
         if let Some(ctx) = &self.ctx {

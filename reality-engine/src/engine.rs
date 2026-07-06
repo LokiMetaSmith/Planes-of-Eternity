@@ -84,6 +84,13 @@ pub struct Engine {
     pub physics_state: PhysicsState,
 }
 
+pub struct CollisionResult {
+    pub position: cgmath::Point3<f32>,
+    pub velocity: cgmath::Vector3<f32>,
+    pub hit: bool,
+    pub smashed: bool,
+}
+
 impl Engine {
     pub fn new(width: u32, height: u32, initial_state: Option<GameState>) -> Self {
         let mut camera = Camera {
@@ -257,6 +264,110 @@ impl Engine {
         }
     }
 
+    fn is_occupied(
+        &mut self,
+        pos: Point3<f32>,
+        radius: f32,
+        voxel_world: &mut crate::voxel::VoxelWorld,
+        can_smash: bool,
+        smashed: &mut bool,
+    ) -> bool {
+        let min_x = (pos.x - radius).floor() as i32;
+        let max_x = (pos.x + radius).floor() as i32;
+        let min_y = (pos.y - radius).floor() as i32;
+        let max_y = (pos.y + radius).floor() as i32;
+        let min_z = (pos.z - radius).floor() as i32;
+        let max_z = (pos.z + radius).floor() as i32;
+
+        let mut occupied = false;
+        for vx in min_x..=max_x {
+            for vy in min_y..=max_y {
+                for vz in min_z..=max_z {
+                    if let Some(voxel) = voxel_world.get_voxel_at(vx, vy, vz) {
+                        if voxel.id != 0 {
+                            if can_smash {
+                                voxel_world.set_voxel_at(vx, vy, vz, crate::voxel::Voxel { id: 0 });
+                                *smashed = true;
+                                self.audio.play_impact();
+                                let color = crate::voxel::Chunk::get_color_for_id(voxel.id);
+                                self.spell_effects.push(SpellEffect {
+                                    position: Point3::new(vx as f32 + 0.5, vy as f32 + 0.5, vz as f32 + 0.5),
+                                    color: [color[0], color[1], color[2], 1.0],
+                                    scale: 1.0,
+                                    timer: 0.0,
+                                    max_time: 0.5,
+                                });
+                            } else {
+                                occupied = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        occupied
+    }
+
+    pub fn check_collision(
+        &mut self,
+        current_pos: Point3<f32>,
+        velocity: Vector3<f32>,
+        dt: f32,
+        radius: f32,
+        voxel_world: &mut crate::voxel::VoxelWorld,
+    ) -> CollisionResult {
+        let mut pos = current_pos;
+        let mut vel = velocity;
+        let mut smashed_any = false;
+        let mut hit_any = false;
+
+        let smash_threshold = 8.0; // Speed required to smash blocks
+
+        // Sub-stepping for anti-tunneling
+        let speed = vel.magnitude();
+        let num_steps = ((speed * dt * 2.0).ceil() as usize).max(1);
+        let step_dt = dt / num_steps as f32;
+
+        for _ in 0..num_steps {
+            // Try X movement
+            let mut next_pos_x = pos;
+            next_pos_x.x += vel.x * step_dt;
+            if !self.is_occupied(next_pos_x, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
+                pos.x = next_pos_x.x;
+            } else {
+                vel.x = 0.0;
+                hit_any = true;
+            }
+
+            // Try Y movement
+            let mut next_pos_y = pos;
+            next_pos_y.y += vel.y * step_dt;
+            if !self.is_occupied(next_pos_y, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
+                pos.y = next_pos_y.y;
+            } else {
+                vel.y = 0.0;
+                hit_any = true;
+            }
+
+            // Try Z movement
+            let mut next_pos_z = pos;
+            next_pos_z.z += vel.z * step_dt;
+            if !self.is_occupied(next_pos_z, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
+                pos.z = next_pos_z.z;
+            } else {
+                vel.z = 0.0;
+                hit_any = true;
+            }
+        }
+
+        CollisionResult {
+            position: pos,
+            velocity: if smashed_any { vel * 0.9 } else { vel },
+            hit: hit_any,
+            smashed: smashed_any,
+        }
+    }
+
     pub fn update(
         &mut self,
         dt: f32,
@@ -286,6 +397,9 @@ impl Engine {
         let mut npcs_to_update = Vec::new();
         // First we extract the npcs into a temporary vector so we don't have multiple mutable borrows to self.world_state
         let mut npcs = std::mem::take(&mut self.world_state.npcs);
+
+        // We need to re-borrow voxel_world for each NPC, so we use a shadow binding
+        let mut vw_opt = voxel_world;
 
         for npc in &mut npcs {
             use crate::projector::{Goal, GoalStatus};
@@ -417,8 +531,13 @@ impl Engine {
                             let dir = target - npc.location;
                             let dist_sq = dir.magnitude2();
                             if dist_sq > 0.1 && dist_sq.is_finite() {
-                                let move_vec = dir * (2.0 * dt / dist_sq.sqrt());
-                                npc.location += move_vec;
+                                let move_vel = dir * (2.0 / dist_sq.sqrt());
+                                if let Some(vw) = vw_opt.as_mut() {
+                                    let res = self.check_collision(npc.location, move_vel, dt, 0.5, vw);
+                                    npc.location = res.position;
+                                } else {
+                                    npc.location += move_vel * dt;
+                                }
                             } else {
                                 npc.target_location = None;
                                 status = GoalStatus::Success;
@@ -456,8 +575,13 @@ impl Engine {
                             let dir = target - npc.location;
                             let dist_sq = dir.magnitude2();
                             if dist_sq > 0.1 && dist_sq.is_finite() {
-                                let move_vec = dir * (5.0 * dt / dist_sq.sqrt());
-                                npc.location += move_vec;
+                                let move_vel = dir * (5.0 / dist_sq.sqrt());
+                                if let Some(vw) = vw_opt.as_mut() {
+                                    let res = self.check_collision(npc.location, move_vel, dt, 0.5, vw);
+                                    npc.location = res.position;
+                                } else {
+                                    npc.location += move_vel * dt;
+                                }
                             } else {
                                 npc.target_location = None;
                                 status = GoalStatus::Success;
@@ -506,8 +630,13 @@ impl Engine {
                         } else {
                             // Chase
                             if dist_sq.is_finite() && dist_sq > 0.01 {
-                                let move_vec = dir * (6.0 * dt / dist_sq.sqrt());
-                                npc.location += move_vec;
+                                let move_vel = dir * (6.0 / dist_sq.sqrt());
+                                if let Some(vw) = vw_opt.as_mut() {
+                                    let res = self.check_collision(npc.location, move_vel, dt, 0.5, *vw);
+                                    npc.location = res.position;
+                                } else {
+                                    npc.location += move_vel * dt;
+                                }
                             }
                             GoalStatus::Continue
                         }
@@ -539,8 +668,13 @@ impl Engine {
                                 // Move towards it
                                 let dir = item_pos - npc.location;
                                 if min_dist_sq.is_finite() && min_dist_sq > 0.01 {
-                                    let move_vec = dir * (3.0 * dt / min_dist_sq.sqrt());
-                                    npc.location += move_vec;
+                                    let move_vel = dir * (3.0 / min_dist_sq.sqrt());
+                                    if let Some(vw) = vw_opt.as_mut() {
+                                        let res = self.check_collision(npc.location, move_vel, dt, 0.5, *vw);
+                                        npc.location = res.position;
+                                    } else {
+                                        npc.location += move_vel * dt;
+                                    }
                                 }
                             }
                         } else {
@@ -587,14 +721,20 @@ impl Engine {
                 }
             }
 
-            // Keep somewhat grounded
-
-            npc.location.y = 1.0;
+            // Keep somewhat grounded if no voxel world for height check
+            if vw_opt.is_none() {
+                npc.location.y = 1.0;
+            } else if let Some(vw) = vw_opt.as_mut() {
+                // Apply a bit of gravity to NPCs too
+                let res = self.check_collision(npc.location, Vector3::new(0.0, -9.8, 0.0), dt, 0.5, vw);
+                npc.location = res.position;
+            }
 
             npcs_to_update.push(npc.clone());
         }
         // Put the modified npcs back
         self.world_state.npcs = npcs;
+        voxel_world = vw_opt;
 
         // Apply NPC influence
         for npc in npcs_to_update {
@@ -662,9 +802,13 @@ impl Engine {
                 item.position.z = next_pos.z;
                 item.position.y = next_pos.y.max(0.5); // Ensure it doesn't sink below global floor
                 item.velocity.y = -item.velocity.y * 0.5; // Bounce with restitution
-                                                          // Apply friction
+                // Apply friction
                 item.velocity.x *= 0.9;
                 item.velocity.z *= 0.9;
+
+                if item.velocity.magnitude2() > 4.0 {
+                    self.audio.play_impact();
+                }
             } else {
                 item.position = next_pos;
             }
@@ -702,53 +846,64 @@ impl Engine {
 
         let has_gravity = self.physics_state == PhysicsState::Gravity;
 
+        // --- Player Movement & Collision ---
+        let mut move_vel = self.camera_controller.get_movement_velocity(&self.camera);
         if has_gravity {
-            self.camera.velocity.y -= 9.8 * dt; // Apply gravity
-
-            let mut next_pos = self.camera.eye + self.camera.velocity * dt;
-            let mut hit_ground = false;
-// Voxel Collision for the player (AABB)
-            if let Some(ref mut vw) = voxel_world {
-                let foot_y_offset = if self.camera_controller.is_crouching { 0.5 } else { 1.0 };
-
-                // 1. Check Floor (Y axis)
-                let vx = next_pos.x.floor() as i32;
-                let vy_floor = (next_pos.y - foot_y_offset).floor() as i32;
-                let vz = next_pos.z.floor() as i32;
-                if let Some(voxel) = vw.get_voxel_at(vx, vy_floor, vz) {
-                    if voxel.id != 0 {
-                        hit_ground = true;
-                    }
-                }
+            self.camera.velocity.y -= 9.8 * dt; // Gravity
+        } else {
+            self.camera.velocity.y = 0.0;
+            // Flying vertical movement
+            if self.camera_controller.is_up_pressed() {
+                move_vel.y += self.camera_controller.speed;
             }
-
-            // Global Floor
-            let target_floor = if self.camera_controller.is_crouching {
-                0.5
-            } else {
-                1.0
-            };
-            if !hit_ground && next_pos.y <= target_floor {
-                hit_ground = true;
-                self.camera.eye.y = target_floor;
-            }
-
-            if hit_ground {
-                if self.camera.velocity.y < 0.0 {
-                    self.camera.velocity.y = 0.0;
-                    self.camera.is_grounded = true;
-                }
-                self.camera.eye.x = next_pos.x;
-                self.camera.eye.z = next_pos.z;
-                self.camera.eye.y = self.camera.eye.y.max(target_floor);
-            } else {
-                self.camera.eye = next_pos;
-                self.camera.is_grounded = false;
+            if self.camera_controller.is_down_pressed() {
+                move_vel.y -= self.camera_controller.speed;
             }
         }
 
-        self.camera_controller
-            .update_camera(&mut self.camera, has_gravity);
+        // Handle Jump
+        if has_gravity && self.camera_controller.is_up_pressed() && self.camera.is_grounded {
+            self.camera.velocity.y = 5.0;
+            self.camera.is_grounded = false;
+        }
+
+        let combined_vel = move_vel / dt.max(0.001) + self.camera.velocity;
+
+        if let Some(vw) = voxel_world.as_mut() {
+            let player_radius = 0.4;
+            let res = self.check_collision(self.camera.eye, combined_vel, dt, player_radius, vw);
+
+            self.camera.eye = res.position;
+            self.camera.velocity = res.velocity;
+
+            // Simple grounding check
+            if has_gravity {
+                let foot_pos = self.camera.eye - Vector3::unit_y() * 0.1;
+                let mut smashed_dummy = false;
+                if self.is_occupied(foot_pos, player_radius, vw, false, &mut smashed_dummy) {
+                    if self.camera.velocity.y <= 0.0 {
+                        self.camera.velocity.y = 0.0;
+                        self.camera.is_grounded = true;
+                    }
+                } else {
+                    self.camera.is_grounded = false;
+                }
+            }
+        } else {
+            self.camera.eye += combined_vel * dt;
+        }
+
+        // Global Floor Fallback
+        let target_floor = if self.camera_controller.is_crouching { 0.5 } else { 1.0 };
+        if self.camera.eye.y < target_floor {
+            self.camera.eye.y = target_floor;
+            if self.camera.velocity.y < 0.0 {
+                self.camera.velocity.y = 0.0;
+                self.camera.is_grounded = true;
+            }
+        }
+
+        self.camera_controller.update_camera_target(&mut self.camera);
 
         // Update Reality Projector Position (Player follows camera)
         self.player_projector.location = self.camera.eye;

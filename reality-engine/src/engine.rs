@@ -720,6 +720,31 @@ impl Engine {
                         hit_ground = true;
                     }
                 }
+
+                // 2. Check Walls (X and Z axis)
+                let player_radius = 0.3; // Half-width of player
+                // We check the torso level
+                let vy_body = (self.camera.eye.y - foot_y_offset + 0.5).floor() as i32;
+
+                // Check X movement
+                let target_vx = (next_pos.x + self.camera.velocity.x.signum() * player_radius).floor() as i32;
+                let current_vz = self.camera.eye.z.floor() as i32;
+                if let Some(voxel) = vw.get_voxel_at(target_vx, vy_body, current_vz) {
+                    if voxel.id != 0 {
+                        // Wall hit on X
+                        next_pos.x = self.camera.eye.x; // Block movement
+                    }
+                }
+
+                // Check Z movement
+                let current_vx = self.camera.eye.x.floor() as i32;
+                let target_vz = (next_pos.z + self.camera.velocity.z.signum() * player_radius).floor() as i32;
+                if let Some(voxel) = vw.get_voxel_at(current_vx, vy_body, target_vz) {
+                    if voxel.id != 0 {
+                        // Wall hit on Z
+                        next_pos.z = self.camera.eye.z; // Block movement
+                    }
+                }
             }
 
             // Global Floor

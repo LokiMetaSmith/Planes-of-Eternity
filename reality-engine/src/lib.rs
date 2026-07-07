@@ -325,7 +325,7 @@ pub struct State {
     pub engine: engine::Engine,
 
     pub npc_splats: Vec<splat::SplatVertex>,
-    pub npc_4d_player: Option<crate::engine::Splat4DPlayer>,
+    pub npc_animations: std::collections::HashMap<crate::engine::AnimationState, Vec<Vec<crate::splat::SplatVertex>>>,
 
     pub depth_texture: texture::Texture,
     pub voxel_world: voxel::VoxelWorld,
@@ -937,7 +937,8 @@ impl State {
                 previous_position: [0.0, 0.0, 0.0],
                 color: [0.0, 0.0, 0.0, 0.0],
                 archetype_id: 0,
-                padding: [0; 2],
+                target_archetype_id: 0,
+                morph_weight: 0.0,
             }]),
             usage: wgpu::BufferUsages::VERTEX
                 | wgpu::BufferUsages::STORAGE
@@ -1205,7 +1206,7 @@ impl State {
             max_splat_capacity,
 
             npc_splats: Vec::new(),
-            npc_4d_player: None,
+            npc_animations: std::collections::HashMap::new(),
 
             voxel_meshes: std::collections::HashMap::new(),
             voxel_dirty: false,
@@ -1610,28 +1611,7 @@ impl State {
             }
         }
 
-        // Update global NPC 4D player
-        if let Some(player) = &mut self.npc_4d_player {
-            player.timer += 0.016;
-            if player.timer > 1.0 / player.frame_rate {
-                player.timer = 0.0;
-                player.current_frame += 1;
-                if let Some(frames) = player.animations.get(&player.current_state) {
-                    if player.current_frame >= frames.len() {
-                        player.current_frame = 0;
-                    }
-                }
-            }
-
-            if let Some(_next) = player.next_state {
-                player.blend_timer += 0.016;
-                if player.blend_timer >= player.blend_duration {
-                    player.current_state = player.next_state.take().unwrap();
-                    player.blend_timer = 0.0;
-                    player.current_frame = 0;
-                }
-            }
-        }
+        // NPC animations are handled per-NPC in active_splats update
 
         // Sync WGPU buffers with Engine State
         self.camera_uniform
@@ -2006,7 +1986,8 @@ impl State {
             for (i, item) in self.engine.world_state.player_inventory.iter().enumerate() {
                 let angle = (i as f32 / inventory_count as f32) * std::f32::consts::PI * 2.0;
                 let radius = 2.0;
-                let item_pos = self.engine.camera.eye + self.engine.camera.target.to_vec().normalize() * 3.0;
+                use cgmath::EuclideanSpace;
+                let item_pos = self.engine.camera.eye + cgmath::InnerSpace::normalize(self.engine.camera.target.to_vec()) * 3.0;
                 let offset = cgmath::Vector3::new(angle.cos() * radius, angle.sin() * radius, 0.0);
 
                 active_splats.push(splat::SplatVertex {
@@ -2022,8 +2003,8 @@ impl State {
             }
         }
 
-        // Add NPC Splats
-        for npc in &self.engine.world_state.npcs {
+        // Add NPC Splats (with Neural Blending)
+        for npc in &mut self.engine.world_state.npcs {
             let color = match npc.reality_signature.active_style.archetype {
                 crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
                 crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
@@ -2050,7 +2031,93 @@ impl State {
                 crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
             };
 
-            for mut splat in self.npc_splats.iter().cloned() {
+            let mut final_splats = Vec::new();
+
+            if let Some(behavior) = &mut npc.behavior {
+                if let Some(playback) = &mut behavior.animation_playback {
+                    // Update timer and frame
+                    playback.timer += 0.016;
+                    if playback.timer > 1.0 / playback.frame_rate {
+                        playback.timer = 0.0;
+                        playback.current_frame += 1;
+                    }
+
+                    // Handle Blending progression
+                    if playback.next_state.is_some() {
+                        playback.blend_timer += 0.016;
+                        if playback.blend_timer >= playback.blend_duration {
+                            playback.current_state = playback.next_state.take().unwrap();
+                            playback.blend_timer = 0.0;
+                            playback.current_frame = 0;
+                        }
+                    }
+
+                    // Determine current frames list to extract source
+                    let mut source_splats = &self.npc_splats; // Fallback
+                    if let Some(frames) = self.npc_animations.get(&playback.current_state) {
+                        if !frames.is_empty() {
+                            if playback.current_frame >= frames.len() {
+                                playback.current_frame = 0; // Loop by default
+                            }
+                            source_splats = &frames[playback.current_frame];
+                        }
+                    }
+
+                    // Perform blending if next_state is active
+                    if let Some(next) = playback.next_state {
+                        let mut target_splats = &self.npc_splats; // Fallback
+                        if let Some(frames) = self.npc_animations.get(&next) {
+                            if !frames.is_empty() {
+                                let mut t_frame = playback.current_frame;
+                                if t_frame >= frames.len() {
+                                    t_frame = 0;
+                                }
+                                target_splats = &frames[t_frame];
+                            }
+                        }
+
+                        let t = (playback.blend_timer / playback.blend_duration).clamp(0.0, 1.0);
+                        let limit = std::cmp::min(source_splats.len(), target_splats.len());
+
+                        for i in 0..limit {
+                            let mut s = source_splats[i].clone();
+                            let tg = &target_splats[i];
+
+                            s.position[0] = s.position[0] * (1.0 - t) + tg.position[0] * t;
+                            s.position[1] = s.position[1] * (1.0 - t) + tg.position[1] * t;
+                            s.position[2] = s.position[2] * (1.0 - t) + tg.position[2] * t;
+
+                            s.scale[0] = s.scale[0] * (1.0 - t) + tg.scale[0] * t;
+                            s.scale[1] = s.scale[1] * (1.0 - t) + tg.scale[1] * t;
+                            s.scale[2] = s.scale[2] * (1.0 - t) + tg.scale[2] * t;
+
+                            s.color[0] = s.color[0] * (1.0 - t) + tg.color[0] * t;
+                            s.color[1] = s.color[1] * (1.0 - t) + tg.color[1] * t;
+                            s.color[2] = s.color[2] * (1.0 - t) + tg.color[2] * t;
+                            s.color[3] = s.color[3] * (1.0 - t) + tg.color[3] * t;
+
+                            // SLERP rotation
+                            let q1 = cgmath::Quaternion::new(s.rotation[3], s.rotation[0], s.rotation[1], s.rotation[2]);
+                            let q2 = cgmath::Quaternion::new(tg.rotation[3], tg.rotation[0], tg.rotation[1], tg.rotation[2]);
+                            let q3 = q1.slerp(q2, t);
+                            s.rotation = [q3.v.x, q3.v.y, q3.v.z, q3.s];
+
+                            final_splats.push(s);
+                        }
+                    } else {
+                        // No blend
+                        final_splats = source_splats.clone();
+                    }
+                }
+            } else {
+                final_splats = self.npc_splats.clone();
+            }
+
+            if final_splats.is_empty() {
+                final_splats = self.npc_splats.clone();
+            }
+
+            for mut splat in final_splats {
                 splat.position[0] += npc.location.x;
                 splat.position[1] += npc.location.y - 1.0;
                 splat.position[2] += npc.location.z;
@@ -3865,24 +3932,12 @@ impl GameClient {
                 let decoder = crate::splat4d_decoder::Splat4DDecoder::default();
                 let frames = decoder.decode_container(&container);
 
-                let mut animations = std::collections::HashMap::new();
-                animations.insert(crate::engine::AnimationState::Idle, frames);
+                // Add to the global NPC animation library
+                state.npc_animations.insert(crate::engine::AnimationState::Walk, frames.clone());
+                state.npc_animations.insert(crate::engine::AnimationState::Idle, frames.clone());
+                state.npc_animations.insert(crate::engine::AnimationState::Attack, frames);
 
-                let player = crate::engine::Splat4DPlayer {
-                    animations,
-                    current_state: crate::engine::AnimationState::Idle,
-                    next_state: None,
-                    current_frame: 0,
-                    timer: 0.0,
-                    blend_timer: 0.0,
-                    blend_duration: 0.3,
-                    frame_rate: 10.0, // Default 10fps
-                    loop_playback: true,
-                    position: state.engine.camera.eye,
-                    archetype_override: None,
-                };
-                state.engine.active_4d_splats.push(player);
-                log::info!("Playing back last 4D recording.");
+                log::info!("Loaded last 4D recording as global NPC animations.");
             }
         }
     }

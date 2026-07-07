@@ -9,7 +9,7 @@ use crate::visual_lambda::{self, LambdaSystem};
 use crate::world::WorldState;
 use cgmath::{EuclideanSpace, InnerSpace, Point3, SquareMatrix, Vector3};
 use noise::{Fbm, Simplex};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -34,7 +34,7 @@ pub enum PhysicsState {
     Gravity,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AnimationState {
     Idle,
     Walk,
@@ -203,6 +203,7 @@ impl Engine {
                         mutation_progress: 0.0,
                         hostile: arch == RealityArchetype::Horror,
                         goal_stack: Vec::new(),
+                        animation_playback: Some(crate::projector::AnimationPlayback::default()),
                     });
                     world_state.npcs.push(npc);
                 }
@@ -493,7 +494,26 @@ impl Engine {
             let mut top_goal = None;
             if let Some(behavior) = &mut npc.behavior {
                 if let Some(goal) = behavior.goal_stack.last().cloned() {
-                    top_goal = Some(goal);
+                    top_goal = Some(goal.clone());
+
+                    // Map Goal to AnimationState
+                    if let Some(anim_playback) = &mut behavior.animation_playback {
+                        let desired_state = match goal {
+                            Goal::Idle(_) => AnimationState::Idle,
+                            Goal::Wander | Goal::Escape | Goal::GatherResource(_) | Goal::ExpandInfluence => AnimationState::Walk,
+                            Goal::Attack(_) => AnimationState::Attack,
+                            Goal::Evolve => AnimationState::Interact,
+                        };
+
+                        if anim_playback.current_state != desired_state {
+                            if anim_playback.next_state != Some(desired_state) {
+                                anim_playback.next_state = Some(desired_state);
+                                anim_playback.blend_timer = 0.0;
+                            }
+                        } else {
+                            anim_playback.next_state = None;
+                        }
+                    }
                 }
             }
 
@@ -1907,6 +1927,7 @@ impl Engine {
                 mutation_progress: 0.0,
                 hostile: arch == RealityArchetype::Horror,
                 goal_stack: Vec::new(),
+                animation_playback: Some(crate::projector::AnimationPlayback::default()),
             });
             self.world_state.npcs.push(npc);
         }

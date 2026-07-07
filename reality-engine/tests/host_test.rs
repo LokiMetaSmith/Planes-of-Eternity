@@ -379,6 +379,7 @@ fn test_npc_evolution_and_movement() {
         mutation_progress: 0.0,
         hostile: false,
         goal_stack: vec![],
+        animation_playback: Some(reality_engine::projector::AnimationPlayback::default()),
     });
     engine.world_state.npcs.push(npc);
 

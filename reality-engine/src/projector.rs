@@ -23,6 +23,31 @@ pub enum GoalStatus {
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AnimationPlayback {
+    pub current_state: crate::engine::AnimationState,
+    pub next_state: Option<crate::engine::AnimationState>,
+    pub current_frame: usize,
+    pub timer: f32,
+    pub blend_timer: f32,
+    pub blend_duration: f32,
+    pub frame_rate: f32,
+}
+
+impl Default for AnimationPlayback {
+    fn default() -> Self {
+        Self {
+            current_state: crate::engine::AnimationState::Idle,
+            next_state: None,
+            current_frame: 0,
+            timer: 0.0,
+            blend_timer: 0.0,
+            blend_duration: 0.3,
+            frame_rate: 10.0,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct NpcBehavior {
     pub preferred_archetype: RealityArchetype,
     pub energy: f32,
@@ -31,6 +56,8 @@ pub struct NpcBehavior {
     pub hostile: bool,
     #[serde(default)]
     pub goal_stack: Vec<Goal>,
+    #[serde(skip)]
+    pub animation_playback: Option<AnimationPlayback>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

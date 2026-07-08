@@ -485,7 +485,7 @@ impl Chunk {
                     let mut voxel = Voxel::default();
 
                     match base_archetype {
-                                                Some(crate::reality_types::RealityArchetype::Fractal) | Some(crate::reality_types::RealityArchetype::Fantasy) | Some(crate::reality_types::RealityArchetype::Fractal) | None => {
+                        Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
                             // Procedural Rolling Hills Terrain
                             let nx = wx as f32 * 0.05;
                             let nz = wz as f32 * 0.05;
@@ -687,6 +687,155 @@ impl Chunk {
                             let val = (fx.sin() * fy.cos() + fy.sin() * fz.cos() + fz.sin() * fx.cos()).abs();
                             if val > 1.2 && wy > 5 {
                                 voxel.id = 1; // Stone islands
+                            }
+
+                            // Fractal Crystalline Growths (L-System)
+                            let cell_x = wx / 10;
+                            let cell_z = wz / 10;
+                            let tx = cell_x * 10 + (hash(cell_x, 0, cell_z).abs() * 10.0) as i32;
+                            let tz = cell_z * 10 + (hash(cell_z, 0, cell_x).abs() * 10.0) as i32;
+
+                            // Check base of the crystal is roughly on the islands
+                            let base_fx = tx as f32 * 0.1;
+                            let base_fy: f32 = 6.0 * 0.1; // Check at y=6
+                            let base_fz = tz as f32 * 0.1;
+                            let base_val = (base_fx.sin() * base_fy.cos() + base_fy.sin() * base_fz.cos() + base_fz.sin() * base_fx.cos()).abs();
+
+                            let crystal_seed = hash(cell_x, cell_z, 2).abs();
+
+                            if base_val > 1.2 && crystal_seed > 0.5 {
+                                let crystal_base_y = 6;
+                                let max_radius = 10;
+                                let max_height = 20;
+
+                                if (wx - tx).abs() <= max_radius && (wz - tz).abs() <= max_radius && wy >= crystal_base_y && wy <= crystal_base_y + max_height {
+                                    let mut lsys = crate::lsystem::LSystem::new("F");
+                                    lsys.add_rule('F', "F[-F]F[+F]F");
+                                    let sentence = lsys.evaluate(2);
+                                    let angle = 30.0 + (hash(tx, 0, tz).abs() * 20.0);
+
+                                    let mut turtle = crate::lsystem::LSystemTurtle::new(
+                                        cgmath::Point3::new(tx, crystal_base_y, tz),
+                                        angle,
+                                        2.0
+                                    );
+                                    turtle.generate(&sentence);
+
+                                    let target = cgmath::Point3::new(wx, wy, wz);
+                                    for v in &turtle.voxels {
+                                        if (v.x - target.x).abs() <= 1 && (v.y - target.y).abs() <= 1 && (v.z - target.z).abs() <= 1 {
+                                            if voxel.id == 0 {
+                                                voxel.id = 4; // Water/Glassy for crystal
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Tron) => {
+                            // Grid floor
+                            if wy == -1 {
+                                if wx % 8 == 0 || wz % 8 == 0 {
+                                    voxel.id = 4; // Glowing lines
+                                } else {
+                                    voxel.id = 1; // Dark stone/metal
+                                }
+                            }
+
+                            // Data Towers (CFG)
+                            let cell_x = wx / 16;
+                            let cell_z = wz / 16;
+                            let cx = cell_x * 16 + 8;
+                            let cz = cell_z * 16 + 8;
+
+                            if (wx - cx).abs() <= 10 && (wz - cz).abs() <= 10 && wy >= 0 && wy <= 30 {
+                                let mut cfg = crate::cfg::CFG::new("Tower");
+                                cfg.add_rule("Tower", vec!["Base", "DataLink", "Top"]);
+                                cfg.add_rule("Tower", vec!["Base", "Segment", "DataLink", "Segment", "Top"]);
+                                cfg.add_rule("Base", vec!["SolidBase"]);
+                                cfg.add_rule("Segment", vec!["BoxySegment"]);
+                                cfg.add_rule("DataLink", vec!["GlowingCore"]);
+                                cfg.add_rule("Top", vec!["Antenna"]);
+
+                                let seed = (cell_x.wrapping_mul(73856093).wrapping_add(cell_z.wrapping_mul(19349663))) as u32;
+                                let sequence = cfg.evaluate(4, seed);
+
+                                let mut current_y = 0;
+                                for term in sequence {
+                                    if term == "SolidBase" {
+                                        if (wx - cx).abs() <= 4 && (wz - cz).abs() <= 4 && wy >= current_y && wy < current_y + 5 {
+                                            voxel.id = 1;
+                                        }
+                                        current_y += 5;
+                                    } else if term == "BoxySegment" {
+                                        if (wx - cx).abs() <= 3 && (wz - cz).abs() <= 3 && wy >= current_y && wy < current_y + 4 {
+                                            if (wx - cx).abs() == 3 || (wz - cz).abs() == 3 {
+                                                voxel.id = 4; // Edge glowing
+                                            } else {
+                                                voxel.id = 1;
+                                            }
+                                        }
+                                        current_y += 4;
+                                    } else if term == "GlowingCore" {
+                                        if (wx - cx).abs() <= 2 && (wz - cz).abs() <= 2 && wy >= current_y && wy < current_y + 6 {
+                                            voxel.id = 4;
+                                        }
+                                        current_y += 6;
+                                    } else if term == "Antenna" {
+                                        if wx == cx && wz == cz && wy >= current_y && wy < current_y + 8 {
+                                            voxel.id = 4;
+                                        }
+                                        current_y += 8;
+                                    }
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Biopunk) => {
+                            // Fleshy / Organic ground
+                            let height_noise = (noise2d(wx as f32 * 0.1, wz as f32 * 0.1) * 0.5 + 0.5) * 5.0;
+                            let height = height_noise as i32;
+                            if wy < height {
+                                voxel.id = 8; // Dirt/Flesh
+                            }
+                            if wy == height && hash(wx, 0, wz).abs() > 0.8 {
+                                voxel.id = 7; // Occasional green goop
+                            }
+
+                            // Tentacles / Organic Structures (L-System)
+                            let cell_x = wx / 12;
+                            let cell_z = wz / 12;
+                            let tx = cell_x * 12 + (hash(cell_x, 1, cell_z).abs() * 12.0) as i32;
+                            let tz = cell_z * 12 + (hash(cell_z, 1, cell_x).abs() * 12.0) as i32;
+
+                            let tentacle_seed = hash(cell_x, cell_z, 3).abs();
+
+                            if tentacle_seed > 0.4 {
+                                let base_h = ((noise2d(tx as f32 * 0.1, tz as f32 * 0.1) * 0.5 + 0.5) * 5.0) as i32;
+                                let max_radius = 8;
+                                let max_height = 15;
+
+                                if (wx - tx).abs() <= max_radius && (wz - tz).abs() <= max_radius && wy >= base_h && wy <= base_h + max_height {
+                                    let mut lsys = crate::lsystem::LSystem::new("F");
+                                    lsys.add_rule('F', "F[&F]F[^F]F"); // More pitch/yaw bending
+                                    let sentence = lsys.evaluate(2);
+                                    let angle = 45.0 + (hash(tx, 0, tz).abs() * 15.0);
+
+                                    let mut turtle = crate::lsystem::LSystemTurtle::new(
+                                        cgmath::Point3::new(tx, base_h, tz),
+                                        angle,
+                                        1.5
+                                    );
+                                    turtle.generate(&sentence);
+
+                                    let target = cgmath::Point3::new(wx, wy, wz);
+                                    for v in &turtle.voxels {
+                                        if (v.x - target.x).abs() <= 1 && (v.y - target.y).abs() <= 1 && (v.z - target.z).abs() <= 1 {
+                                            if voxel.id == 0 {
+                                                voxel.id = 8; // Fleshy
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         Some(crate::reality_types::RealityArchetype::Horror) => {

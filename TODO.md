@@ -124,7 +124,7 @@
 - [x] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
 - [x] Convert spell effect rendering to use Gaussian Splats instead of Lambda bubbles.
 - [x] **Neural Animation State Machine**: Implement a system to trigger different 4D splat sequences (Idle, Walk, Attack) based on NPC AI goals, with neural blending.
-- [ ] **3D Visual Inventory & Spellbook**: Replace HTML inventory with a dedicated 3D UI using translucent splat-bubbles for item organization.
+- [x] **3D Visual Inventory & Spellbook**: Replace HTML inventory with a dedicated 3D UI using translucent splat-bubbles for item organization.
 - [x] **Archetype-Specific Biomes**: Expand procedural generation with unique L-System and CFG logic for each archetype (e.g., Fractal, Tron, Biopunk).
 - [ ] **Neural Morphing**: Implement real-time morphing between 4D representations using filter weight interpolation.
 

@@ -17,6 +17,14 @@ impl AudioManager {
         #[cfg(target_arch = "wasm32")]
         {
             let ctx = AudioContext::new().ok();
+
+            // Expose to window for UI resume hook
+            if let Some(ref c) = ctx {
+                if let Some(window) = web_sys::window() {
+                    let _ = js_sys::Reflect::set(&window, &wasm_bindgen::JsValue::from_str("audioContext"), c);
+                }
+            }
+
             Self { ctx }
         }
         #[cfg(not(target_arch = "wasm32"))]

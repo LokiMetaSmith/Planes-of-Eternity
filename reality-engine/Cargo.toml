@@ -32,7 +32,21 @@ noise = "0.9.0"
 
 [dependencies.web-sys]
 version = "0.3.85"
-features = ["Document", "Window", "Element", "HtmlCanvasElement", "Event", "EventTarget", "KeyboardEvent", "MouseEvent", "DomRect", "Storage", "Navigator", "Geolocation", "Coordinates", "Position", "MediaDevices", "MediaStream", "MediaStreamConstraints", "HtmlVideoElement", "DeviceOrientationEvent", "PositionError", "WebSocket", "MessageEvent", "console", "XrSystem", "XrSession", "XrSessionMode", "XrReferenceSpace", "XrReferenceSpaceType", "XrRenderState", "XrRenderStateInit", "XrFrame", "XrViewerPose", "XrView", "XrViewport", "XrWebGlLayer", "XrWebGlLayerInit", "XrEye", "XrRigidTransform", "DomPoint", "DomPointReadOnly", "Response", "Request", "RequestInit", "RequestMode", "Headers", "Performance", "AudioContext", "AudioDestinationNode", "AudioNode", "AudioParam", "GainNode", "OscillatorNode", "OscillatorType", "AudioContextState", "WebGl2RenderingContext", "WheelEvent", "Worker", "WorkerOptions", "WorkerType", "XrInputSource", "XrInputSourceArray", "XrSpace", "Gamepad", "GamepadButton", "GamepadMappingType"]
+features = [
+    "Document", "Window", "Element", "HtmlCanvasElement", "Event", "EventTarget", "KeyboardEvent",
+    "MouseEvent", "DomRect", "Storage", "Navigator", "Geolocation", "Coordinates", "Position",
+    "MediaDevices", "MediaStream", "MediaStreamConstraints", "HtmlVideoElement", "DeviceOrientationEvent",
+    "PositionError", "WebSocket", "MessageEvent", "console", "XrSystem", "XrSession", "XrSessionMode",
+    "XrReferenceSpace", "XrReferenceSpaceType", "XrRenderState", "XrRenderStateInit", "XrFrame",
+    "XrViewerPose", "XrView", "XrViewport", "XrWebGlLayer", "XrWebGlLayerInit", "XrEye",
+    "XrRigidTransform", "DomPoint", "DomPointReadOnly", "Response", "Request", "RequestInit",
+    "RequestMode", "Headers", "Performance", "AudioContext", "AudioDestinationNode", "AudioNode",
+    "AudioParam", "GainNode", "OscillatorNode", "OscillatorType", "AudioContextState",
+    "WebGl2RenderingContext", "WheelEvent", "Worker", "WorkerOptions", "WorkerType", "XrInputSource",
+    "XrInputSourceArray", "XrSpace", "Gamepad", "GamepadButton", "GamepadMappingType",
+    "IdbDatabase", "IdbFactory", "IdbOpenDbRequest", "IdbTransaction", "IdbObjectStore",
+    "IdbRequest", "IdbTransactionMode", "IdbVersionChangeEvent", "DomStringList"
+]
 
 [dev-dependencies]
 criterion = "0.8.2"

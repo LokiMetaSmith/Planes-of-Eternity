@@ -9,12 +9,12 @@ use web_sys::Storage;
 
 pub const SAVE_VERSION: u32 = 2;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PlayerState {
     pub projector: RealityProjector, // Contains location and self-signature
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameState {
     pub player: PlayerState,
     pub world: WorldState,
@@ -89,6 +89,23 @@ pub fn delete_save(_slot: &str) {
 }
 
 #[cfg(target_arch = "wasm32")]
+pub async fn save_to_indexed_db(key: &str, state: &GameState) {
+    // Large world optimization: yield to event loop before heavy serialization
+    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL)).await.ok();
+
+    match serde_json::to_string(state) {
+        Ok(json) => {
+            if let Ok(db) = crate::indexed_db::IndexedDb::new().await {
+                if let Err(e) = db.save(key, &json).await {
+                    error!("Failed to save to IndexedDB: {:?}", e);
+                }
+            }
+        }
+        Err(e) => error!("Failed to serialize game state: {:?}", e),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 pub fn save_to_local_storage(key: &str, state: &GameState) {
     if let Ok(Some(storage)) = get_local_storage() {
         match serde_json::to_string(state) {
@@ -110,6 +127,26 @@ pub fn save_to_local_storage(key: &str, state: &GameState) {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_to_local_storage(_key: &str, _state: &GameState) {
     // No-op on host
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn load_from_indexed_db(key: &str) -> Option<GameState> {
+    if let Ok(db) = crate::indexed_db::IndexedDb::new().await {
+        match db.load(key).await {
+            Ok(Some(json)) => {
+                match serde_json::from_str::<GameState>(&json) {
+                    Ok(state) => {
+                        info!("Loaded game state from IndexedDB.");
+                        return Some(state);
+                    }
+                    Err(e) => error!("Failed to deserialize game state from IndexedDB: {:?}", e),
+                }
+            }
+            Ok(None) => info!("No save found in IndexedDB for key: {}", key),
+            Err(e) => error!("Failed to read from IndexedDB: {:?}", e),
+        }
+    }
+    None
 }
 
 #[cfg(target_arch = "wasm32")]

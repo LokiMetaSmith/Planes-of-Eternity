@@ -2144,6 +2144,7 @@ dependencies = [
 name = "reality-engine"
 version = "0.1.0"
 dependencies = [
+ "approx",
  "bytemuck",
  "cgmath",
  "console_error_panic_hook",

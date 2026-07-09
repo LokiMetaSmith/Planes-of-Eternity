@@ -367,7 +367,6 @@ pub struct State {
     max_entities: u32,
 
     pub labels_buffer: Vec<u8>,
-    pub show_3d_inventory: bool,
 
     // Dynamic Draw Distance & FPS Tracking
     pub last_frame_time: f64,
@@ -1228,7 +1227,6 @@ impl State {
             num_entities: 1,
             max_entities: max_entities as u32,
             labels_buffer: Vec::with_capacity(1024),
-            show_3d_inventory: false,
             last_frame_time: 0.0,
             fps_moving_average: 60.0,
             frame_count: 0,
@@ -1370,7 +1368,58 @@ impl State {
             }
         }
 
-        self.engine.process_keyboard(key_code, true);
+        if let Some(action) = self.engine.process_keyboard(key_code, true) {
+            match action {
+                input::Action::Toggle4DRecording => {
+                    let recording = self.engine.is_recording_splats;
+                    self.engine.is_recording_splats = !recording;
+
+                    if recording && !self.engine.splat_recording_buffer.is_empty() {
+                        // Encode the recording
+                        let encoder = crate::splat4d_encoder::Splat4DEncoder::default();
+                        if let Some(container) =
+                            encoder.encode_container(&self.engine.splat_recording_buffer)
+                        {
+                            if let Ok(json) = serde_json::to_string(&container) {
+                                log::info!(
+                                    "Encoded 4D Splat Container ({} GOPs, {} dynamic splats)",
+                                    container.gops.len(),
+                                    container.header.dynamic_count
+                                );
+                                persistence::save_raw_to_local_storage(
+                                    "last_4d_splat_recording",
+                                    &json,
+                                );
+                            }
+                        }
+                        self.engine.splat_recording_buffer.clear();
+                    }
+                }
+                input::Action::Play4DRecording => {
+                    if let Some(json) =
+                        persistence::load_raw_from_local_storage("last_4d_splat_recording")
+                    {
+                        if let Ok(container) =
+                            serde_json::from_str::<crate::splat::Splat4DContainer>(&json)
+                        {
+                            let decoder = crate::splat4d_decoder::Splat4DDecoder::default();
+                            let frames = decoder.decode_container(&container);
+
+                            // Add to the global NPC animation library
+                            self.npc_animations
+                                .insert(crate::engine::AnimationState::Walk, frames.clone());
+                            self.npc_animations
+                                .insert(crate::engine::AnimationState::Idle, frames.clone());
+                            self.npc_animations
+                                .insert(crate::engine::AnimationState::Attack, frames);
+
+                            log::info!("Loaded last 4D recording as global NPC animations.");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     // Helper for keyup
@@ -1993,7 +2042,7 @@ impl State {
         }
 
         // Add 3D Inventory Splats
-        if self.show_3d_inventory {
+        if self.engine.show_3d_inventory {
             let inventory_count = self.engine.world_state.player_inventory.len();
             for (i, item) in self.engine.world_state.player_inventory.iter().enumerate() {
                 let angle = (i as f32 / inventory_count as f32) * std::f32::consts::PI * 2.0;
@@ -3412,6 +3461,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             return;
         }
 
+        if code == "Tab" {
+            event.prevent_default();
+        }
+
         state_keydown.borrow_mut().process_keyboard(&code);
     }) as Box<dyn FnMut(_)>);
 
@@ -3872,8 +3925,24 @@ impl GameClient {
 
     pub fn toggle_3d_inventory(&self) -> bool {
         let mut state = self.state.borrow_mut();
-        state.show_3d_inventory = !state.show_3d_inventory;
-        state.show_3d_inventory
+        state.engine.show_3d_inventory = !state.engine.show_3d_inventory;
+        state.engine.show_3d_inventory
+    }
+
+    pub fn is_minimap_visible(&self) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.show_minimap
+        } else {
+            false
+        }
+    }
+
+    pub fn is_ui_visible(&self) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.show_ui
+        } else {
+            true
+        }
     }
 
     pub fn get_inventory_json(&self) -> String {
@@ -3959,46 +4028,6 @@ impl GameClient {
         }
     }
 
-    pub fn toggle_recording(&self) -> bool {
-        let mut state = self.state.borrow_mut();
-        state.engine.is_recording_splats = !state.engine.is_recording_splats;
-
-        if !state.engine.is_recording_splats && !state.engine.splat_recording_buffer.is_empty() {
-            // Encode the recording
-            let encoder = crate::splat4d_encoder::Splat4DEncoder::default();
-            if let Some(container) = encoder.encode_container(&state.engine.splat_recording_buffer) {
-                if let Ok(json) = serde_json::to_string(&container) {
-                    log::info!(
-                        "Encoded 4D Splat Container ({} GOPs, {} dynamic splats)",
-                        container.gops.len(),
-                        container.header.dynamic_count
-                    );
-                    // In a real implementation, we would save this to a file or local storage
-                    persistence::save_raw_to_local_storage("last_4d_splat_recording", &json);
-                }
-            }
-            state.engine.splat_recording_buffer.clear();
-        }
-
-        state.engine.is_recording_splats
-    }
-
-    pub fn play_last_recording(&self) {
-        let mut state = self.state.borrow_mut();
-        if let Some(json) = persistence::load_raw_from_local_storage("last_4d_splat_recording") {
-            if let Ok(container) = serde_json::from_str::<crate::splat::Splat4DContainer>(&json) {
-                let decoder = crate::splat4d_decoder::Splat4DDecoder::default();
-                let frames = decoder.decode_container(&container);
-
-                // Add to the global NPC animation library
-                state.npc_animations.insert(crate::engine::AnimationState::Walk, frames.clone());
-                state.npc_animations.insert(crate::engine::AnimationState::Idle, frames.clone());
-                state.npc_animations.insert(crate::engine::AnimationState::Attack, frames);
-
-                log::info!("Loaded last 4D recording as global NPC animations.");
-            }
-        }
-    }
 
     pub fn execute_npc_action_json(
         &self,

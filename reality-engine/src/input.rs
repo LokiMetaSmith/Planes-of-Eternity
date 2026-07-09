@@ -21,6 +21,13 @@ pub enum Action {
     DropItem,
     PickupItem,
     StoreSpell,
+    ToggleInventory,
+    Toggle4DRecording,
+    Play4DRecording,
+    ToggleMinimap,
+    ToggleUI,
+    CloseInventory,
+    SelectItem,
     // Add more actions as needed
 }
 
@@ -45,6 +52,13 @@ impl Action {
             "DropItem" => Some(Action::DropItem),
             "PickupItem" => Some(Action::PickupItem),
             "StoreSpell" => Some(Action::StoreSpell),
+            "ToggleInventory" => Some(Action::ToggleInventory),
+            "Toggle4DRecording" => Some(Action::Toggle4DRecording),
+            "Play4DRecording" => Some(Action::Play4DRecording),
+            "ToggleMinimap" => Some(Action::ToggleMinimap),
+            "ToggleUI" => Some(Action::ToggleUI),
+            "CloseInventory" => Some(Action::CloseInventory),
+            "SelectItem" => Some(Action::SelectItem),
             _ => None,
         }
     }
@@ -71,6 +85,13 @@ impl std::fmt::Display for Action {
             Action::DropItem => "DropItem",
             Action::PickupItem => "PickupItem",
             Action::StoreSpell => "StoreSpell",
+            Action::ToggleInventory => "ToggleInventory",
+            Action::Toggle4DRecording => "Toggle4DRecording",
+            Action::Play4DRecording => "Play4DRecording",
+            Action::ToggleMinimap => "ToggleMinimap",
+            Action::ToggleUI => "ToggleUI",
+            Action::CloseInventory => "CloseInventory",
+            Action::SelectItem => "SelectItem",
         };
         write!(f, "{}", s)
     }
@@ -105,10 +126,17 @@ impl Default for InputConfig {
         bindings.insert(Action::VoxelDiffusion, "KeyY".to_string());
         bindings.insert(Action::VoxelTimeReverse, "KeyT".to_string());
         bindings.insert(Action::VoxelDream, "KeyG".to_string());
-        bindings.insert(Action::VoxelDiffuse, "KeyH".to_string());
+        bindings.insert(Action::VoxelDiffuse, "KeyN".to_string());
         bindings.insert(Action::DropItem, "KeyB".to_string());
         bindings.insert(Action::PickupItem, "KeyQ".to_string());
         bindings.insert(Action::StoreSpell, "KeyC".to_string());
+        bindings.insert(Action::ToggleInventory, "Tab".to_string());
+        bindings.insert(Action::Toggle4DRecording, "KeyU".to_string());
+        bindings.insert(Action::Play4DRecording, "KeyO".to_string());
+        bindings.insert(Action::ToggleMinimap, "KeyM".to_string());
+        bindings.insert(Action::ToggleUI, "KeyH".to_string());
+        bindings.insert(Action::CloseInventory, "Escape".to_string());
+        bindings.insert(Action::SelectItem, "Digit1".to_string());
 
         let mut config = Self {
             bindings,

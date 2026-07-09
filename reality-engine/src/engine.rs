@@ -79,6 +79,10 @@ pub struct Engine {
 
     pub active_4d_splats: Vec<Splat4DPlayer>,
 
+    pub show_3d_inventory: bool,
+    pub show_minimap: bool,
+    pub show_ui: bool,
+
     pub anchor_distance: f32,
     pub fbm_noise: Fbm<Simplex>,
     pub physics_state: PhysicsState,
@@ -247,6 +251,9 @@ impl Engine {
             is_recording_splats: false,
             splat_recording_buffer: Vec::new(),
             active_4d_splats: Vec::new(),
+            show_3d_inventory: false,
+            show_minimap: false,
+            show_ui: true,
             anchor_distance: 8.0,
             fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
             physics_state: PhysicsState::Flying,
@@ -1001,7 +1008,7 @@ impl Engine {
         voxel_destroyed
     }
 
-    pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) {
+    pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) -> Option<Action> {
         // Check for custom spell bindings first
         if let Some(spell_str) = self.input_config.custom_spell_bindings.get(key_code) {
             if pressed {
@@ -1073,7 +1080,7 @@ impl Engine {
                     }
                 }
             }
-            return;
+            return None;
         }
 
         // Map raw key to Action
@@ -1287,10 +1294,32 @@ impl Engine {
                         }
                     }
                 }
+                Action::ToggleInventory => {
+                    if pressed {
+                        self.show_3d_inventory = !self.show_3d_inventory;
+                    }
+                }
+                Action::ToggleMinimap => {
+                    if pressed {
+                        self.show_minimap = !self.show_minimap;
+                    }
+                }
+                Action::ToggleUI => {
+                    if pressed {
+                        self.show_ui = !self.show_ui;
+                    }
+                }
+                Action::CloseInventory => {
+                    if pressed {
+                        self.show_3d_inventory = false;
+                    }
+                }
                 // Ignore Voxel Actions (Handled by lib.rs / wrapper)
                 _ => {}
             }
+            return Some(action);
         }
+        None
     }
 
     pub fn process_mouse_down(&mut self, x: f32, y: f32, button: i16) {

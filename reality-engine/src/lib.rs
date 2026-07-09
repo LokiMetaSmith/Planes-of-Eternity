@@ -1990,16 +1990,40 @@ impl State {
                 let item_pos = self.engine.camera.eye + cgmath::InnerSpace::normalize(self.engine.camera.target.to_vec()) * 3.0;
                 let offset = cgmath::Vector3::new(angle.cos() * radius, angle.sin() * radius, 0.0);
 
-                active_splats.push(splat::SplatVertex {
-                    position: [item_pos.x + offset.x, item_pos.y + offset.y, item_pos.z + offset.z],
-                    rotation: [0.0, 0.0, 0.0, 1.0],
-                    scale: [0.3, 0.3, 0.3],
-                    color: item.color,
-                    previous_position: [item_pos.x + offset.x, item_pos.y + offset.y, item_pos.z + offset.z],
-                    archetype_id: 0,
-                    target_archetype_id: 0,
-                    morph_weight: 0.0,
-                });
+                let bubble_center = cgmath::Vector3::new(item_pos.x + offset.x, item_pos.y + offset.y, item_pos.z + offset.z);
+
+                // Generate a translucent splat-bubble
+                let num_splats = 64;
+                let bubble_radius = 0.4;
+                let mut bubble_color = item.color;
+                bubble_color[3] = 0.4; // translucent
+
+                for j in 0..num_splats {
+                    let phi = std::f32::consts::PI * (3.0 - 5.0f32.sqrt()); // golden angle
+                    let y = 1.0 - (j as f32 / (num_splats - 1) as f32) * 2.0; // y goes from 1 to -1
+                    let radius_at_y = (1.0 - y * y).sqrt();
+                    let theta = phi * j as f32 + self.engine.time * 2.0;
+
+                    let x = theta.cos() * radius_at_y;
+                    let z = theta.sin() * radius_at_y;
+
+                    let splat_pos = [
+                        bubble_center.x + x * bubble_radius,
+                        bubble_center.y + y * bubble_radius,
+                        bubble_center.z + z * bubble_radius,
+                    ];
+
+                    active_splats.push(splat::SplatVertex {
+                        position: splat_pos,
+                        rotation: [0.0, 0.0, 0.0, 1.0],
+                        scale: [0.05, 0.05, 0.05], // small individual splats forming the bubble
+                        color: bubble_color,
+                        previous_position: splat_pos,
+                        archetype_id: 0,
+                        target_archetype_id: 0,
+                        morph_weight: 0.0,
+                    });
+                }
             }
         }
 

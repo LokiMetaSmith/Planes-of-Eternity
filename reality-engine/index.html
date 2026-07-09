@@ -700,9 +700,10 @@
                 [Mouse] Click to Move Anomaly<br>
                 [Click Node] Reduce Lambda<br>
                 [F] Cast Spell (Lambda)<br>
-                [I] Toggle 3D Inventory<br>
+                [Tab] Toggle 3D Inventory<br>
                 [U] Toggle 4D Recording<br>
                 [O] Toggle 4D Playback<br>
+                [M] Toggle Minimap<br>
                 [Sliders] Adjust Reality Params<br>
                 [H] Toggle UI
             </div>
@@ -908,8 +909,40 @@
                 }
 
 
+                function updateUI() {
+                    if (!window.gameClient) return;
+
+                    const isUIVisible = window.gameClient.is_ui_visible();
+                    const uiLayer = document.getElementById('ui-layer');
+                    const logContainer = document.getElementById('log-area');
+
+                    if (isUIVisible) {
+                        uiLayer.style.opacity = '1';
+                        uiLayer.style.visibility = 'visible';
+                        const cards = uiLayer.querySelectorAll('.cyber-card');
+                        cards.forEach(c => c.style.pointerEvents = 'auto');
+                        if (logContainer) {
+                            logContainer.style.opacity = '1';
+                            logContainer.style.visibility = 'visible';
+                            logContainer.style.pointerEvents = 'auto';
+                        }
+                    } else {
+                        uiLayer.style.opacity = '0';
+                        uiLayer.style.visibility = 'hidden';
+                        const cards = uiLayer.querySelectorAll('.cyber-card');
+                        cards.forEach(c => c.style.pointerEvents = 'none');
+                        if (logContainer) {
+                            logContainer.style.opacity = '0';
+                            logContainer.style.visibility = 'hidden';
+                            logContainer.style.pointerEvents = 'none';
+                        }
+                    }
+                }
+
+
                 function updateLabels() {
                     requestAnimationFrame(updateLabels);
+                    updateUI();
                     updateChatBubbles();
                     updateMinimap();
 
@@ -1213,58 +1246,6 @@
                      }
                 });
 
-                // Add 'H' key listener to toggle UI visibility
-                window.addEventListener('keydown', (e) => {
-                    // Ignore if typing in input
-                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-                    if (e.code === 'KeyI') {
-                        if (window.gameClient) {
-                            const show = window.gameClient.toggle_3d_inventory();
-                            log(show ? "> 3D INVENTORY ENABLED" : "> 3D INVENTORY DISABLED");
-                        }
-                    }
-
-                    if (e.code === 'KeyU') {
-                        if (window.gameClient) {
-                            const recording = window.gameClient.toggle_recording();
-                            log(recording ? "> 4D RECORDING STARTED" : "> 4D RECORDING STOPPED AND ENCODED");
-                        }
-                    }
-
-                    if (e.code === 'KeyP') {
-                        if (window.gameClient) {
-                            window.gameClient.play_last_recording();
-                            log("> PLAYING LAST 4D RECORDING");
-                        }
-                    }
-
-                    if (e.code === 'KeyH') {
-                        const uiLayer = document.getElementById('ui-layer');
-                        const logContainer = document.getElementById('log-area');
-                        if (uiLayer.style.opacity === '0') {
-                            uiLayer.style.opacity = '1';
-                            uiLayer.style.visibility = 'visible';
-                            const cards = uiLayer.querySelectorAll('.cyber-card');
-                            cards.forEach(c => c.style.pointerEvents = 'auto');
-                            if (logContainer) {
-                                logContainer.style.opacity = '1';
-                                logContainer.style.visibility = 'visible';
-                                logContainer.style.pointerEvents = 'auto';
-                            }
-                        } else {
-                            uiLayer.style.opacity = '0';
-                            uiLayer.style.visibility = 'hidden';
-                            const cards = uiLayer.querySelectorAll('.cyber-card');
-                            cards.forEach(c => c.style.pointerEvents = 'none');
-                            if (logContainer) {
-                                logContainer.style.opacity = '0';
-                                logContainer.style.visibility = 'hidden';
-                                logContainer.style.pointerEvents = 'none';
-                            }
-                        }
-                    }
-                });
 
 
                 setInterval(() => {
@@ -1346,7 +1327,9 @@
                     "CastSpell", "Inscribe", "StoreSpell",
                     "ToggleAutoReduce", "Step", "TogglePause",
                     "VoxelDiffusion", "VoxelTimeReverse", "VoxelDream", "VoxelDiffuse",
-                    "DropItem", "PickupItem"
+                    "DropItem", "PickupItem",
+                    "ToggleInventory", "Toggle4DRecording", "Play4DRecording",
+                    "ToggleMinimap", "ToggleUI", "CloseInventory", "SelectItem"
                 ];
                 let currentlyRebinding = null;
                 let currentRebindHandler = null;
@@ -1695,25 +1678,16 @@
 
 
 
-        let isMinimapVisible = false;
-
-
-        window.addEventListener('keydown', (e) => {
-            // Ignore if typing in input
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-            if (e.key.toLowerCase() === 'm') {
-                isMinimapVisible = !isMinimapVisible;
-                const container = document.getElementById('minimap-container');
-                if (container) {
-                    if (isMinimapVisible) { container.style.setProperty('display', 'block', 'important'); } else { container.style.setProperty('display', 'none', 'important'); }
+        function updateMinimap() {
+            const isMinimapVisible = window.gameClient && window.gameClient.is_minimap_visible();
+            const container = document.getElementById('minimap-container');
+            if (container) {
+                if (isMinimapVisible) {
+                    container.style.setProperty('display', 'block', 'important');
+                } else {
+                    container.style.setProperty('display', 'none', 'important');
                 }
             }
-        });
-
-
-
-        function updateMinimap() {
             if (!isMinimapVisible) return;
 
             if (!window.gameClient || !window.gameClient.get_minimap_data_json) return;

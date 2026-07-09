@@ -522,12 +522,37 @@
             height: 100%;
             display: block;
         }
+
+        #resume-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 5000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+        #resume-overlay div {
+            color: var(--theme-primary);
+            font-size: 2rem;
+            text-shadow: 0 0 10px var(--theme-primary);
+            font-family: 'Courier New', monospace;
+            pointer-events: none;
+        }
 </style>
 </head>
 <body>
     <div id="loading-overlay" role="status" aria-busy="true">
         <div class="loading-spinner" aria-hidden="true"></div>
-        <div>INITIALIZING REALITY ENGINE...</div>
+        <div id="loading-text">INITIALIZING REALITY ENGINE...</div>
+        <button id="btn-start-engine" class="cyber-button" style="display: none; width: auto; padding: 15px 40px; margin-top: 20px; font-size: 1.2rem;">ENTER REALITY</button>
+    </div>
+    <div id="resume-overlay">
+        <div>CLICK TO RESUME</div>
     </div>
     <div id="crosshair" aria-hidden="true"></div>
     <div id="version-display" style="position: fixed; bottom: 30px; right: 10px; z-index: 1000; color: rgba(255, 255, 255, 0.5); font-family: monospace; font-size: 10px; pointer-events: none; text-align: right; text-shadow: 1px 1px 0 #000;">
@@ -847,8 +872,39 @@
                 const gameClient = await start("reality-canvas");
                 window.gameClient = gameClient;
 
-                // Hide loading overlay
-                document.getElementById('loading-overlay').style.display = 'none';
+                const loadingOverlay = document.getElementById('loading-overlay');
+                const loadingText = document.getElementById('loading-text');
+                const btnStart = document.getElementById('btn-start-engine');
+                const spinner = loadingOverlay.querySelector('.loading-spinner');
+
+                loadingText.innerText = "REALITY SYNCHRONIZED";
+                spinner.style.display = 'none';
+                btnStart.style.display = 'block';
+
+                const resumeOverlay = document.getElementById('resume-overlay');
+
+                btnStart.addEventListener('click', () => {
+                    loadingOverlay.style.display = 'none';
+                    if (window.audioContext) window.audioContext.resume();
+                    document.getElementById('reality-canvas').requestPointerLock();
+                });
+
+                resumeOverlay.addEventListener('click', () => {
+                    resumeOverlay.style.display = 'none';
+                    if (window.audioContext) window.audioContext.resume();
+                    document.getElementById('reality-canvas').requestPointerLock();
+                });
+
+                document.addEventListener('pointerlockchange', () => {
+                    if (document.pointerLockElement === null && loadingOverlay.style.display === 'none') {
+                        // Only show resume if we aren't in some other overlay
+                        const inscribe = document.getElementById('inscribe-overlay');
+                        const keybinds = document.getElementById('keybind-overlay');
+                        if (inscribe.style.display !== 'flex' && keybinds.style.display !== 'flex') {
+                            resumeOverlay.style.display = 'flex';
+                        }
+                    }
+                });
 
                 log("> CORE LINK ESTABLISHED");
                 log("> RENDER LOOP ACTIVE");

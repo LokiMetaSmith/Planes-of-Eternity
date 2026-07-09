@@ -1,62 +1,40 @@
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import sync_playwright
+import time
 
-def run():
+def verify():
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--use-gl=angle",
-                "--use-angle=gl",
-                "--enable-webgl",
-                "--ignore-gpu-blocklist",
-                "--enable-features=Vulkan",
-                "--enable-unsafe-webgpu",
-                "--use-vulkan=native",
-            ]
-        )
-        context = browser.new_context(record_video_dir="/home/jules/verification/video")
-        page = context.new_page()
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
 
-        try:
-            page.goto("http://localhost:9000/")
-            page.wait_for_selector("#loading-overlay", state="hidden", timeout=30000)
+        # Mock WASM globals to avoid initialization crashes if they aren't fully loaded
+        page.add_init_script("""
+            window.gameClient = {
+                get_all_custom_spell_bindings_json: () => '{}',
+                get_key_binding: () => '',
+                list_saves: () => '[]',
+                get_network_status: () => '{}'
+            };
+        """)
 
-            # Click the Start Desktop button if it exists
-            start_btn = page.locator("#btn-start-desktop")
-            try:
-                expect(start_btn).to_be_visible(timeout=2000)
-                start_btn.click()
-            except Exception:
-                pass
+        page.goto("http://localhost:9000")
+        time.sleep(2)  # Wait for scripts to run
 
-            page.wait_for_selector("#ui-layer", state="visible")
-            page.wait_for_timeout(500)
+        # Take screenshot of initial state (should show "REALITY SYNCHRONIZED" and Enter button)
+        page.screenshot(path="verification/boot.png")
 
-            # Hover over disabled DEL button
-            del_btn = page.locator("#btn-delete")
-            del_btn.hover()
-            page.wait_for_timeout(500)
+        # Click Enter
+        page.click("#btn-start-engine")
+        time.sleep(1)
 
-            # Hover over RESET button
-            reset_btn = page.locator("#btn-reset")
-            reset_btn.hover()
-            page.wait_for_timeout(500)
+        # Take screenshot after entering (should show main UI)
+        page.screenshot(path="verification/ingame.png")
 
-            # Open keybinds and hover over [X]
-            page.locator("#btn-keybinds").click()
-            page.wait_for_selector("#keybind-overlay", state="visible")
-            page.wait_for_timeout(500)
+        # Trigger Pointer Lock Exit to show Resume Overlay
+        page.evaluate("document.exitPointerLock()")
+        time.sleep(1)
+        page.screenshot(path="verification/resume.png")
 
-            close_btn = page.locator("#btn-close-keybinds")
-            # close_btn.hover()
-            page.wait_for_timeout(500)
-
-            page.screenshot(path="/home/jules/verification/verification.png")
-            page.wait_for_timeout(1000)
-
-        finally:
-            context.close()
-            browser.close()
+        browser.close()
 
 if __name__ == "__main__":
-    run()
+    verify()

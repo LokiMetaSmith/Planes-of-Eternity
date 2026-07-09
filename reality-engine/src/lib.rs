@@ -28,6 +28,7 @@ pub mod cfg;
 pub mod crash_report;
 pub mod engine;
 pub mod genie_bridge;
+pub mod indexed_db;
 pub mod input;
 pub mod lambda;
 pub mod network;
@@ -531,7 +532,10 @@ impl State {
         });
 
         // Init Engine Logic
-        let mut loaded_state = persistence::load_from_local_storage("reality_engine_save");
+        let mut loaded_state = persistence::load_from_indexed_db("reality_engine_save").await;
+        if loaded_state.is_none() {
+            loaded_state = persistence::load_from_local_storage("reality_engine_save");
+        }
 
         // Extract voxel_world if present
         let loaded_voxel_world = if let Some(ref mut state) = loaded_state {
@@ -1416,6 +1420,10 @@ impl State {
                         timestamp: js_sys::Date::now() as u64,
                         version: persistence::SAVE_VERSION,
                     };
+                    let game_state_clone = game_state.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        persistence::save_to_indexed_db("reality_engine_save", &game_state_clone).await;
+                    });
                     persistence::save_to_local_storage("reality_engine_save", &game_state);
                     return;
                 }
@@ -1442,6 +1450,10 @@ impl State {
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
             };
+            let game_state_clone = game_state.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                persistence::save_to_indexed_db("reality_engine_save", &game_state_clone).await;
+            });
             persistence::save_to_local_storage("reality_engine_save", &game_state);
         }
     }
@@ -2249,8 +2261,12 @@ impl State {
                 timestamp_writes: None,
             });
 
-            compute_pass.set_pipeline(&self.compute_distances_pipeline);
             compute_pass.set_bind_group(0, &sort_bind_group_0, &[]);
+            // Set bind group 1 with a default offset of 0. Even if compute_distances doesn't use it,
+            // the pipeline layout requires it to be set.
+            compute_pass.set_bind_group(1, &self.sort_bind_group_1, &[0]);
+
+            compute_pass.set_pipeline(&self.compute_distances_pipeline);
             compute_pass.dispatch_workgroups(workgroups, 1, 1);
 
             // Bitonic Sort
@@ -2280,7 +2296,7 @@ impl State {
 
             // Apply final sorted indices back to splat array
             compute_pass.set_pipeline(&self.apply_sort_pipeline);
-            compute_pass.set_bind_group(0, &sort_bind_group_0, &[]);
+            // Group 1 remains bound from the last iteration or the initial set_bind_group call
             compute_pass.dispatch_workgroups(workgroups, 1, 1);
         }
 
@@ -2740,8 +2756,15 @@ impl GameClient {
         let slot_name_str: String = slot_name.into();
         *self.current_save_slot.borrow_mut() = slot_name_str.clone();
         let key = persistence::get_save_key(&slot_name_str);
-        if let Some(loaded_state) = persistence::load_from_local_storage(&key) {
-            let mut state = self.state.borrow_mut();
+        let state_rc = self.state.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut loaded_state = persistence::load_from_indexed_db(&key).await;
+            if loaded_state.is_none() {
+                loaded_state = persistence::load_from_local_storage(&key);
+            }
+
+            if let Some(loaded_state) = loaded_state {
+                let mut state = state_rc.borrow_mut();
 
             state.engine.world_state = loaded_state.world;
             state.engine.player_projector = loaded_state.player.projector;
@@ -2790,10 +2813,11 @@ impl GameClient {
                 state.engine.lambda_system.set_term(term);
             }
 
-            log::info!("Game Loaded from slot: {}", slot_name_str);
-        } else {
-            log::warn!("Failed to load save slot: {}", slot_name_str);
-        }
+                log::info!("Game Loaded from slot: {}", slot_name_str);
+            } else {
+                log::warn!("Failed to load save slot: {}", slot_name_str);
+            }
+        });
     }
 
     pub fn list_saves(&self) -> String {
@@ -2840,6 +2864,11 @@ impl GameClient {
         };
         let slot = self.current_save_slot.borrow().clone();
         let key = persistence::get_save_key(&slot);
+        let game_state_clone = game_state.clone();
+        let key_clone = key.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            persistence::save_to_indexed_db(&key_clone, &game_state_clone).await;
+        });
         persistence::save_to_local_storage(&key, &game_state);
     }
 
@@ -3761,6 +3790,11 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             if let Ok(slot_ref) = slot_autosave.try_borrow() {
                 let slot = slot_ref.clone();
                 let key = persistence::get_save_key(&slot);
+                let game_state_clone = game_state.clone();
+                let key_clone = key.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    persistence::save_to_indexed_db(&key_clone, &game_state_clone).await;
+                });
                 persistence::save_to_local_storage(&key, &game_state);
             }
 
@@ -3795,7 +3829,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     window
         .set_interval_with_callback_and_timeout_and_arguments_0(
             autosave_closure.as_ref().unchecked_ref(),
-            5000, // 5 seconds
+            10000, // 10 seconds
         )
         .expect("Failed to set autosave interval");
     autosave_closure.forget();

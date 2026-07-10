@@ -1570,6 +1570,47 @@ impl VoxelWorld {
         }
     }
 
+
+    pub fn update_splat_morphs(&mut self, projectors: &[&crate::projector::RealityProjector], dt: f32) -> bool {
+        let mut changed = false;
+        for chunk in self.chunks.values_mut() {
+            for splat in chunk.splats.iter_mut() {
+                let mut target_id = 0; // Default to base archetype
+                let mut min_dist = f32::MAX;
+
+                for p in projectors {
+                    let dx = splat.position[0] - p.location.x;
+                    let dy = splat.position[1] - p.location.y;
+                    let dz = splat.position[2] - p.location.z;
+                    let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+
+                    if dist < p.reality_signature.fidelity && dist < min_dist {
+                        min_dist = dist;
+                        target_id = p.reality_signature.active_style.archetype as u32;
+                    }
+                }
+
+                if splat.target_archetype_id != target_id {
+                    splat.target_archetype_id = target_id;
+                    changed = true;
+                }
+
+                if splat.archetype_id != splat.target_archetype_id {
+                    splat.morph_weight += dt * 0.5;
+                    changed = true;
+                    if splat.morph_weight >= 1.0 {
+                        splat.archetype_id = splat.target_archetype_id;
+                        splat.morph_weight = 0.0;
+                    }
+                } else if splat.morph_weight != 0.0 {
+                    splat.morph_weight = 0.0;
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
     pub fn process_pending_splats(&mut self) -> bool {
         let mut groups = Vec::new();
         let mut changed = false;

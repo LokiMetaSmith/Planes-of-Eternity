@@ -1607,6 +1607,22 @@ impl State {
             self.voxel_dirty = true;
         }
 
+        let mut projectors = Vec::new();
+        if let Some(ref anomaly) = self.engine.active_anomaly {
+            projectors.push(anomaly);
+        }
+        for chunk in self.engine.world_state.chunks.values() {
+            for anomaly in &chunk.anomalies {
+                if !anomaly.deleted {
+                    projectors.push(anomaly);
+                }
+            }
+        }
+        if self.voxel_world.update_splat_morphs(&projectors, 0.016) {
+            self.voxel_dirty = true;
+        }
+
+
         if self.engine.is_recording_splats {
             let mut current_frame = Vec::new();
             for chunk in self.voxel_world.chunks.values() {

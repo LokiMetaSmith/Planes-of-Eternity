@@ -45,7 +45,8 @@ features = [
     "WebGl2RenderingContext", "WheelEvent", "Worker", "WorkerOptions", "WorkerType", "XrInputSource",
     "XrInputSourceArray", "XrSpace", "Gamepad", "GamepadButton", "GamepadMappingType",
     "IdbDatabase", "IdbFactory", "IdbOpenDbRequest", "IdbTransaction", "IdbObjectStore",
-    "IdbRequest", "IdbTransactionMode", "IdbVersionChangeEvent", "DomStringList"
+    "IdbRequest", "IdbTransactionMode", "IdbVersionChangeEvent", "DomStringList",
+    "Location", "CanvasRenderingContext2d", "CanvasGradient"
 ]
 
 [dev-dependencies]

@@ -17,3 +17,579 @@ Failed to find an appropriate adapter
     at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[4356]:0x338dca
     at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[4355]:0x338dbc
 ----------------------------------------
+[2026-07-11T21:41:04.477294696+00:00] Crash Report:
+Message: panicked at src/lib.rs:3899:24:
+RefCell already borrowed
+Uptime: 7394.90ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3899:24:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-a1b2f664c4b6b76a.js:1922:25)
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[937]:0x168a59
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[2549]:0x2ba79b
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[3897]:0x324eec
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[5670]:0x35ebb0
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[4192]:0x334e36
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[1373]:0x20ab2b
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[4347]:0x339a29
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[4846]:0x340d71
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-a1b2f664c4b6b76a.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:41:04.489374353+00:00] Crash Report:
+Message: panicked at src/lib.rs:3955:18:
+RefCell already borrowed
+Uptime: 7410.10ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3955:18:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-a1b2f664c4b6b76a.js:1922:25)
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[937]:0x168a59
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[2549]:0x2ba79b
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[3897]:0x324eec
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[5670]:0x35ebb0
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[4192]:0x334e36
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[1248]:0x1dd23a
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[4347]:0x339a29
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[4846]:0x340d71
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-a1b2f664c4b6b76a.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:41:04.491733321+00:00] Crash Report:
+Message: panicked at src/lib.rs:2797:36:
+RefCell already borrowed
+Uptime: 7411.90ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:2797:36:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-a1b2f664c4b6b76a.js:1922:25)
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[937]:0x168a59
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[2549]:0x2ba79b
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[3897]:0x324eec
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[5670]:0x35ebb0
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[4192]:0x334e36
+    at http://localhost:9000/reality-engine-a1b2f664c4b6b76a_bg.wasm:wasm-function[2409]:0x2ab1e4
+    at GameClient.process_inscription (http://localhost:9000/reality-engine-a1b2f664c4b6b76a.js:227:14)
+    at HTMLButtonElement.submitInscription (http://localhost:9000/index.html:1631:43)
+----------------------------------------
+
+[2026-07-11T21:46:35.907091870+00:00] Crash Report:
+Message: panicked at src/lib.rs:3902:24:
+RefCell already borrowed
+Uptime: 9138.80ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3902:24:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1373]:0x20ab2c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:46:35.917231906+00:00] Crash Report:
+Message: panicked at src/lib.rs:3958:18:
+RefCell already borrowed
+Uptime: 9150.00ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3958:18:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1248]:0x1dd23b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:46:36.938974557+00:00] Crash Report:
+Message: panicked at src/lib.rs:3753:39:
+RefCell already mutably borrowed
+Uptime: 10171.20ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3753:39:
+RefCell already mutably borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4193]:0x334ecb
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1213]:0x1cd4e9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:46:36.941852236+00:00] Crash Report:
+Message: panicked at src/lib.rs:3794:21:
+RefCell already borrowed
+Uptime: 10174.70ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3794:21:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2868]:0x2d0034
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:46:37.950430759+00:00] Crash Report:
+Message: panicked at src/lib.rs:3753:39:
+RefCell already mutably borrowed
+Uptime: 11182.60ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3753:39:
+RefCell already mutably borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4193]:0x334ecb
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1213]:0x1cd4e9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:46:37.954025180+00:00] Crash Report:
+Message: panicked at src/lib.rs:3794:21:
+RefCell already borrowed
+Uptime: 11186.50ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3794:21:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2868]:0x2d0034
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:46:39.520033260+00:00] Crash Report:
+Message: panicked at src/lib.rs:3902:24:
+RefCell already borrowed
+Uptime: 12752.30ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3902:24:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1373]:0x20ab2c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:46:39.523722262+00:00] Crash Report:
+Message: panicked at src/lib.rs:3958:18:
+RefCell already borrowed
+Uptime: 12756.30ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3958:18:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1248]:0x1dd23b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:46:39.526432887+00:00] Crash Report:
+Message: panicked at src/lib.rs:3109:32:
+RefCell already mutably borrowed
+Uptime: 12759.30ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3109:32:
+RefCell already mutably borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4193]:0x334ecb
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4899]:0x34232c
+    at GameClient.save_game (http://localhost:9000/reality-engine-4d96c51ae906e185.js:242:14)
+    at HTMLButtonElement.<anonymous> (http://localhost:9000/index.html:1233:32)
+----------------------------------------
+
+[2026-07-11T21:48:29.087398613+00:00] Crash Report:
+Message: panicked at src/lib.rs:3902:24:
+RefCell already borrowed
+Uptime: 7318.70ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3902:24:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1373]:0x20ab2c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:48:29.097857632+00:00] Crash Report:
+Message: panicked at src/lib.rs:3958:18:
+RefCell already borrowed
+Uptime: 7329.90ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3958:18:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1248]:0x1dd23b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:48:30.120772853+00:00] Crash Report:
+Message: panicked at src/lib.rs:3753:39:
+RefCell already mutably borrowed
+Uptime: 8352.70ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3753:39:
+RefCell already mutably borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4193]:0x334ecb
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1213]:0x1cd4e9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:48:30.123937001+00:00] Crash Report:
+Message: panicked at src/lib.rs:3794:21:
+RefCell already borrowed
+Uptime: 8356.20ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3794:21:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2868]:0x2d0034
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:48:31.132710860+00:00] Crash Report:
+Message: panicked at src/lib.rs:3753:39:
+RefCell already mutably borrowed
+Uptime: 9364.60ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3753:39:
+RefCell already mutably borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4193]:0x334ecb
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1213]:0x1cd4e9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:48:31.136064582+00:00] Crash Report:
+Message: panicked at src/lib.rs:3794:21:
+RefCell already borrowed
+Uptime: 9368.00ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3794:21:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2868]:0x2d0034
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:48:32.701087065+00:00] Crash Report:
+Message: panicked at src/lib.rs:3902:24:
+RefCell already borrowed
+Uptime: 10932.70ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3902:24:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1373]:0x20ab2c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:48:32.704549094+00:00] Crash Report:
+Message: panicked at src/lib.rs:3958:18:
+RefCell already borrowed
+Uptime: 10936.70ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3958:18:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4192]:0x334eb6
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[1248]:0x1dd23b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4347]:0x339aa9
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4847]:0x340e13
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:48:32.707326888+00:00] Crash Report:
+Message: panicked at src/lib.rs:3109:32:
+RefCell already mutably borrowed
+Uptime: 10939.60ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3109:32:
+RefCell already mutably borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-4d96c51ae906e185.js:1922:25)
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[937]:0x168a5a
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[2549]:0x2ba81b
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[3897]:0x324f6c
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[5671]:0x35ec52
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4193]:0x334ecb
+    at http://localhost:9000/reality-engine-4d96c51ae906e185_bg.wasm:wasm-function[4899]:0x34232c
+    at GameClient.save_game (http://localhost:9000/reality-engine-4d96c51ae906e185.js:242:14)
+    at HTMLButtonElement.<anonymous> (http://localhost:9000/index.html:1233:32)
+----------------------------------------
+
+[2026-07-11T21:53:32.341364851+00:00] Crash Report:
+Message: panicked at src/lib.rs:3926:24:
+RefCell already borrowed
+Uptime: 9416.70ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3926:24:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-297a6c6103530647.js:1922:25)
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[937]:0x168f3c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2549]:0x2bae5e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[3897]:0x3255af
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[5671]:0x35f30c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4192]:0x3354f9
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[1373]:0x20b00e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4347]:0x33a0ec
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4847]:0x341456
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-297a6c6103530647.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:53:32.350997819+00:00] Crash Report:
+Message: panicked at src/lib.rs:3982:18:
+RefCell already borrowed
+Uptime: 9427.40ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3982:18:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-297a6c6103530647.js:1922:25)
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[937]:0x168f3c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2549]:0x2bae5e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[3897]:0x3255af
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[5671]:0x35f30c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4192]:0x3354f9
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[1248]:0x1dd71d
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4347]:0x33a0ec
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4847]:0x341456
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-297a6c6103530647.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:53:33.372789166+00:00] Crash Report:
+Message: panicked at src/lib.rs:3777:39:
+RefCell already mutably borrowed
+Uptime: 10448.80ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3777:39:
+RefCell already mutably borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-297a6c6103530647.js:1922:25)
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[937]:0x168f3c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2549]:0x2bae5e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[3897]:0x3255af
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[5671]:0x35f30c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4193]:0x33550e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[1213]:0x1cd9cb
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4347]:0x33a0ec
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4847]:0x341456
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-297a6c6103530647.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:53:33.376218643+00:00] Crash Report:
+Message: panicked at src/lib.rs:3818:21:
+RefCell already borrowed
+Uptime: 10452.30ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3818:21:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-297a6c6103530647.js:1922:25)
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[937]:0x168f3c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2549]:0x2bae5e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[3897]:0x3255af
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[5671]:0x35f30c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4192]:0x3354f9
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2868]:0x2d0677
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4347]:0x33a0ec
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4847]:0x341456
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-297a6c6103530647.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:53:34.384155398+00:00] Crash Report:
+Message: panicked at src/lib.rs:3777:39:
+RefCell already mutably borrowed
+Uptime: 11460.30ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3777:39:
+RefCell already mutably borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-297a6c6103530647.js:1922:25)
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[937]:0x168f3c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2549]:0x2bae5e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[3897]:0x3255af
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[5671]:0x35f30c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4193]:0x33550e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[1213]:0x1cd9cb
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4347]:0x33a0ec
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4847]:0x341456
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-297a6c6103530647.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:53:34.386996738+00:00] Crash Report:
+Message: panicked at src/lib.rs:3818:21:
+RefCell already borrowed
+Uptime: 11463.70ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3818:21:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-297a6c6103530647.js:1922:25)
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[937]:0x168f3c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2549]:0x2bae5e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[3897]:0x3255af
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[5671]:0x35f30c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4192]:0x3354f9
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2868]:0x2d0677
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4347]:0x33a0ec
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4847]:0x341456
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-297a6c6103530647.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:53:35.953090010+00:00] Crash Report:
+Message: panicked at src/lib.rs:3926:24:
+RefCell already borrowed
+Uptime: 13029.40ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3926:24:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-297a6c6103530647.js:1922:25)
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[937]:0x168f3c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2549]:0x2bae5e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[3897]:0x3255af
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[5671]:0x35f30c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4192]:0x3354f9
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[1373]:0x20b00e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4347]:0x33a0ec
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4847]:0x341456
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-297a6c6103530647.js:2953:10)
+----------------------------------------
+
+[2026-07-11T21:53:35.956681749+00:00] Crash Report:
+Message: panicked at src/lib.rs:3982:18:
+RefCell already borrowed
+Uptime: 13033.40ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:3982:18:
+RefCell already borrowed
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-297a6c6103530647.js:1922:25)
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[937]:0x168f3c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[2549]:0x2bae5e
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[3897]:0x3255af
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[5671]:0x35f30c
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4192]:0x3354f9
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[1248]:0x1dd71d
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4347]:0x33a0ec
+    at http://localhost:9000/reality-engine-297a6c6103530647_bg.wasm:wasm-function[4847]:0x341456
+    at wasm_bindgen__convert__closures_____invoke__h2443c9cee9897859 (http://localhost:9000/reality-engine-297a6c6103530647.js:2953:10)
+----------------------------------------

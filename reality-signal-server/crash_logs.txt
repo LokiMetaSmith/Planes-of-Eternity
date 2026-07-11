@@ -1,0 +1,19 @@
+[2026-07-10T17:29:38.897846702+00:00] Crash Report:
+Message: panicked at src/lib.rs:397:14:
+Failed to find an appropriate adapter
+Uptime: 372.20ms
+User Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36
+Stack:
+Error: panicked at src/lib.rs:397:14:
+Failed to find an appropriate adapter
+    at __wbg_new_72b49615380db768 (http://localhost:9000/reality-engine-20d7356c013a03ad.js:1877:25)
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[920]:0x1674ca
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[2533]:0x2b98f2
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[3891]:0x32400f
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[3892]:0x32404c
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[721]:0xde4e6
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[1595]:0x23cc63
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[1810]:0x262b0f
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[4356]:0x338dca
+    at http://localhost:9000/reality-engine-20d7356c013a03ad_bg.wasm:wasm-function[4355]:0x338dbc
+----------------------------------------

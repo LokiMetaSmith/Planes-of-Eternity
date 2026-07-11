@@ -286,7 +286,7 @@ struct ChunkData {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub struct State {
+pub struct WgpuState {
     surface: wgpu::Surface<'static>,
     pub sky_pipeline: wgpu::RenderPipeline,
     device: wgpu::Device,
@@ -300,40 +300,21 @@ pub struct State {
 
     instance_buffer: wgpu::Buffer,
     num_instances: u32,
-    chunk_data: Vec<ChunkData>, // CPU side data for culling
 
     diffuse_bind_group: wgpu::BindGroup,
     pub diffuse_texture: texture::Texture,
-    // camera moved to engine
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    // camera_controller moved to engine
     reality_uniform: RealityUniform,
     reality_buffer: wgpu::Buffer,
     reality_bind_group: wgpu::BindGroup,
-    // player_projector moved to engine
-    // world_state moved to engine
-    // active_anomaly moved to engine
-    // width/height logic in engine, but config needs it
-    width: u32,
-    height: u32,
-    // global_offset moved to engine
     lambda_renderer: visual_lambda::LambdaRenderer,
-    // lambda_system moved to engine
-    // pending_full_sync moved to engine
-    // time moved to engine
-    pub engine: engine::Engine,
-
-    pub npc_splats: Vec<splat::SplatVertex>,
-    pub npc_animations: std::collections::HashMap<crate::engine::AnimationState, Vec<Vec<crate::splat::SplatVertex>>>,
 
     pub depth_texture: texture::Texture,
-    pub voxel_world: voxel::VoxelWorld,
     pub voxel_pipeline: wgpu::RenderPipeline,
     pub splat_pipeline: wgpu::RenderPipeline,
     pub splat_buffer: wgpu::Buffer,
-    pub num_splats: u32,
 
     pub compute_distances_pipeline: wgpu::ComputePipeline,
     pub sort_step_pipeline: wgpu::ComputePipeline,
@@ -347,13 +328,32 @@ pub struct State {
     pub sort_bind_group_1: wgpu::BindGroup,
     pub max_splat_capacity: u32,
 
-    pub voxel_meshes: std::collections::HashMap<voxel::ChunkKey, ChunkMesh>,
-    pub voxel_dirty: bool,
-    pub last_lod_update_pos: cgmath::Point3<f32>,
     pub voxel_atlas: texture::Texture,
     pub voxel_bind_group: wgpu::BindGroup,
     pub voxel_density_texture: wgpu::Texture,
     pub voxel_density_view: wgpu::TextureView,
+
+    entities_instance_buffer: wgpu::Buffer,
+    max_entities: u32,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct State {
+    pub wgpu_state: Option<WgpuState>,
+    width: u32,
+    height: u32,
+    pub engine: engine::Engine,
+    chunk_data: Vec<ChunkData>, // CPU side data for culling
+
+    pub npc_splats: Vec<splat::SplatVertex>,
+    pub npc_animations: std::collections::HashMap<crate::engine::AnimationState, Vec<Vec<crate::splat::SplatVertex>>>,
+
+    pub voxel_world: voxel::VoxelWorld,
+    pub num_splats: u32,
+
+    pub voxel_meshes: std::collections::HashMap<voxel::ChunkKey, ChunkMesh>,
+    pub voxel_dirty: bool,
+    pub last_lod_update_pos: cgmath::Point3<f32>,
     pub in_xr: bool,
     pub in_vr: bool,
     pub canvas: HtmlCanvasElement,
@@ -362,9 +362,7 @@ pub struct State {
     pub last_view_proj: Option<cgmath::Matrix4<f32>>,
     pub last_stability_hash: String,
 
-    entities_instance_buffer: wgpu::Buffer,
     num_entities: u32,
-    max_entities: u32,
 
     pub labels_buffer: Vec<u8>,
 
@@ -377,7 +375,7 @@ pub struct State {
 
 #[cfg(target_arch = "wasm32")]
 impl State {
-    async fn new(canvas: HtmlCanvasElement) -> Self {
+    async fn init_wgpu(canvas: &HtmlCanvasElement) -> Option<WgpuState> {
         let width = canvas.width();
         let height = canvas.height();
 
@@ -385,7 +383,7 @@ impl State {
 
         // Create surface from canvas
         let surface_target = wgpu::SurfaceTarget::Canvas(canvas.clone());
-        let surface = instance.create_surface(surface_target).unwrap();
+        let surface = instance.create_surface(surface_target).ok()?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -393,24 +391,20 @@ impl State {
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
-            .await
-            .expect("Failed to find an appropriate adapter");
+            .await?;
 
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features: wgpu::Features::empty(),
-                    // Use adapter limits directly for WebGPU compatibility
-                    // Avoid using downlevel_webgl2_defaults() as it includes limits
-                    // not recognized by browser WebGPU implementations
                     required_limits: adapter.limits(),
                     memory_hints: Default::default(),
                 },
                 None,
             )
             .await
-            .expect("Failed to create device");
+            .ok()?;
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -530,23 +524,22 @@ impl State {
             ))),
         });
 
-        // Init Engine Logic
-        let mut loaded_state = persistence::load_from_indexed_db("reality_engine_save").await;
-        if loaded_state.is_none() {
-            loaded_state = persistence::load_from_local_storage("reality_engine_save");
-        }
-
-        // Extract voxel_world if present
-        let loaded_voxel_world = if let Some(ref mut state) = loaded_state {
-            state.voxel_world.take()
-        } else {
-            None
-        };
-
-        let engine = engine::Engine::new(width, height, loaded_state);
-
         let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&engine.camera, engine.time);
+        let dummy_camera = camera::Camera {
+            eye: cgmath::Point3::new(0.0, 5.0, 10.0),
+            target: cgmath::Point3::new(0.0, 0.0, 0.0),
+            up: cgmath::Vector3::unit_y(),
+            aspect: width as f32 / height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+            yaw: 0.0,
+            pitch: 0.0,
+            projection_override: None,
+            velocity: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            is_grounded: false,
+        };
+        camera_uniform.update_view_proj(&dummy_camera, 0.0);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -609,7 +602,6 @@ impl State {
             }],
             label: Some("reality_bind_group"),
         });
-
 
         let sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Sky Shader"),
@@ -692,34 +684,14 @@ impl State {
 
         let num_indices = indices.len() as u32;
 
-        // Define logical chunks (Positions)
-        let mut chunk_data = Vec::new();
-        let initial_grid_count = 3; // 3x3
-        let half_grid = (initial_grid_count as f32 * chunk_size) / 2.0;
-        let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
-
-        for z in 0..initial_grid_count {
-            for x in 0..initial_grid_count {
-                let x_pos = (x as f32 * chunk_size) - half_grid + offset;
-                let z_pos = (z as f32 * chunk_size) - half_grid + offset;
-                let half_size = chunk_size / 2.0;
-
-                chunk_data.push(ChunkData {
-                    position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
-                    aabb_min: cgmath::Point3::new(x_pos - half_size, -10.0, z_pos - half_size),
-                    aabb_max: cgmath::Point3::new(x_pos + half_size, 10.0, z_pos + half_size),
-                });
-            }
-        }
-
-        // Initial Instance Buffer
+        let num_instances_initial = 9u32; // 3x3 chunks initially, we write it to instance_buffer
         let instances = vec![
             Instance {
                 model: cgmath::Matrix4::identity().into(),
                 stability: 1.0,
                 padding: [0.0; 3]
             };
-            chunk_data.len()
+            num_instances_initial as usize
         ];
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
@@ -773,16 +745,6 @@ impl State {
 
         let lambda_renderer =
             visual_lambda::LambdaRenderer::new(&device, config.format, &camera_bind_group_layout);
-
-        // --- Voxel Initialization ---
-        let voxel_world = if let Some(vw) = loaded_voxel_world {
-            log::info!("Restored Voxel World from save.");
-            vw
-        } else {
-            let mut vw = voxel::VoxelWorld::new();
-            vw.generate_default_world();
-            vw
-        };
 
         // Voxel Texture Atlas
         let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
@@ -857,14 +819,14 @@ impl State {
                 push_constant_ranges: &[],
             });
 
-        let max_entities = 100; // Player + NPCs + Items
+        let max_entities = 100u32; // Player + NPCs + Items
         let initial_entities = vec![
             visual_lambda::LambdaInstance {
                 position: [0.0, 0.0, 0.0],
                 color: [1.0, 1.0, 1.0, 1.0],
                 scale: 0.0,
             };
-            max_entities
+            max_entities as usize
         ];
         let entities_instance_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -915,14 +877,14 @@ impl State {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None, // Disable culling for splats
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: texture::Texture::DEPTH_FORMAT,
-                depth_write_enabled: false, // Transparent splats shouldn't write to depth
+                depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
@@ -1064,16 +1026,12 @@ impl State {
             mapped_at_creation: false,
         });
 
-        // Precompute all possible j and k combinations for bitonic sort up to a reasonably large N
         let mut bitonic_uniforms = Vec::new();
-        // Allow up to 2^18 = 262,144 elements
         let max_k = 262144;
         let mut k = 2;
         while k <= max_k {
             let mut j = k >> 1;
             while j > 0 {
-                // Must pad to 256 bytes for dynamic uniform buffer offset
-                // BitonicUniforms is 16 bytes. We need 256 bytes total.
                 let mut data = [0u8; 256];
                 let uniform = splat::BitonicUniforms {
                     j,
@@ -1164,7 +1122,7 @@ impl State {
             multiview: None,
         });
 
-        let mut state = Self {
+        Some(WgpuState {
             surface,
             device,
             queue,
@@ -1175,8 +1133,7 @@ impl State {
             index_buffer,
             num_indices,
             instance_buffer,
-            num_instances: chunk_data.len() as u32,
-            chunk_data,
+            num_instances: num_instances_initial,
             diffuse_bind_group,
             diffuse_texture,
             camera_uniform,
@@ -1185,17 +1142,11 @@ impl State {
             reality_uniform,
             reality_buffer,
             reality_bind_group,
-            width,
-            height,
             lambda_renderer,
-            engine,
             depth_texture,
-            voxel_world,
             voxel_pipeline,
             splat_pipeline,
             splat_buffer,
-            num_splats: 0,
-
             compute_distances_pipeline,
             sort_step_pipeline,
             apply_sort_pipeline,
@@ -1207,25 +1158,104 @@ impl State {
             sort_bind_group_layout_1,
             sort_bind_group_1,
             max_splat_capacity,
-
-            npc_splats: Vec::new(),
-            npc_animations: std::collections::HashMap::new(),
-
-            voxel_meshes: std::collections::HashMap::new(),
-            voxel_dirty: false,
-            last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
             voxel_atlas,
             voxel_bind_group,
             voxel_density_texture,
             voxel_density_view,
+            entities_instance_buffer,
+            max_entities,
+        })
+    }
+
+    async fn new(canvas: HtmlCanvasElement) -> Self {
+        let width = canvas.width();
+        let height = canvas.height();
+
+        let mut force_cpu = false;
+        if let Some(window) = web_sys::window() {
+            let location = window.location();
+            if let Ok(search) = location.search() {
+                if search.contains("renderer=cpu") {
+                    force_cpu = true;
+                }
+            }
+        }
+
+        let mut wgpu_state = None;
+        if !force_cpu {
+            wgpu_state = Self::init_wgpu(&canvas).await;
+            if wgpu_state.is_none() {
+                log::warn!("WebGPU initialization failed. Falling back to CPU 2D Canvas renderer.");
+            }
+        } else {
+            log::info!("Forced CPU renderer via URL query parameter.");
+        }
+
+        // Init Engine Logic
+        let mut loaded_state = persistence::load_from_indexed_db("reality_engine_save").await;
+        if loaded_state.is_none() {
+            loaded_state = persistence::load_from_local_storage("reality_engine_save");
+        }
+
+        // Extract voxel_world if present
+        let loaded_voxel_world = if let Some(ref mut state) = loaded_state {
+            state.voxel_world.take()
+        } else {
+            None
+        };
+
+        let engine = engine::Engine::new(width, height, loaded_state);
+
+        // --- Voxel Initialization ---
+        let voxel_world = if let Some(vw) = loaded_voxel_world {
+            log::info!("Restored Voxel World from save.");
+            vw
+        } else {
+            let mut vw = voxel::VoxelWorld::new();
+            vw.generate_default_world();
+            vw
+        };
+
+        // Define logical chunks (Positions)
+        let mut chunk_data = Vec::new();
+        let chunk_size = voxel::CHUNK_SIZE as f32;
+        let initial_grid_count = 3; // 3x3
+        let half_grid = (initial_grid_count as f32 * chunk_size) / 2.0;
+        let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
+
+        for z in 0..initial_grid_count {
+            for x in 0..initial_grid_count {
+                let x_pos = (x as f32 * chunk_size) - half_grid + offset;
+                let z_pos = (z as f32 * chunk_size) - half_grid + offset;
+                let half_size = chunk_size / 2.0;
+
+                chunk_data.push(ChunkData {
+                    position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
+                    aabb_min: cgmath::Point3::new(x_pos - half_size, -10.0, z_pos - half_size),
+                    aabb_max: cgmath::Point3::new(x_pos + half_size, 10.0, z_pos + half_size),
+                });
+            }
+        }
+
+        let mut state = Self {
+            wgpu_state,
+            width,
+            height,
+            engine,
+            chunk_data,
+            npc_splats: Vec::new(),
+            npc_animations: std::collections::HashMap::new(),
+            voxel_world,
+            num_splats: 0,
+            voxel_meshes: std::collections::HashMap::new(),
+            voxel_dirty: false,
+            last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
             in_xr: false,
             in_vr: false,
             canvas: canvas.clone(),
             last_view_proj: None,
             last_stability_hash: String::new(),
-            entities_instance_buffer,
             num_entities: 1,
-            max_entities: max_entities as u32,
             labels_buffer: Vec::with_capacity(1024),
             last_frame_time: 0.0,
             fps_moving_average: 60.0,
@@ -1235,12 +1265,15 @@ impl State {
 
         state.last_lod_update_pos = state.engine.camera.eye;
         state.update_lods(true);
-        state.update_voxel_texture(); // Initial upload
+        if state.wgpu_state.is_some() {
+            state.update_voxel_texture(); // Initial upload
+        }
 
         state
     }
 
     pub fn update_voxel_texture(&self) {
+        let wgpu_state = match &self.wgpu_state { Some(w) => w, None => return };
         let size = 128;
         let mut data = vec![0u8; size * size * size];
 
@@ -1307,10 +1340,10 @@ impl State {
             depth_or_array_layers: 128,
         };
 
-        self.queue.write_texture(
+        wgpu_state.queue.write_texture(
             wgpu::ImageCopyTexture {
                 aspect: wgpu::TextureAspect::All,
-                texture: &self.voxel_density_texture,
+                texture: &wgpu_state.voxel_density_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
@@ -1325,18 +1358,21 @@ impl State {
     }
 
     pub fn get_diffuse_texture(&self) -> &texture::Texture {
-        &self.diffuse_texture
+        &self.wgpu_state.as_ref().unwrap().diffuse_texture
     }
+
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
         if new_width > 0 && new_height > 0 {
             self.width = new_width;
             self.height = new_height;
-            self.config.width = new_width;
-            self.config.height = new_height;
-            self.surface.configure(&self.device, &self.config);
-            self.depth_texture =
-                texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+            if let Some(ref mut wgpu_state) = self.wgpu_state {
+                wgpu_state.config.width = new_width;
+                wgpu_state.config.height = new_height;
+                wgpu_state.surface.configure(&wgpu_state.device, &wgpu_state.config);
+                wgpu_state.depth_texture =
+                    texture::Texture::create_depth_texture(&wgpu_state.device, &wgpu_state.config, "depth_texture");
+            }
             self.engine.resize(new_width, new_height);
         }
     }
@@ -1509,6 +1545,8 @@ impl State {
 
     pub fn update_lods(&mut self, force: bool) {
         let cam_pos = self.engine.camera.eye;
+        let wgpu_state = match &self.wgpu_state { Some(w) => w, None => { self.voxel_dirty = false; self.last_lod_update_pos = cam_pos; return; } };
+        let cam_pos = self.engine.camera.eye;
 
         let mut to_update = Vec::new();
 
@@ -1558,15 +1596,13 @@ impl State {
                 let (v, i) = mesh_chunk.generate_mesh();
 
                 if !i.is_empty() {
-                    let v_buf = self
-                        .device
+                    let v_buf = wgpu_state.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Voxel Chunk Vertex"),
                             contents: bytemuck::cast_slice(&v),
                             usage: wgpu::BufferUsages::VERTEX,
                         });
-                    let i_buf = self
-                        .device
+                    let i_buf = wgpu_state.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Voxel Chunk Index"),
                             contents: bytemuck::cast_slice(&i),
@@ -1675,12 +1711,42 @@ impl State {
         // NPC animations are handled per-NPC in active_splats update
 
         // Sync WGPU buffers with Engine State
-        self.camera_uniform
+        let wgpu_state = match &mut self.wgpu_state {
+            Some(w) => w,
+            None => {
+                // If in CPU fallback mode, we still want to compute the logical instances culling etc.
+                // Re-generate chunk_data dynamically based on player's chunk
+                let player_pos = self.engine.player_projector.location;
+                let chunk_size = voxel::CHUNK_SIZE as f32;
+                let player_chunk_x = (player_pos.x / chunk_size).floor() as i32;
+                let player_chunk_z = (player_pos.z / chunk_size).floor() as i32;
+
+                self.chunk_data.clear();
+                let grid_count = self.grid_count;
+                let half_grid = grid_count / 2;
+
+                for z in (player_chunk_z - half_grid)..=(player_chunk_z + half_grid) {
+                    for x in (player_chunk_x - half_grid)..=(player_chunk_x + half_grid) {
+                        let x_pos = x as f32 * chunk_size + chunk_size / 2.0;
+                        let z_pos = z as f32 * chunk_size + chunk_size / 2.0;
+                        let half_size = chunk_size / 2.0;
+
+                        self.chunk_data.push(ChunkData {
+                            position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
+                            aabb_min: cgmath::Point3::new(x_pos - half_size, -10.0, z_pos - half_size),
+                            aabb_max: cgmath::Point3::new(x_pos + half_size, 10.0, z_pos + half_size),
+                        });
+                    }
+                }
+                return;
+            }
+        };
+        wgpu_state.camera_uniform
             .update_view_proj(&self.engine.camera, self.engine.time);
-        self.queue.write_buffer(
-            &self.camera_buffer,
+        wgpu_state.queue.write_buffer(
+            &wgpu_state.camera_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[wgpu_state.camera_uniform]),
         );
 
         // Helper to map archetype to ID and Color
@@ -1742,9 +1808,9 @@ impl State {
         });
 
         // Reset all slots
-        self.reality_uniform.proj_pos_fid = [[0.0; 4]; 5];
-        self.reality_uniform.proj_params = [[0.0; 4]; 5];
-        self.reality_uniform.proj_color = [[0.0; 4]; 5];
+        wgpu_state.reality_uniform.proj_pos_fid = [[0.0; 4]; 5];
+        wgpu_state.reality_uniform.proj_params = [[0.0; 4]; 5];
+        wgpu_state.reality_uniform.proj_color = [[0.0; 4]; 5];
 
         // Fill up to 5 slots
         let count = std::cmp::min(5, projectors.len());
@@ -1758,29 +1824,29 @@ impl State {
                 .unwrap_or(&p.reality_signature.active_style.archetype);
             let (id, color) = get_archetype_data(p_archetype);
 
-            self.reality_uniform.proj_pos_fid[i] = [
+            wgpu_state.reality_uniform.proj_pos_fid[i] = [
                 p.location.x,
                 p.location.y,
                 p.location.z,
                 p.reality_signature.fidelity * p.reality_signature.influence_radius,
             ];
-            self.reality_uniform.proj_params[i] = [
+            wgpu_state.reality_uniform.proj_params[i] = [
                 p.reality_signature.active_style.roughness,
                 p.reality_signature.active_style.scale,
                 p.reality_signature.active_style.distortion,
                 id,
             ];
-            self.reality_uniform.proj_color[i] = color;
+            wgpu_state.reality_uniform.proj_color[i] = color;
         }
 
-        self.reality_uniform.global_offset = self.engine.global_offset;
-        self.reality_uniform.global_offset[2] = self.engine.time;
-        self.reality_uniform.global_offset[3] = (self.engine.time % 0.016) / 0.016;
+        wgpu_state.reality_uniform.global_offset = self.engine.global_offset;
+        wgpu_state.reality_uniform.global_offset[2] = self.engine.time;
+        wgpu_state.reality_uniform.global_offset[3] = (self.engine.time % 0.016) / 0.016;
 
         // Collect permanent anomalies (nodes)
-        self.reality_uniform.nodes_pos_fid = [[0.0; 4]; 15];
-        self.reality_uniform.nodes_params = [[0.0; 4]; 15];
-        self.reality_uniform.nodes_color = [[0.0; 4]; 15];
+        wgpu_state.reality_uniform.nodes_pos_fid = [[0.0; 4]; 15];
+        wgpu_state.reality_uniform.nodes_params = [[0.0; 4]; 15];
+        wgpu_state.reality_uniform.nodes_color = [[0.0; 4]; 15];
 
         let mut permanent_anomalies = Vec::new();
         for chunk in self.engine.world_state.chunks.values() {
@@ -1809,7 +1875,7 @@ impl State {
         });
 
         let nodes_count = std::cmp::min(15, permanent_anomalies.len());
-        self.reality_uniform.num_nodes[0] = nodes_count as u32;
+        wgpu_state.reality_uniform.num_nodes[0] = nodes_count as u32;
 
         for i in 0..nodes_count {
             let p = permanent_anomalies[i];
@@ -1821,25 +1887,25 @@ impl State {
                 .unwrap_or(&p.reality_signature.active_style.archetype);
             let (id, color) = get_archetype_data(p_archetype);
 
-            self.reality_uniform.nodes_pos_fid[i] = [
+            wgpu_state.reality_uniform.nodes_pos_fid[i] = [
                 p.location.x,
                 p.location.y,
                 p.location.z,
                 p.reality_signature.fidelity * p.reality_signature.influence_radius,
             ];
-            self.reality_uniform.nodes_params[i] = [
+            wgpu_state.reality_uniform.nodes_params[i] = [
                 p.reality_signature.active_style.roughness,
                 p.reality_signature.active_style.scale,
                 p.reality_signature.active_style.distortion,
                 id,
             ];
-            self.reality_uniform.nodes_color[i] = color;
+            wgpu_state.reality_uniform.nodes_color[i] = color;
         }
 
-        self.queue.write_buffer(
-            &self.reality_buffer,
+        wgpu_state.queue.write_buffer(
+            &wgpu_state.reality_buffer,
             0,
-            bytemuck::cast_slice(&[self.reality_uniform]),
+            bytemuck::cast_slice(&[wgpu_state.reality_uniform]),
         );
 
         let mut entity_instances = Vec::new();
@@ -1877,18 +1943,18 @@ impl State {
 
         self.num_entities = entity_instances.len() as u32;
 
-        if self.num_entities > self.max_entities {
-            self.max_entities = self.num_entities * 2;
+        if self.num_entities > wgpu_state.max_entities {
+            wgpu_state.max_entities = self.num_entities * 2;
             let instances = vec![
                 visual_lambda::LambdaInstance {
                     position: [0.0, 0.0, 0.0],
                     color: [1.0, 1.0, 1.0, 1.0],
                     scale: 0.0,
                 };
-                self.max_entities as usize
+                wgpu_state.max_entities as usize
             ];
-            self.entities_instance_buffer =
-                self.device
+            wgpu_state.entities_instance_buffer =
+                wgpu_state.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Entities Instance Buffer Resized"),
                         contents: bytemuck::cast_slice(&instances),
@@ -1896,8 +1962,8 @@ impl State {
                     });
         }
 
-        self.queue.write_buffer(
-            &self.entities_instance_buffer,
+        wgpu_state.queue.write_buffer(
+            &wgpu_state.entities_instance_buffer,
             0,
             bytemuck::cast_slice(&entity_instances),
         );
@@ -1962,10 +2028,10 @@ impl State {
                 }
             }
 
-            self.num_instances = visible_instances.len() as u32;
-            if self.num_instances > 0 {
-                self.queue.write_buffer(
-                    &self.instance_buffer,
+            wgpu_state.num_instances = visible_instances.len() as u32;
+            if wgpu_state.num_instances > 0 {
+                wgpu_state.queue.write_buffer(
+                    &wgpu_state.instance_buffer,
                     0,
                     bytemuck::cast_slice(&visible_instances),
                 );
@@ -1976,9 +2042,9 @@ impl State {
         }
 
         // Update Lambda System buffers
-        self.lambda_renderer.update_buffers(
-            &self.device,
-            &self.queue,
+        wgpu_state.lambda_renderer.update_buffers(
+            &wgpu_state.device,
+            &wgpu_state.queue,
             &self.engine.lambda_system.nodes,
             &self.engine.lambda_system.edges,
             self.engine.lambda_system.hovered_node,
@@ -1987,15 +2053,21 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let wgpu_state = match &mut self.wgpu_state {
+            Some(w) => w,
+            None => {
+                self.render_cpu();
+                return Ok(());
+            }
+        };
         let view_proj = self.engine.camera.build_view_projection_matrix();
 
-        let output = self.surface.get_current_texture()?;
+        let output = wgpu_state.surface.get_current_texture()?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self
-            .device
+        let mut encoder = wgpu_state.device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
@@ -2225,15 +2297,15 @@ impl State {
 
         if self.num_splats > 0 {
             let next_pot = self.num_splats.next_power_of_two();
-            let target_capacity = std::cmp::max(self.max_splat_capacity, next_pot);
+            let target_capacity = std::cmp::max(wgpu_state.max_splat_capacity, next_pot);
 
             // Reallocate if capacity exceeded
-            if target_capacity > self.max_splat_capacity {
-                self.max_splat_capacity = target_capacity;
+            if target_capacity > wgpu_state.max_splat_capacity {
+                wgpu_state.max_splat_capacity = target_capacity;
 
-                self.splat_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                wgpu_state.splat_buffer = wgpu_state.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Splat Instance Buffer"),
-                    size: (self.max_splat_capacity as usize
+                    size: (wgpu_state.max_splat_capacity as usize
                         * std::mem::size_of::<splat::SplatVertex>())
                         as wgpu::BufferAddress,
                     usage: wgpu::BufferUsages::VERTEX
@@ -2242,18 +2314,18 @@ impl State {
                     mapped_at_creation: false,
                 });
 
-                self.unsorted_splat_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                wgpu_state.unsorted_splat_buffer = wgpu_state.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Unsorted Splat Buffer"),
-                    size: (self.max_splat_capacity as usize
+                    size: (wgpu_state.max_splat_capacity as usize
                         * std::mem::size_of::<splat::SplatVertex>())
                         as wgpu::BufferAddress,
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
 
-                self.sort_entries_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                wgpu_state.sort_entries_buffer = wgpu_state.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Sort Entries Buffer"),
-                    size: (self.max_splat_capacity as usize
+                    size: (wgpu_state.max_splat_capacity as usize
                         * std::mem::size_of::<splat::SortEntry>())
                         as wgpu::BufferAddress,
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
@@ -2261,8 +2333,8 @@ impl State {
                 });
             }
 
-            self.queue.write_buffer(
-                &self.unsorted_splat_buffer,
+            wgpu_state.queue.write_buffer(
+                &wgpu_state.unsorted_splat_buffer,
                 0,
                 bytemuck::cast_slice(&active_splats),
             );
@@ -2272,32 +2344,32 @@ impl State {
                 camera_pos: [cam_pos.x, cam_pos.y, cam_pos.z],
                 num_splats: self.num_splats,
             };
-            self.queue.write_buffer(
-                &self.sort_uniform_buffer,
+            wgpu_state.queue.write_buffer(
+                &wgpu_state.sort_uniform_buffer,
                 0,
                 bytemuck::cast_slice(&[sort_uniforms]),
             );
 
             // Create ephemeral Bind Group 0 (since it relies on dynamically resized buffers)
-            let sort_bind_group_0 = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let sort_bind_group_0 = wgpu_state.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Sort Bind Group 0"),
-                layout: &self.sort_bind_group_layout_0,
+                layout: &wgpu_state.sort_bind_group_layout_0,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: self.unsorted_splat_buffer.as_entire_binding(),
+                        resource: wgpu_state.unsorted_splat_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: self.sort_entries_buffer.as_entire_binding(),
+                        resource: wgpu_state.sort_entries_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: self.sort_uniform_buffer.as_entire_binding(),
+                        resource: wgpu_state.sort_uniform_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: self.splat_buffer.as_entire_binding(),
+                        resource: wgpu_state.splat_buffer.as_entire_binding(),
                     },
                 ],
             });
@@ -2313,9 +2385,9 @@ impl State {
             compute_pass.set_bind_group(0, &sort_bind_group_0, &[]);
             // Set bind group 1 with a default offset of 0. Even if compute_distances doesn't use it,
             // the pipeline layout requires it to be set.
-            compute_pass.set_bind_group(1, &self.sort_bind_group_1, &[0]);
+            compute_pass.set_bind_group(1, &wgpu_state.sort_bind_group_1, &[0]);
 
-            compute_pass.set_pipeline(&self.compute_distances_pipeline);
+            compute_pass.set_pipeline(&wgpu_state.compute_distances_pipeline);
             compute_pass.dispatch_workgroups(workgroups, 1, 1);
 
             // Bitonic Sort
@@ -2329,10 +2401,10 @@ impl State {
             while k <= safe_num_elements {
                 let mut j = k >> 1;
                 while j > 0 {
-                    compute_pass.set_pipeline(&self.sort_step_pipeline);
+                    compute_pass.set_pipeline(&wgpu_state.sort_step_pipeline);
                     compute_pass.set_bind_group(
                         1,
-                        &self.sort_bind_group_1,
+                        &wgpu_state.sort_bind_group_1,
                         &[uniform_offset_index * 256],
                     );
                     compute_pass.dispatch_workgroups(workgroups, 1, 1);
@@ -2344,7 +2416,7 @@ impl State {
             }
 
             // Apply final sorted indices back to splat array
-            compute_pass.set_pipeline(&self.apply_sort_pipeline);
+            compute_pass.set_pipeline(&wgpu_state.apply_sort_pipeline);
             // Group 1 remains bound from the last iteration or the initial set_bind_group call
             compute_pass.dispatch_workgroups(workgroups, 1, 1);
         }
@@ -2377,7 +2449,7 @@ impl State {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture.view,
+                    view: &wgpu_state.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -2391,30 +2463,30 @@ impl State {
 
             // Draw Sky (fullscreen quad)
             if !self.in_xr || self.in_vr { // Don't draw sky in AR
-                render_pass.set_pipeline(&self.sky_pipeline);
-                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_pipeline(&wgpu_state.sky_pipeline);
+                render_pass.set_bind_group(0, &wgpu_state.camera_bind_group, &[]);
                 render_pass.draw(0..3, 0..1);
             }
 
             // Draw Terrain
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
+            render_pass.set_pipeline(&wgpu_state.render_pipeline);
+            render_pass.set_bind_group(0, &wgpu_state.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &wgpu_state.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &wgpu_state.reality_bind_group, &[]);
 
-            if self.num_instances > 0 {
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            if wgpu_state.num_instances > 0 {
+                render_pass.set_vertex_buffer(0, wgpu_state.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, wgpu_state.instance_buffer.slice(..));
                 render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
+                    .set_index_buffer(wgpu_state.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..wgpu_state.num_indices, 0, 0..wgpu_state.num_instances);
             }
 
             // Draw Voxels
-            render_pass.set_pipeline(&self.voxel_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
+            render_pass.set_pipeline(&wgpu_state.voxel_pipeline);
+            render_pass.set_bind_group(0, &wgpu_state.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &wgpu_state.voxel_bind_group, &[]);
+            render_pass.set_bind_group(2, &wgpu_state.reality_bind_group, &[]);
 
             // Optimization: Extract frustum planes once per frame instead of per-chunk
             // Note: frustum_planes already calculated above for splats
@@ -2430,34 +2502,259 @@ impl State {
 
             // Draw Splats
             if self.num_splats > 0 {
-                render_pass.set_pipeline(&self.splat_pipeline);
-                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
-                render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.splat_buffer.slice(..));
+                render_pass.set_pipeline(&wgpu_state.splat_pipeline);
+                render_pass.set_bind_group(0, &wgpu_state.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &wgpu_state.voxel_bind_group, &[]);
+                render_pass.set_bind_group(2, &wgpu_state.reality_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, wgpu_state.splat_buffer.slice(..));
                 render_pass.draw(0..6, 0..self.num_splats);
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {
-                self.lambda_renderer.render(
+                wgpu_state.lambda_renderer.render(
                     &mut render_pass,
-                    &self.camera_bind_group,
+                    &wgpu_state.camera_bind_group,
                     self.engine.lambda_system.nodes.len() as u32,
                 );
             }
 
-            self.lambda_renderer.render_entities(
+            wgpu_state.lambda_renderer.render_entities(
                 &mut render_pass,
-                &self.camera_bind_group,
-                &self.entities_instance_buffer,
+                &wgpu_state.camera_bind_group,
+                &wgpu_state.entities_instance_buffer,
                 self.num_entities,
             );
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        wgpu_state.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
+    }
+
+    fn project_point(&self, p: cgmath::Point3<f32>, view_proj: &cgmath::Matrix4<f32>) -> Option<(f32, f32)> {
+        let pos = cgmath::Vector4::new(p.x, p.y, p.z, 1.0);
+        let clip_space_pos = view_proj * pos;
+
+        if clip_space_pos.w > 0.0 {
+            let ndc_x = clip_space_pos.x / clip_space_pos.w;
+            let ndc_y = clip_space_pos.y / clip_space_pos.w;
+            let ndc_z = clip_space_pos.z / clip_space_pos.w;
+
+            // Check if within clip depth limits (WGPU uses 0..1)
+            if ndc_z >= 0.0 && ndc_z <= 1.0 {
+                // Map to canvas pixel space
+                let x = (ndc_x + 1.0) * 0.5 * self.width as f32;
+                let y = (1.0 - ndc_y) * 0.5 * self.height as f32; // Invert Y for canvas
+                return Some((x, y));
+            }
+        }
+        None
+    }
+
+    pub fn render_cpu(&mut self) {
+        let canvas = &self.canvas;
+        let context = match canvas.get_context("2d") {
+            Ok(Some(ctx)) => match ctx.dyn_into::<web_sys::CanvasRenderingContext2d>() {
+                Ok(ctx2d) => ctx2d,
+                Err(_) => return,
+            },
+            _ => return,
+        };
+
+        // 1. Clear background / draw sky gradient
+        context.clear_rect(0.0, 0.0, self.width as f64, self.height as f64);
+
+        let grad = context.create_linear_gradient(0.0, 0.0, 0.0, self.height as f64);
+        grad.add_color_stop(0.0, "#0a0a20").ok(); // Dark space
+        grad.add_color_stop(0.5, "#1a1230").ok(); // Horizon glow
+        grad.add_color_stop(1.0, "#080612").ok(); // Ground fog
+        context.set_fill_style(&grad);
+        context.fill_rect(0.0, 0.0, self.width as f64, self.height as f64);
+
+        let view_proj = self.engine.camera.build_view_projection_matrix();
+
+        // 2. Draw ground grid / wireframe chunks
+        context.set_line_width(1.0);
+        for chunk in self.voxel_world.chunks.values() {
+            let size = voxel::CHUNK_SIZE as f32;
+            let min_x = chunk.key.x as f32 * size;
+            let min_y = chunk.key.y as f32 * size;
+            let min_z = chunk.key.z as f32 * size;
+            let max_x = min_x + size;
+            let max_y = min_y + size;
+            let max_z = min_z + size;
+
+            // Draw bounding box wireframe
+            let corners = [
+                cgmath::Point3::new(min_x, min_y, min_z),
+                cgmath::Point3::new(max_x, min_y, min_z),
+                cgmath::Point3::new(max_x, max_y, min_z),
+                cgmath::Point3::new(min_x, max_y, min_z),
+                cgmath::Point3::new(min_x, min_y, max_z),
+                cgmath::Point3::new(max_x, min_y, max_z),
+                cgmath::Point3::new(max_x, max_y, max_z),
+                cgmath::Point3::new(min_x, max_y, max_z),
+            ];
+
+            let proj: Vec<Option<(f32, f32)>> = corners.iter().map(|&c| self.project_point(c, &view_proj)).collect();
+
+            // Connect edges
+            let edges = [
+                (0, 1), (1, 2), (2, 3), (3, 0), // back
+                (4, 5), (5, 6), (6, 7), (7, 4), // front
+                (0, 4), (1, 5), (2, 6), (3, 7), // connections
+            ];
+
+            context.set_stroke_style(&wasm_bindgen::JsValue::from_str("rgba(0, 240, 255, 0.15)"));
+            for &(u, v) in &edges {
+                if let (Some(p1), Some(p2)) = (proj[u], proj[v]) {
+                    context.begin_path();
+                    context.move_to(p1.0 as f64, p1.1 as f64);
+                    context.line_to(p2.0 as f64, p2.1 as f64);
+                    context.stroke();
+                }
+            }
+        }
+
+        // 3. Draw Voxels / Splats (Point cloud style)
+        for chunk in self.voxel_world.chunks.values() {
+            for splat in &chunk.splats {
+                let pos = cgmath::Point3::new(splat.position[0], splat.position[1], splat.position[2]);
+                if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
+                    let r = (splat.color[0] * 255.0) as u8;
+                    let g = (splat.color[1] * 255.0) as u8;
+                    let b = (splat.color[2] * 255.0) as u8;
+                    let a = splat.color[3];
+                    let fill_style = format!("rgba({}, {}, {}, {})", r, g, b, a);
+
+                    context.set_fill_style(&wasm_bindgen::JsValue::from_str(&fill_style));
+                    context.begin_path();
+                    context.arc(sx as f64, sy as f64, 2.0, 0.0, std::f64::consts::TAU).ok();
+                    context.fill();
+                }
+            }
+        }
+
+        // 4. Draw Spell Effects (Particles)
+        for effect in &self.engine.spell_effects {
+            let pos = effect.position;
+            if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
+                let r = (effect.color[0] * 255.0) as u8;
+                let g = (effect.color[1] * 255.0) as u8;
+                let b = (effect.color[2] * 255.0) as u8;
+                let a = effect.color[3];
+                let fill_style = format!("rgba({}, {}, {}, {})", r, g, b, a);
+
+                context.set_fill_style(&wasm_bindgen::JsValue::from_str(&fill_style));
+                context.begin_path();
+                context.arc(sx as f64, sy as f64, 6.0, 0.0, std::f64::consts::TAU).ok();
+                context.fill();
+            }
+        }
+
+        // 5. Draw NPCs
+        for npc in &self.engine.world_state.npcs {
+            let pos = npc.location;
+            if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
+                context.set_fill_style(&wasm_bindgen::JsValue::from_str("rgba(255, 42, 109, 0.85)"));
+                context.begin_path();
+                context.arc(sx as f64, sy as f64, 10.0, 0.0, std::f64::consts::TAU).ok();
+                context.fill();
+
+                context.set_stroke_style(&wasm_bindgen::JsValue::from_str("#ffffff"));
+                context.set_line_width(1.5);
+                context.stroke();
+
+                context.set_font("10px monospace");
+                context.set_fill_style(&wasm_bindgen::JsValue::from_str("#ffffff"));
+                let name = format!("{:?}", npc.reality_signature.active_style.archetype);
+                context.fill_text(&name, sx as f64 - 15.0, sy as f64 - 15.0).ok();
+            }
+        }
+
+        // 6. Draw 3D Lambda Network
+        for (node_idx, node) in self.engine.lambda_system.nodes.iter().enumerate() {
+            let pos = node.position;
+            if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
+                let col_str = format!("rgba({}, {}, {}, 0.9)", (node.color[0] * 255.0) as u8, (node.color[1] * 255.0) as u8, (node.color[2] * 255.0) as u8);
+                context.set_fill_style(&wasm_bindgen::JsValue::from_str(&col_str));
+                context.begin_path();
+                context.arc(sx as f64, sy as f64, 12.0, 0.0, std::f64::consts::TAU).ok();
+                context.fill();
+
+                let is_hovered = self.engine.lambda_system.hovered_node == Some(node_idx);
+                if is_hovered {
+                    context.set_stroke_style(&wasm_bindgen::JsValue::from_str("#ffffff"));
+                    context.set_line_width(2.0);
+                    context.stroke();
+                }
+
+                context.set_font("bold 11px Courier New");
+                context.set_fill_style(&wasm_bindgen::JsValue::from_str("#ffffff"));
+
+                let text = match &node.node_type {
+                    visual_lambda::NodeType::Var(s) => s.clone(),
+                    visual_lambda::NodeType::Abs(s) => format!("λ{}", s),
+                    visual_lambda::NodeType::Prim(p) => format!("{:?}", p).to_uppercase(),
+                    visual_lambda::NodeType::Port => {
+                        if let crate::lambda::Term::Var(name) = &*node.term {
+                            name.clone()
+                        } else {
+                            "•".to_string()
+                        }
+                    }
+                    visual_lambda::NodeType::App => "@".to_string(),
+                };
+
+                context.fill_text(&text, sx as f64 - 10.0, sy as f64 + 4.0).ok();
+            }
+        }
+
+        for edge in &self.engine.lambda_system.edges {
+            if let (Some(n1), Some(n2)) = (self.engine.lambda_system.nodes.get(edge.0), self.engine.lambda_system.nodes.get(edge.1)) {
+                let p1 = n1.position;
+                let p2 = n2.position;
+                if let (Some(proj1), Some(proj2)) = (self.project_point(p1, &view_proj), self.project_point(p2, &view_proj)) {
+                    context.set_stroke_style(&wasm_bindgen::JsValue::from_str("rgba(0, 255, 120, 0.5)"));
+                    context.set_line_width(2.0);
+                    context.begin_path();
+                    context.move_to(proj1.0 as f64, proj1.1 as f64);
+                    context.line_to(proj2.0 as f64, proj2.1 as f64);
+                    context.stroke();
+                }
+            }
+        }
+
+        // 7. Render Debug HUD overlay
+        context.set_fill_style(&wasm_bindgen::JsValue::from_str("rgba(0, 0, 0, 0.65)"));
+        context.fill_rect(10.0, 10.0, 310.0, 150.0);
+        context.set_stroke_style(&wasm_bindgen::JsValue::from_str("#00f0ff"));
+        context.set_line_width(1.0);
+        context.stroke_rect(10.0, 10.0, 310.0, 150.0);
+
+        context.set_font("bold 12px Courier New");
+        context.set_fill_style(&wasm_bindgen::JsValue::from_str("#00f0ff"));
+        context.fill_text("SYSTEM STATUS: CPU FALLBACK ACTIVE", 20.0, 30.0).ok();
+
+        context.set_font("11px Courier New");
+        context.set_fill_style(&wasm_bindgen::JsValue::from_str("#cccccc"));
+
+        let cam = &self.engine.camera;
+        context.fill_text(&format!("CAM EYE   : [{:.2}, {:.2}, {:.2}]", cam.eye.x, cam.eye.y, cam.eye.z), 20.0, 50.0).ok();
+        context.fill_text(&format!("CAM YAW/P : [{:.2}, {:.2}]", cam.yaw, cam.pitch), 20.0, 70.0).ok();
+
+        let chunk_count = self.voxel_world.chunks.len();
+        let npc_count = self.engine.world_state.npcs.len();
+        context.fill_text(&format!("CHUNKS/NPC: {} / {}", chunk_count, npc_count), 20.0, 90.0).ok();
+
+        let archetypes_str = format!("{:?}", self.engine.player_projector.reality_signature.active_style.archetype);
+        context.fill_text(&format!("ACTIVE STY: {}", archetypes_str), 20.0, 110.0).ok();
+
+        context.fill_text(&format!("FPS/FRAMES: {:.1} / {}", self.fps_moving_average, self.frame_count), 20.0, 130.0).ok();
+
+        let net_status = if self.engine.world_state.chunks.is_empty() { "UPLINK..." } else { "SYNCHRONIZED" };
+        context.fill_text(&format!("NETWORK   : {}", net_status), 20.0, 150.0).ok();
     }
 }
 

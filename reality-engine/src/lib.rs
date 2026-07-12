@@ -2794,8 +2794,11 @@ pub struct GameClient {
 #[wasm_bindgen]
 impl GameClient {
     pub fn process_inscription(&self, text: String) {
-        let mut state = self.state.borrow_mut();
-        state.engine.process_inscription(&text);
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.process_inscription(&text);
+        } else {
+            log::warn!("process_inscription skipped: State already borrowed.");
+        }
     }
 
     pub fn get_node_labels_flat(&self) -> js_sys::Uint8Array {
@@ -2813,22 +2816,28 @@ impl GameClient {
     }
 
     pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {
-        let mut state = self.state.borrow_mut();
-        if let Some(ref mut anomaly) = state.engine.active_anomaly {
-            anomaly.reality_signature.active_style.roughness = roughness;
-            anomaly.reality_signature.active_style.scale = scale;
-            anomaly.reality_signature.active_style.distortion = distortion;
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            if let Some(ref mut anomaly) = state.engine.active_anomaly {
+                anomaly.reality_signature.active_style.roughness = roughness;
+                anomaly.reality_signature.active_style.scale = scale;
+                anomaly.reality_signature.active_style.distortion = distortion;
+            }
+            self.save_state(&state);
+        } else {
+            log::warn!("set_anomaly_params skipped: State already borrowed.");
         }
-        self.save_state(&state);
     }
 
     pub fn set_world_origin(&self, lat: f32, lon: f32) {
-        let mut state = self.state.borrow_mut();
-        let scale = 111000.0;
-        let x = lon * scale * 0.1;
-        let z = lat * scale * 0.1;
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let scale = 111000.0;
+            let x = lon * scale * 0.1;
+            let z = lat * scale * 0.1;
 
-        state.engine.set_global_offset(x, z);
+            state.engine.set_global_offset(x, z);
+        } else {
+            log::warn!("set_world_origin skipped: State already borrowed.");
+        }
     }
 
     pub fn set_anomaly_archetype(&self, archetype_id: i32) {
@@ -3102,9 +3111,14 @@ impl GameClient {
         }
 
         let slot_name_str: String = slot_name.into();
-        *self.current_save_slot.borrow_mut() = slot_name_str;
-        let state = self.state.borrow();
-        self.save_state(&state);
+        if let Ok(mut current) = self.current_save_slot.try_borrow_mut() {
+            *current = slot_name_str;
+        }
+        if let Ok(state) = self.state.try_borrow() {
+            self.save_state(&state);
+        } else {
+            log::warn!("save_game skipped: State already borrowed.");
+        }
     }
 
     pub fn load_game(&self, slot_name: js_sys::JsString) {
@@ -3116,7 +3130,9 @@ impl GameClient {
         }
 
         let slot_name_str: String = slot_name.into();
-        *self.current_save_slot.borrow_mut() = slot_name_str.clone();
+        if let Ok(mut current) = self.current_save_slot.try_borrow_mut() {
+            *current = slot_name_str.clone();
+        }
         let key = persistence::get_save_key(&slot_name_str);
         let state_rc = self.state.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -3126,56 +3142,67 @@ impl GameClient {
             }
 
             if let Some(loaded_state) = loaded_state {
-                let mut state = state_rc.borrow_mut();
-
-            state.engine.world_state = loaded_state.world;
-            state.engine.player_projector = loaded_state.player.projector;
-            state.engine.camera.eye = state.engine.player_projector.location;
-
-            use cgmath::Point3;
-            let mut anomaly_sig = reality_types::RealitySignature::default();
-            anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
-            anomaly_sig.active_style.roughness = 0.8;
-            anomaly_sig.active_style.scale = 5.0;
-            anomaly_sig.active_style.distortion = 0.8;
-            anomaly_sig.fidelity = 100.0;
-            state.engine.active_anomaly = Some(projector::RealityProjector::new(
-                Point3::new(0.0, 0.0, 0.0),
-                anomaly_sig,
-            ));
-
-            state.engine.lambda_system = visual_lambda::LambdaSystem::new();
-            state.engine.input_config = loaded_state.input_config;
-
-            // Restore Voxel World
-            if let Some(voxel_world) = loaded_state.voxel_world {
-                state.voxel_world = voxel_world;
-                state.voxel_dirty = true;
-                state.update_voxel_texture();
-                state.update_lods(true);
-            }
-
-            // Restore Lambda State
-            let source = if loaded_state.lambda_source.is_empty() {
-                "FIRE".to_string()
-            } else {
-                loaded_state.lambda_source
-            };
-            if let Some(term) = lambda::parse(&source) {
-                state.engine.lambda_system.set_term(term);
-                if !loaded_state.lambda_layout.is_empty() {
-                    state
-                        .engine
-                        .lambda_system
-                        .apply_layout(loaded_state.lambda_layout);
+                let mut borrowed_state = None;
+                for _ in 0..10 {
+                    if let Ok(state) = state_rc.try_borrow_mut() {
+                        borrowed_state = Some(state);
+                        break;
+                    }
+                    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED)).await.ok();
                 }
-            } else {
-                // Fallback
-                let term = lambda::parse("FIRE").unwrap();
-                state.engine.lambda_system.set_term(term);
-            }
 
-                log::info!("Game Loaded from slot: {}", slot_name_str);
+                if let Some(mut state) = borrowed_state {
+                    state.engine.world_state = loaded_state.world;
+                    state.engine.player_projector = loaded_state.player.projector;
+                    state.engine.camera.eye = state.engine.player_projector.location;
+
+                    use cgmath::Point3;
+                    let mut anomaly_sig = reality_types::RealitySignature::default();
+                    anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+                    anomaly_sig.active_style.roughness = 0.8;
+                    anomaly_sig.active_style.scale = 5.0;
+                    anomaly_sig.active_style.distortion = 0.8;
+                    anomaly_sig.fidelity = 100.0;
+                    state.engine.active_anomaly = Some(projector::RealityProjector::new(
+                        Point3::new(0.0, 0.0, 0.0),
+                        anomaly_sig,
+                    ));
+
+                    state.engine.lambda_system = visual_lambda::LambdaSystem::new();
+                    state.engine.input_config = loaded_state.input_config;
+
+                    // Restore Voxel World
+                    if let Some(voxel_world) = loaded_state.voxel_world {
+                        state.voxel_world = voxel_world;
+                        state.voxel_dirty = true;
+                        state.update_voxel_texture();
+                        state.update_lods(true);
+                    }
+
+                    // Restore Lambda State
+                    let source = if loaded_state.lambda_source.is_empty() {
+                        "FIRE".to_string()
+                    } else {
+                        loaded_state.lambda_source
+                    };
+                    if let Some(term) = lambda::parse(&source) {
+                        state.engine.lambda_system.set_term(term);
+                        if !loaded_state.lambda_layout.is_empty() {
+                            state
+                                .engine
+                                .lambda_system
+                                .apply_layout(loaded_state.lambda_layout);
+                        }
+                    } else {
+                        // Fallback
+                        let term = lambda::parse("FIRE").unwrap();
+                        state.engine.lambda_system.set_term(term);
+                    }
+
+                    log::info!("Game Loaded from slot: {}", slot_name_str);
+                } else {
+                    log::warn!("load_game failed: State already borrowed.");
+                }
             } else {
                 log::warn!("Failed to load save slot: {}", slot_name_str);
             }
@@ -3746,13 +3773,14 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let code = event.code();
 
         // Check for Inscribe Key
-        let is_inscribe = {
-            let state = state_keydown.borrow();
+        let is_inscribe = if let Ok(state) = state_keydown.try_borrow() {
             state
                 .engine
                 .input_config
                 .get_binding(input::Action::Inscribe)
                 == Some(&code)
+        } else {
+            false
         };
 
         if is_inscribe {
@@ -3778,7 +3806,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             event.prevent_default();
         }
 
-        state_keydown.borrow_mut().process_keyboard(&code);
+        if let Ok(mut state) = state_keydown.try_borrow_mut() {
+            state.process_keyboard(&code);
+        }
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -3788,7 +3818,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     let state_keyup = state.clone();
     let keyup_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
-        state_keyup.borrow_mut().process_keyup(&event.code());
+        if let Ok(mut state) = state_keyup.try_borrow_mut() {
+            state.process_keyup(&event.code());
+        }
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -3813,7 +3845,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let ndc_y = -((y / height) * 2.0 - 1.0);
 
         // Pass a middle click logic or special action
-        state_mouse.borrow_mut().process_click(ndc_x, ndc_y, true);
+        if let Ok(mut state) = state_mouse.try_borrow_mut() {
+            state.process_click(ndc_x, ndc_y, true);
+        }
     }) as Box<dyn FnMut(_)>);
 
     canvas
@@ -3859,14 +3893,15 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         };
 
         let button = event.button();
-        state_down
-            .borrow_mut()
-            .process_mouse_down(ndc_x, ndc_y, button);
+        if let Ok(mut state) = state_down.try_borrow_mut() {
+            state.process_mouse_down(ndc_x, ndc_y, button);
+        }
 
-        let mut ms = mouse_state_down.borrow_mut();
-        ms.down_pos = Some((ndc_x, ndc_y));
-        ms.down_time = js_sys::Date::now();
-        ms.button = button;
+        if let Ok(mut ms) = mouse_state_down.try_borrow_mut() {
+            ms.down_pos = Some((ndc_x, ndc_y));
+            ms.down_time = js_sys::Date::now();
+            ms.button = button;
+        }
     }) as Box<dyn FnMut(_)>);
 
     canvas
@@ -3880,23 +3915,24 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let document = web_sys::window().unwrap().document().unwrap();
         let locked = document.pointer_lock_element().is_some();
 
-        if locked {
-            state_move
-                .borrow_mut()
-                .engine
-                .process_mouse_look(event.movement_x() as f32, event.movement_y() as f32);
-            // Also update drag with center ray to allow carrying items
-            state_move.borrow_mut().process_mouse_move(0.0, 0.0);
-        } else {
-            let rect = canvas_move.get_bounding_client_rect();
-            let x = event.client_x() as f32 - rect.left() as f32;
-            let y = event.client_y() as f32 - rect.top() as f32;
-            let width = rect.width() as f32;
-            let height = rect.height() as f32;
-            let ndc_x = (x / width) * 2.0 - 1.0;
-            let ndc_y = -((y / height) * 2.0 - 1.0);
+        if let Ok(mut state) = state_move.try_borrow_mut() {
+            if locked {
+                state
+                    .engine
+                    .process_mouse_look(event.movement_x() as f32, event.movement_y() as f32);
+                // Also update drag with center ray to allow carrying items
+                state.process_mouse_move(0.0, 0.0);
+            } else {
+                let rect = canvas_move.get_bounding_client_rect();
+                let x = event.client_x() as f32 - rect.left() as f32;
+                let y = event.client_y() as f32 - rect.top() as f32;
+                let width = rect.width() as f32;
+                let height = rect.height() as f32;
+                let ndc_x = (x / width) * 2.0 - 1.0;
+                let ndc_y = -((y / height) * 2.0 - 1.0);
 
-            state_move.borrow_mut().process_mouse_move(ndc_x, ndc_y);
+                state.process_mouse_move(ndc_x, ndc_y);
+            }
         }
     }) as Box<dyn FnMut(_)>);
 
@@ -3917,10 +3953,11 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let ndc_x = (x / width) * 2.0 - 1.0;
         let ndc_y = -((y / height) * 2.0 - 1.0);
 
-        state_dblclick
-            .borrow_mut()
-            .engine
-            .process_double_click(ndc_x, ndc_y);
+        if let Ok(mut state) = state_dblclick.try_borrow_mut() {
+            state
+                .engine
+                .process_double_click(ndc_x, ndc_y);
+        }
     }) as Box<dyn FnMut(_)>);
 
     canvas
@@ -3932,7 +3969,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_wheel = state.clone();
     let wheel_closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
         let delta_y = event.delta_y() as f32;
-        state_wheel.borrow_mut().engine.process_mouse_wheel(delta_y);
+        if let Ok(mut state) = state_wheel.try_borrow_mut() {
+            state.engine.process_mouse_wheel(delta_y);
+        }
     }) as Box<dyn FnMut(_)>);
 
     canvas
@@ -3952,41 +3991,41 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let ndc_x = (x / width) * 2.0 - 1.0;
         let ndc_y = -((y / height) * 2.0 - 1.0);
 
-        state_up.borrow_mut().process_mouse_up();
+        if let Ok(mut state) = state_up.try_borrow_mut() {
+            state.process_mouse_up();
 
-        // Check for click
-        let mut ms = mouse_state_up.borrow_mut();
-        if let Some((sx, sy)) = ms.down_pos {
-            let dx = ndc_x - sx;
-            let dy = ndc_y - sy;
-            let dist_sq = dx * dx + dy * dy;
-            let elapsed = js_sys::Date::now() - ms.down_time;
-            let button = ms.button;
+            // Check for click
+            if let Ok(mut ms) = mouse_state_up.try_borrow_mut() {
+                if let Some((sx, sy)) = ms.down_pos {
+                    let dx = ndc_x - sx;
+                    let dy = ndc_y - sy;
+                    let dist_sq = dx * dx + dy * dy;
+                    let elapsed = js_sys::Date::now() - ms.down_time;
+                    let button = ms.button;
 
-            if button == 2 {
-                // Right click behavior
-                if elapsed < 300.0 {
-                    state_up
-                        .borrow_mut()
-                        .engine
-                        .process_right_click(ndc_x, ndc_y);
-                } else {
-                    state_up
-                        .borrow_mut()
-                        .engine
-                        .process_right_hold(ndc_x, ndc_y);
+                    if button == 2 {
+                        // Right click behavior
+                        if elapsed < 300.0 {
+                            state
+                                .engine
+                                .process_right_click(ndc_x, ndc_y);
+                        } else {
+                            state
+                                .engine
+                                .process_right_hold(ndc_x, ndc_y);
+                        }
+                    } else if button == 0 {
+                        // Left click behavior (will update in next step)
+                        // dist < 0.05 is equivalent to dist_sq < 0.0025
+                        if dist_sq < 0.0025 && elapsed < 300.0 {
+                            state
+                                .process_click(ndc_x, ndc_y, event.shift_key());
+                        }
+                    }
                 }
-            } else if button == 0 {
-                // Left click behavior (will update in next step)
-                // dist < 0.05 is equivalent to dist_sq < 0.0025
-                if dist_sq < 0.0025 && elapsed < 300.0 {
-                    state_up
-                        .borrow_mut()
-                        .process_click(ndc_x, ndc_y, event.shift_key());
-                }
+                ms.down_pos = None;
             }
         }
-        ms.down_pos = None;
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -4003,8 +4042,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             let yaw = -alpha.to_radians() as f32;
             let pitch = (beta - 90.0).to_radians() as f32;
 
-            let mut state = state_orient.borrow_mut();
-            state.engine.camera.set_rotation(yaw, pitch);
+            if let Ok(mut state) = state_orient.try_borrow_mut() {
+                state.engine.camera.set_rotation(yaw, pitch);
+            }
         }
     }) as Box<dyn FnMut(_)>);
 
@@ -4237,9 +4277,12 @@ impl GameClient {
     }
 
     pub fn toggle_3d_inventory(&self) -> bool {
-        let mut state = self.state.borrow_mut();
-        state.engine.show_3d_inventory = !state.engine.show_3d_inventory;
-        state.engine.show_3d_inventory
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.show_3d_inventory = !state.engine.show_3d_inventory;
+            state.engine.show_3d_inventory
+        } else {
+            false
+        }
     }
 
     pub fn is_minimap_visible(&self) -> bool {
@@ -4268,27 +4311,31 @@ impl GameClient {
     }
 
     pub fn world_to_screen(&self, x: f32, y: f32, z: f32) -> js_sys::Float32Array {
-        let mut state_ref = self.state.borrow_mut();
-        let state = &mut *state_ref;
+        if let Ok(mut state_ref) = self.state.try_borrow_mut() {
+            let state = &mut *state_ref;
 
-        let view_proj = state.engine.camera.build_view_projection_matrix();
-        let pos = cgmath::Vector4::new(x, y, z, 1.0);
-        let mut clip_space_pos = view_proj * pos;
+            let view_proj = state.engine.camera.build_view_projection_matrix();
+            let pos = cgmath::Vector4::new(x, y, z, 1.0);
+            let mut clip_space_pos = view_proj * pos;
 
-        let mut result = [0.0, 0.0, -1.0]; // -1.0 z means offscreen
+            let mut result = [0.0, 0.0, -1.0]; // -1.0 z means offscreen
 
-        if clip_space_pos.w > 0.0 {
-            clip_space_pos.x /= clip_space_pos.w;
-            clip_space_pos.y /= clip_space_pos.w;
-            clip_space_pos.z /= clip_space_pos.w;
+            if clip_space_pos.w > 0.0 {
+                clip_space_pos.x /= clip_space_pos.w;
+                clip_space_pos.y /= clip_space_pos.w;
+                clip_space_pos.z /= clip_space_pos.w;
 
-            // Map to 0-1 range
-            result[0] = (clip_space_pos.x + 1.0) * 0.5;
-            result[1] = (1.0 - clip_space_pos.y) * 0.5; // Flip Y
-            result[2] = clip_space_pos.z;
+                // Map to 0-1 range
+                result[0] = (clip_space_pos.x + 1.0) * 0.5;
+                result[1] = (1.0 - clip_space_pos.y) * 0.5; // Flip Y
+                result[2] = clip_space_pos.z;
+            }
+
+            js_sys::Float32Array::from(&result[..])
+        } else {
+            let result = [0.0, 0.0, -1.0];
+            js_sys::Float32Array::from(&result[..])
         }
-
-        js_sys::Float32Array::from(&result[..])
     }
 
     pub fn get_npc_state_json(&self, uuid: js_sys::JsString) -> String {

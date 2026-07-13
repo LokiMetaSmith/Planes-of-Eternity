@@ -1473,7 +1473,30 @@ impl VoxelWorld {
                             Some(crate::reality_types::RealityArchetype::Horror)
                         };
 
-                        chunk.generate(archetype);
+
+                        if let Some(crate::reality_types::RealityArchetype::Fantasy) = archetype {
+                            // Flat layout default
+                            for z in 0..CHUNK_SIZE {
+                                for y in 0..CHUNK_SIZE {
+                                    for x in 0..CHUNK_SIZE {
+                                        let wx = chunk.key.x * CHUNK_SIZE as i32 + x as i32;
+                                        let wy = chunk.key.y * CHUNK_SIZE as i32 + y as i32;
+                                        let wz = chunk.key.z * CHUNK_SIZE as i32 + z as i32;
+                                        let mut voxel = Voxel::default();
+                                        if wy == -1 {
+                                            voxel.id = 5; // Grass
+                                        }
+                                        let idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+                                        chunk.data[idx] = voxel;
+                                    }
+                                }
+                            }
+                            // Request async generation
+                            self.genie.request_terrain(key.x, key.y, key.z, CHUNK_SIZE);
+                        } else {
+                            chunk.generate(archetype);
+                        }
+
                         generated_any = true;
                     }
                 }
@@ -1689,7 +1712,30 @@ impl VoxelWorld {
                         Some(crate::reality_types::RealityArchetype::Horror)
                     };
 
-                    chunk.generate(archetype);
+
+                        if let Some(crate::reality_types::RealityArchetype::Fantasy) = archetype {
+                            // Flat layout default
+                            for z in 0..CHUNK_SIZE {
+                                for y in 0..CHUNK_SIZE {
+                                    for x in 0..CHUNK_SIZE {
+                                        let wx = chunk.key.x * CHUNK_SIZE as i32 + x as i32;
+                                        let wy = chunk.key.y * CHUNK_SIZE as i32 + y as i32;
+                                        let wz = chunk.key.z * CHUNK_SIZE as i32 + z as i32;
+                                        let mut voxel = Voxel::default();
+                                        if wy == -1 {
+                                            voxel.id = 5; // Grass
+                                        }
+                                        let idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+                                        chunk.data[idx] = voxel;
+                                    }
+                                }
+                            }
+                            // Request async generation
+                            self.genie.request_terrain(key.x, key.y, key.z, CHUNK_SIZE);
+                        } else {
+                            chunk.generate(archetype);
+                        }
+
                 }
             }
         }

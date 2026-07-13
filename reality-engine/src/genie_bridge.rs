@@ -2,10 +2,27 @@ use crate::splat::SplatVertex;
 use crate::voxel::{Chunk, Voxel, CHUNK_SIZE};
 use std::sync::{Arc, Mutex};
 
+use std::sync::mpsc;
+use crate::voxel::ChunkKey;
+
+pub struct TerrainRequest {
+    pub chunk_key: ChunkKey,
+    pub size: usize,
+}
+
+pub struct TerrainResponse {
+    pub chunk_key: ChunkKey,
+    pub heightmap: Vec<f32>,
+}
+
+
 #[derive(Clone)]
 pub struct GenieBridge {
     pub pending_splats: Arc<Mutex<Vec<Vec<SplatVertex>>>>,
     pub pending_voxels: Arc<Mutex<Vec<Chunk>>>,
+    pub terrain_sender: mpsc::Sender<TerrainRequest>,
+    pub terrain_res_tx: mpsc::Sender<TerrainResponse>,
+    pub terrain_receiver: Arc<Mutex<mpsc::Receiver<TerrainResponse>>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -22,10 +39,60 @@ impl Default for GenieBridge {
 
 impl GenieBridge {
     pub fn new() -> Self {
+        let (req_tx, req_rx) = mpsc::channel::<TerrainRequest>();
+        let (res_tx, res_rx) = mpsc::channel::<TerrainResponse>();
+        let res_tx_clone = res_tx.clone();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            std::thread::spawn(move || {
+                let generator = reality_genie::continuous_diffusion::ContinuousDiffusionGenerator::new();
+                while let Ok(req) = req_rx.recv() {
+                    let heightmap = generator.generate_heightmap(req.chunk_key.x, req.chunk_key.z, req.size);
+                    let _ = res_tx.send(TerrainResponse {
+                        chunk_key: req.chunk_key,
+                        heightmap,
+                    });
+                }
+            });
+        }
+
         Self {
             pending_splats: Arc::new(Mutex::new(Vec::new())),
             pending_voxels: Arc::new(Mutex::new(Vec::new())),
+            terrain_sender: req_tx,
+            terrain_res_tx: res_tx_clone,
+            terrain_receiver: Arc::new(Mutex::new(res_rx)),
         }
+    }
+
+    pub fn request_terrain(&self, chunk_x: i32, chunk_y: i32, chunk_z: i32, size: usize) {
+        let key = ChunkKey { x: chunk_x, y: chunk_y, z: chunk_z };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = self.terrain_sender.send(TerrainRequest { chunk_key: key, size });
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Simple immediate execution fallback for WASM since std::thread is not supported
+            let generator = reality_genie::continuous_diffusion::ContinuousDiffusionGenerator::new();
+            let heightmap = generator.generate_heightmap(chunk_x, chunk_z, size);
+            let _ = self.terrain_res_tx.send(TerrainResponse {
+                chunk_key: key,
+                heightmap,
+            });
+        }
+    }
+
+    pub fn poll_terrain(&self) -> Option<TerrainResponse> {
+        if let Ok(rx) = self.terrain_receiver.lock() {
+            if let Ok(res) = rx.try_recv() {
+                return Some(res);
+            }
+        }
+        None
     }
 
     pub fn dream_chunk(&self, chunk: &mut Chunk) {

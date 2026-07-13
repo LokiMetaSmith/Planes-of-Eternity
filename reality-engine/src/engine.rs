@@ -388,6 +388,43 @@ impl Engine {
             if vw.ensure_chunks_around(self.camera.eye, 3) {
                 _chunks_generated = true;
             }
+
+            while let Some(res) = vw.genie.poll_terrain() {
+                if let Some(chunk) = vw.chunks.get_mut(&res.chunk_key) {
+                    let wx_base = chunk.key.x * crate::voxel::CHUNK_SIZE as i32;
+                    let wy_base = chunk.key.y * crate::voxel::CHUNK_SIZE as i32;
+                    let wz_base = chunk.key.z * crate::voxel::CHUNK_SIZE as i32;
+
+                    for z in 0..crate::voxel::CHUNK_SIZE {
+                        for y in 0..crate::voxel::CHUNK_SIZE {
+                            for x in 0..crate::voxel::CHUNK_SIZE {
+                                let wy = wy_base + y as i32;
+                                let terrain_height = res.heightmap[x + z * crate::voxel::CHUNK_SIZE] as i32;
+
+                                let mut voxel = crate::voxel::Voxel::default();
+                                if wy <= terrain_height {
+                                    if wy == terrain_height {
+                                        voxel.id = 5; // Grass
+                                    } else if wy > terrain_height - 3 {
+                                        voxel.id = 8; // Dirt
+                                    } else {
+                                        voxel.id = 1; // Stone
+                                    }
+                                }
+
+                                // Water
+                                if wy <= -2 && voxel.id == 0 {
+                                    voxel.id = 4;
+                                }
+
+                                let idx = x + y * crate::voxel::CHUNK_SIZE + z * crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE;
+                                chunk.data[idx] = voxel;
+                            }
+                        }
+                    }
+                    _chunks_generated = true;
+                }
+            }
         }
 
         // --- NPC AI Logic ---

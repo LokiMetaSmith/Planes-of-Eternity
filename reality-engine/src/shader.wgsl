@@ -223,6 +223,8 @@ fn get_lighting_info(id: f32) -> vec2<f32> {
         return vec2<f32>(1.0, 0.3); // Clockwork
     } else if (id < 19.5) {
         return vec2<f32>(1.0, 0.3); // Cottagecore
+    } else if (id < 22.5) {
+        return vec2<f32>(1.0, 0.3); // Prehistoric
     }
 
     return vec2<f32>(0.5, 0.3); // fallback
@@ -416,6 +418,12 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let p = pos * scale * 0.5;
         let n = fbm(p, 4, roughness);
         return n * 12.0 * params.z;
+    } else if (id < 22.5) {
+        // Prehistoric (Rugged, twisted terrain)
+        let p = pos * scale;
+        let p_warp = vec2<f32>(domain_warp(p), domain_warp(p + vec2<f32>(1.0, 1.0)));
+        let n = fbm(p + p_warp * 2.0, 4, roughness);
+        return n * 15.0 * params.z;
     }
 
     return 0.0;
@@ -902,6 +910,11 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
 
         let base_col = mix(path, grass, smoothstep(0.3, 0.7, n));
         return mix(base_col, flower, f_pattern * smoothstep(0.5, 0.6, n)); // Flowers only on grass
+    } else if (id < 22.5) {
+        // Prehistoric (Jungle green and earth brown)
+        let n = fbm(pos_in.xz * params.y, 4, params.x);
+        let col = mix(vec3<f32>(0.2, 0.1, 0.05), vec3<f32>(0.1, 0.3, 0.1), n);
+        return col;
     }
 
     return base_color;

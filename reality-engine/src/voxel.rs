@@ -558,7 +558,7 @@ impl Chunk {
                                         let angle = 25.0 + (hash(tx, 0, tz).abs() * 15.0);
 
                                         let mut turtle = crate::lsystem::LSystemTurtle::new(
-                                            cgmath::Point3::new(tx, terrain_height, tz),
+                                            cgmath::Point3::new(tx, 6, tz),
                                             angle,
                                             1.5
                                         );
@@ -726,6 +726,43 @@ impl Chunk {
                                         if (v.x - target.x).abs() <= 1 && (v.y - target.y).abs() <= 1 && (v.z - target.z).abs() <= 1 {
                                             if voxel.id == 0 {
                                                 voxel.id = 4; // Water/Glassy for crystal
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Prehistoric) => {
+                            let cell_x = wx / 10;
+                            let cell_z = wz / 10;
+                            let tx = cell_x * 10 + (hash(cell_x, 0, cell_z).abs() * 10.0) as i32;
+                            let tz = cell_z * 10 + (hash(cell_z, 0, cell_x).abs() * 10.0) as i32;
+
+                            let max_radius = 15;
+                            let max_height = 30;
+
+                            if (wx - tx).abs() <= max_radius && (wz - tz).abs() <= max_radius && wy >= 6 && wy <= 6 + max_height {
+                                let mut lsys = crate::lsystem::LSystem::new("F");
+                                lsys.add_rule('F', "F[+F]F[-F]F");
+                                let sentence = lsys.evaluate(3);
+                                let angle = 45.0 + (hash(tx, 0, tz).abs() * 10.0);
+
+                                let mut turtle = crate::lsystem::LSystemTurtle::new(
+                                    cgmath::Point3::new(tx, 6, tz),
+                                    angle,
+                                    1.5
+                                );
+                                turtle.generate(&sentence);
+
+                                let target = cgmath::Point3::new(wx, wy, wz);
+                                for v in &turtle.voxels {
+                                    if *v == target {
+                                        voxel.id = 6; // Wood
+                                        break;
+                                    } else if (v.x - target.x).abs() <= 1 && (v.y - target.y).abs() <= 1 && (v.z - target.z).abs() <= 1 {
+                                        if hash(wx, wy, wz).abs() > 0.3 {
+                                            if voxel.id == 0 {
+                                                voxel.id = 7; // Leaves
                                             }
                                         }
                                     }

@@ -391,9 +391,9 @@ impl Engine {
 
             while let Some(res) = vw.genie.poll_terrain() {
                 if let Some(chunk) = vw.chunks.get_mut(&res.chunk_key) {
-                    let wx_base = chunk.key.x * crate::voxel::CHUNK_SIZE as i32;
+                    let _wx_base = chunk.key.x * crate::voxel::CHUNK_SIZE as i32;
                     let wy_base = chunk.key.y * crate::voxel::CHUNK_SIZE as i32;
-                    let wz_base = chunk.key.z * crate::voxel::CHUNK_SIZE as i32;
+                    let _wz_base = chunk.key.z * crate::voxel::CHUNK_SIZE as i32;
 
                     for z in 0..crate::voxel::CHUNK_SIZE {
                         for y in 0..crate::voxel::CHUNK_SIZE {
@@ -1061,6 +1061,7 @@ impl Engine {
 
                         let color = match anomaly.reality_signature.active_style.archetype {
                             crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
+                            crate::reality_types::RealityArchetype::Prehistoric => [0.3, 0.4, 0.1, 1.0],
                             crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
                             crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
                             crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
@@ -1240,6 +1241,9 @@ impl Engine {
                                     }
                                     crate::reality_types::RealityArchetype::Fractal => {
                                         [1.0, 0.5, 0.0, 1.0]
+                                    }
+                                    crate::reality_types::RealityArchetype::Prehistoric => {
+                                        [0.3, 0.4, 0.1, 1.0]
                                     }
                                 };
 
@@ -1807,6 +1811,8 @@ impl Engine {
                                 "WILDWEST" => {
                                     Some(crate::reality_types::RealityArchetype::WildWest)
                                 }
+                                "FRACTAL" => Some(crate::reality_types::RealityArchetype::Fractal),
+                                "PREHISTORIC" => Some(crate::reality_types::RealityArchetype::Prehistoric),
                                 "VOID" => Some(crate::reality_types::RealityArchetype::Void),
                                 _ => None,
                             };

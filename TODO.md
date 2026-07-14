@@ -100,6 +100,7 @@
 - [x] **Dynamic Generation**: Dynamically generate voxel chunks and models as the player moves and collects potential nodes.
 - [x] **Advanced Voxel Physics**: Implement voxel terrain collision and destruction for dropped items, inspired by Starbase.
 - [x] **New Archetypes**: Added SolarPunk archetype to Reality Engine.
+- [x] **New Archetypes**: Added Prehistoric archetype to Reality Engine.
 - [x] **UI Improvement**: Added ability to hide UI menu bars using 'H' key for a cleaner experience.
 
 ## Future Enhancements

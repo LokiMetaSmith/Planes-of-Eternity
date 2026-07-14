@@ -26,6 +26,7 @@ pub enum RealityArchetype {
     Cottagecore,  // Cozy, pastoral, floral
     WildWest,     // Dusty, saloons, tumbleweeds
     Fractal,      // L-Systems and CFG structures
+    Prehistoric,  // Primordial jungle and rugged terrain
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -279,7 +279,7 @@ pub struct Chunk {
     pub splats: Vec<crate::splat::SplatVertex>,
 }
 
-fn noise2d(x: f32, z: f32) -> f32 {
+pub fn noise2d(x: f32, z: f32) -> f32 {
     let xi = x.floor() as i32;
     let zi = z.floor() as i32;
     let xf = x - x.floor();
@@ -298,7 +298,7 @@ fn noise2d(x: f32, z: f32) -> f32 {
     b + v * (t - b)
 }
 
-fn noise3d(x: f32, y: f32, z: f32) -> f32 {
+pub fn noise3d(x: f32, y: f32, z: f32) -> f32 {
     let xi = x.floor() as i32;
     let yi = y.floor() as i32;
     let zi = z.floor() as i32;
@@ -330,13 +330,20 @@ fn noise3d(x: f32, y: f32, z: f32) -> f32 {
     y0 + w * (y1 - y0)
 }
 
-fn hash(x: i32, y: i32, z: i32) -> f32 {
+pub fn hash(x: i32, y: i32, z: i32) -> f32 {
     let mut n = x.wrapping_mul(374761393) ^ y.wrapping_mul(668265263) ^ z.wrapping_mul(393555907);
     n = (n ^ (n >> 13)).wrapping_mul(1274126177);
     (n as f32) / (i32::MAX as f32)
 }
 
 impl Chunk {
+    pub fn map_height(wx: f32, wz: f32) -> i32 {
+        let nx = wx * 0.05;
+        let nz = wz * 0.05;
+        let height_noise = (noise2d(nx, nz) * 0.5 + noise2d(nx * 2.0, nz * 2.0) * 0.25) * 20.0 - 5.0;
+        height_noise as i32
+    }
+
     pub fn new(key: ChunkKey) -> Self {
         let size = CHUNK_SIZE; // Default full res
         let vol = size * size * size;
@@ -487,11 +494,8 @@ impl Chunk {
                     match base_archetype {
                         Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
                             // Procedural Rolling Hills Terrain
-                            let nx = wx as f32 * 0.05;
-                            let nz = wz as f32 * 0.05;
+                            let terrain_height = Chunk::map_height(wx as f32, wz as f32);
                             // Add octaves for more organic hills
-                            let height_noise = (noise2d(nx, nz) * 0.5 + noise2d(nx * 2.0, nz * 2.0) * 0.25) * 20.0 - 5.0;
-                            let terrain_height = height_noise as i32;
 
                             if wy <= terrain_height {
                                 if wy == terrain_height {

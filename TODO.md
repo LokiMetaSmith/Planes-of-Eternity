@@ -95,6 +95,7 @@
 - [x] **Add AI or Non-Player Characters (NPCs)**: Added an array of NPCs to the WorldState, basic deterministic wandering logic to `Engine::update`, and updated rendering to use instanced drawing for the player and NPCs.
 
 ## Dynamic 3D Voxel Model Generation
+- [x] **Terrain Generation Unit Test**: Added a unit test to validate the procedural terrain map function continuity.
 - [x] **Programmatic Voxelizer**: Implement programmatic voxelization algorithm (OBJ to Voxel Chunk) in `reality-engine`.
 - [x] **Sparse Voxel Generator**: Expand `reality-genie` to include a Text-to-3D Sparse Voxel Generator (Sparc3D concept).
 - [x] **Dynamic Generation**: Dynamically generate voxel chunks and models as the player moves and collects potential nodes.

@@ -73,6 +73,7 @@ pub struct Engine {
     pub spell_effects: Vec<SpellEffect>,
     pub pending_dreams: Vec<String>,
     pub pending_models: Vec<(String, [f32; 3])>,
+    pub pending_extensions: Vec<[f32; 3]>,
 
     pub is_recording_splats: bool,
     pub splat_recording_buffer: Vec<Vec<crate::splat::SplatVertex>>,
@@ -248,6 +249,7 @@ impl Engine {
             spell_effects: Vec::new(),
             pending_dreams: Vec::new(),
             pending_models: Vec::new(),
+            pending_extensions: Vec::new(),
             is_recording_splats: false,
             splat_recording_buffer: Vec::new(),
             active_4d_splats: Vec::new(),
@@ -382,6 +384,47 @@ impl Engine {
         mut voxel_world: Option<&mut crate::voxel::VoxelWorld>,
     ) -> bool {
         self.time += dt;
+
+        // Process any queued EXTEND spells
+        let mut extensions = Vec::new();
+        std::mem::swap(&mut self.pending_extensions, &mut extensions);
+        for pos in extensions {
+            if let Some(ref mut vw) = voxel_world {
+                let key_x = (pos[0] / crate::voxel::CHUNK_SIZE as f32).floor() as i32;
+                let key_y = (pos[1] / crate::voxel::CHUNK_SIZE as f32).floor() as i32;
+                let key_z = (pos[2] / crate::voxel::CHUNK_SIZE as f32).floor() as i32;
+
+                let trajectory = vec![pos];
+
+                // Gather neighbors
+                let mut neighbors = Vec::new();
+                let offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+                for (dx, dz) in offsets {
+                    let nx = key_x + dx;
+                    let nz = key_z + dz;
+                    let nkey = crate::voxel::ChunkKey { x: nx, y: key_y, z: nz };
+                    if let Some(n_chunk) = vw.chunks.get(&nkey) {
+                        let mut n_heights = vec![0.0; crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE];
+                        for lz in 0..crate::voxel::CHUNK_SIZE {
+                            for lx in 0..crate::voxel::CHUNK_SIZE {
+                                let mut h = -1.0;
+                                for ly in (0..crate::voxel::CHUNK_SIZE).rev() {
+                                    let voxel = n_chunk.get(lx, ly, lz);
+                                    if voxel.id != 0 {
+                                        h = ly as f32;
+                                        break;
+                                    }
+                                }
+                                n_heights[lx + lz * crate::voxel::CHUNK_SIZE] = h;
+                            }
+                        }
+                        neighbors.push((nx, nz, n_heights));
+                    }
+                }
+
+                vw.genie.request_iterative_extension(key_x, key_y, key_z, crate::voxel::CHUNK_SIZE, trajectory, neighbors);
+            }
+        }
 
         let mut _chunks_generated = false;
         if let Some(vw) = &mut voxel_world {
@@ -1724,6 +1767,13 @@ impl Engine {
                         }
                         None
                     }
+                    Primitive::Extend => {
+                        if pressed {
+                            log::info!("Extend primitive invoked! Queueing GCT extension.");
+                            self.pending_extensions.push([self.camera.eye.x, self.camera.eye.y, self.camera.eye.z]);
+                        }
+                        None
+                    }
                     _ => self.primitive_to_anomaly(*p, spawn_pos),
                 }
             }
@@ -2032,6 +2082,9 @@ impl Engine {
         self.lambda_system.set_term(term);
 
         self.physics_state = PhysicsState::Flying;
+        self.pending_dreams.clear();
+        self.pending_models.clear();
+        self.pending_extensions.clear();
 
         log::info!("World State Reset.");
     }

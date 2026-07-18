@@ -1640,6 +1640,7 @@ impl LambdaSystem {
             Primitive::Rain => [0.5, 0.5, 1.0, 0.8], // Light blue
             Primitive::Gravity => [0.4, 0.3, 0.5, 1.0], // Dark purple
             Primitive::Levitate => [0.8, 0.9, 1.0, 1.0], // Light blue-white
+            Primitive::Extend => [0.5, 0.7, 1.0, 1.0],  // Soft blue-white
         }
     }
 }

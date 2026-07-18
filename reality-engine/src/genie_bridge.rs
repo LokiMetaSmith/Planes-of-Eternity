@@ -86,6 +86,61 @@ impl GenieBridge {
         }
     }
 
+    pub fn request_iterative_extension(
+        &self,
+        chunk_x: i32,
+        chunk_y: i32,
+        chunk_z: i32,
+        size: usize,
+        trajectory: Vec<[f32; 3]>,
+        neighbors: Vec<(i32, i32, Vec<f32>)>,
+    ) {
+        let key = ChunkKey { x: chunk_x, y: chunk_y, z: chunk_z };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let res_tx = self.terrain_res_tx.clone();
+            std::thread::spawn(move || {
+                let mut model = reality_genie::gct::SceneExtensionModel::new(size);
+
+                for pos in trajectory {
+                    model.trajectory_memory.record(pos, [0.0, 0.0, 0.0], 0.0);
+                }
+
+                let mut anchor = reality_genie::gct::AnchorContext::new(size);
+                for (nx, nz, h_map) in neighbors {
+                    anchor.add_neighbor(nx, nz, h_map);
+                }
+
+                let heightmap = model.generate_cohesive_heightmap(chunk_x, chunk_z, &anchor);
+                let _ = res_tx.send(TerrainResponse {
+                    chunk_key: key,
+                    heightmap,
+                });
+            });
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut model = reality_genie::gct::SceneExtensionModel::new(size);
+
+            for pos in trajectory {
+                model.trajectory_memory.record(pos, [0.0, 0.0, 0.0], 0.0);
+            }
+
+            let mut anchor = reality_genie::gct::AnchorContext::new(size);
+            for (nx, nz, h_map) in neighbors {
+                anchor.add_neighbor(nx, nz, h_map);
+            }
+
+            let heightmap = model.generate_cohesive_heightmap(chunk_x, chunk_z, &anchor);
+            let _ = self.terrain_res_tx.send(TerrainResponse {
+                chunk_key: key,
+                heightmap,
+            });
+        }
+    }
+
     pub fn poll_terrain(&self) -> Option<TerrainResponse> {
         if let Ok(rx) = self.terrain_receiver.lock() {
             if let Ok(res) = rx.try_recv() {

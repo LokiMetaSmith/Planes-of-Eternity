@@ -67,3 +67,38 @@ fn test_dynamics_forward() -> Result<()> {
     assert_eq!(logits.shape().dims(), &[1, 10, cfg.vocab_size]);
     Ok(())
 }
+
+#[test]
+fn test_gct_scene_extension_model() {
+    let mut gct = reality_genie::gct::SceneExtensionModel::new(16);
+
+    // Check TrajectoryMemory
+    gct.trajectory_memory.record([1.0, 2.0, 3.0], [0.0, 0.0, 0.0], 1.0);
+    gct.trajectory_memory.record([4.0, 5.0, 6.0], [0.0, 0.0, 0.0], 2.0);
+    let dir = gct.trajectory_memory.get_recent_direction();
+    let norm = (dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2]).sqrt();
+    assert!((norm - 1.0).abs() < 1e-4);
+
+    // Check PagedKVCache
+    gct.kv_cache.insert(1, vec![1.0, 2.0], vec![3.0, 4.0], 100);
+    assert_eq!(gct.kv_cache.slots.len(), 1);
+
+    // Check KeyframeWindow
+    gct.keyframe_window.push_keyframe(10);
+    gct.keyframe_window.push_keyframe(20);
+    assert_eq!(gct.keyframe_window.keyframes.len(), 2);
+
+    // Check AnchorContext
+    let mut anchor = reality_genie::gct::AnchorContext::new(16);
+    let right_neighbor = vec![5.0; 16 * 16];
+    anchor.add_neighbor(1, 0, right_neighbor);
+
+    // Generate heightmap
+    let heights = gct.generate_cohesive_heightmap(0, 0, &anchor);
+    assert_eq!(heights.len(), 16 * 16);
+
+    // Check right edge constraint (dx = 1, dz = 0) -> heights[(size - 1) + idx * size] = n_val (5.0)
+    for idx in 0..16 {
+        assert_eq!(heights[15 + idx * 16], 5.0);
+    }
+}

@@ -1532,8 +1532,35 @@ impl VoxelWorld {
                                     }
                                 }
                             }
-                            // Request async generation
-                            self.genie.request_terrain(key.x, key.y, key.z, CHUNK_SIZE);
+                            // Get neighbors with existing heightmaps for GCT AnchorContext
+                            let mut neighbors = Vec::new();
+                            let offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+                            for (dx, dz) in offsets {
+                                let nx = key.x + dx;
+                                let nz = key.z + dz;
+                                let nkey = ChunkKey { x: nx, y: key.y, z: nz };
+                                if let Some(n_chunk) = self.chunks.get(&nkey) {
+                                    let mut n_heights = vec![0.0; CHUNK_SIZE * CHUNK_SIZE];
+                                    for lz in 0..CHUNK_SIZE {
+                                        for lx in 0..CHUNK_SIZE {
+                                            // Find highest non-air voxel as height
+                                            let mut h = -1.0;
+                                            for ly in (0..CHUNK_SIZE).rev() {
+                                                if n_chunk.get(lx, ly, lz).id != 0 {
+                                                    h = ly as f32;
+                                                    break;
+                                                }
+                                            }
+                                            n_heights[lx + lz * CHUNK_SIZE] = h;
+                                        }
+                                    }
+                                    neighbors.push((nx, nz, n_heights));
+                                }
+                            }
+
+                            // Use GCT iterative approximation under the hood
+                            let trajectory = vec![[player_pos.x, player_pos.y, player_pos.z]];
+                            self.genie.request_iterative_extension(key.x, key.y, key.z, CHUNK_SIZE, trajectory, neighbors);
                         } else {
                             chunk.generate(archetype);
                         }
@@ -1771,8 +1798,9 @@ impl VoxelWorld {
                                     }
                                 }
                             }
-                            // Request async generation
-                            self.genie.request_terrain(key.x, key.y, key.z, CHUNK_SIZE);
+                            // Request GCT scene extension
+                            let trajectory = vec![[0.0, 0.0, 0.0]];
+                            self.genie.request_iterative_extension(key.x, key.y, key.z, CHUNK_SIZE, trajectory, Vec::new());
                         } else {
                             chunk.generate(archetype);
                         }

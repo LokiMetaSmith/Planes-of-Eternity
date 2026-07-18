@@ -31,11 +31,13 @@ pub enum Primitive {
     Rain,
     Gravity,
     Levitate,
+    Extend,
 }
 
 impl fmt::Display for Primitive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Primitive::Extend => write!(f, "EXTEND"),
             Primitive::Fire => write!(f, "FIRE"),
             Primitive::Water => write!(f, "WATER"),
             Primitive::Earth => write!(f, "EARTH"),
@@ -101,6 +103,7 @@ impl std::str::FromStr for Primitive {
             "RAIN" => Ok(Primitive::Rain),
             "GRAVITY" => Ok(Primitive::Gravity),
             "LEVITATE" => Ok(Primitive::Levitate),
+            "EXTEND" => Ok(Primitive::Extend),
             _ => Err(()),
         }
     }

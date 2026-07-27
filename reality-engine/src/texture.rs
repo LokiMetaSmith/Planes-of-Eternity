@@ -229,7 +229,176 @@ impl Texture {
         })
     }
 
-            pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+
+    pub fn create_procedural_normal_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let size = 512;
+        let mut pixels = vec![0u8; size * size * 4];
+
+        for y in 0..size {
+            for x in 0..size {
+                let idx = (x + y * size) * 4;
+                let u = x as f32 / size as f32;
+                let v = y as f32 / size as f32;
+
+                let col = (u * 4.0).floor() as usize;
+                let row = (v * 4.0).floor() as usize;
+                let tile_idx = row * 4 + col;
+
+                let tile_x = x % 128;
+                let tile_y = y % 128;
+
+                let lx = tile_x as f32 * 0.1;
+                let ly = tile_y as f32 * 0.1;
+
+                let h0 = fbm(lx, ly, 3);
+                let h_dx = fbm(lx + 0.1, ly, 3);
+                let h_dy = fbm(lx, ly + 0.1, 3);
+
+                let mut nx = (h0 - h_dx) * 2.0;
+                let mut ny = (h0 - h_dy) * 2.0;
+                let nz = 1.0f32;
+
+                if tile_idx == 4 {
+                    nx *= 0.1; ny *= 0.1;
+                } else if tile_idx == 1 {
+                    nx *= 0.3; ny *= 0.3;
+                }
+
+                let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                nx /= len;
+                ny /= len;
+
+                pixels[idx] = ((nx * 0.5 + 0.5) * 255.0) as u8;
+                pixels[idx + 1] = ((ny * 0.5 + 0.5) * 255.0) as u8;
+                pixels[idx + 2] = 255;
+                pixels[idx + 3] = 255;
+            }
+        }
+
+        let texture_size = wgpu::Extent3d {width: size as u32, height: size as u32, depth_or_array_layers: 1 };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("procedural_normal_map"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            &pixels,
+            wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(4 * size as u32), rows_per_image: Some(size as u32) },
+            texture_size,
+        );
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self { texture, view, sampler }
+    }
+
+    pub fn create_procedural_pbr_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let size = 512;
+        let mut pixels = vec![0u8; size * size * 4];
+
+        for y in 0..size {
+            for x in 0..size {
+                let idx = (x + y * size) * 4;
+                let u = x as f32 / size as f32;
+                let v = y as f32 / size as f32;
+
+                let col = (u * 4.0).floor() as usize;
+                let row = (v * 4.0).floor() as usize;
+                let tile_idx = row * 4 + col;
+
+                let tile_x = x % 128;
+                let tile_y = y % 128;
+
+                let lx = tile_x as f32 * 0.1;
+                let ly = tile_y as f32 * 0.1;
+                let noise_val = fbm(lx, ly, 2);
+
+                let mut roughness = 0.8f32;
+                let mut metallic = 0.0f32;
+                let ao = 1.0f32;
+
+                match tile_idx {
+                    0 => { roughness = 0.7 + noise_val * 0.2; }
+                    1 => { roughness = 0.2; metallic = 0.2; }
+                    2 => { roughness = 0.1; }
+                    3 => { roughness = 0.6; }
+                    4 => { roughness = 0.05; metallic = 0.1; }
+                    5 => { roughness = 0.9; }
+                    6 => { roughness = 0.8; }
+                    7 => { roughness = 0.9; }
+                    8 => { roughness = 0.7; }
+                    9 => { roughness = 0.3; metallic = 0.8; }
+                    _ => { roughness = 0.5; }
+                }
+
+                roughness = (roughness + noise_val * 0.1).clamp(0.0, 1.0);
+
+                pixels[idx] = (roughness * 255.0) as u8;
+                pixels[idx + 1] = (metallic * 255.0) as u8;
+                pixels[idx + 2] = (ao * 255.0) as u8;
+                pixels[idx + 3] = 255;
+            }
+        }
+
+        let texture_size = wgpu::Extent3d {width: size as u32, height: size as u32, depth_or_array_layers: 1 };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("procedural_pbr_map"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            &pixels,
+            wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(4 * size as u32), rows_per_image: Some(size as u32) },
+            texture_size,
+        );
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self { texture, view, sampler }
+    }
+pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let size = 512;
         let mut pixels = vec![0u8; size * size * 4];
 

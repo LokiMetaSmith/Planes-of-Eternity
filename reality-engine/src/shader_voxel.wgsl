@@ -13,6 +13,14 @@ var t_atlas: texture_2d<f32>;
 var s_atlas: sampler;
 @group(1) @binding(2)
 var t_density: texture_3d<u32>;
+@group(1) @binding(3)
+var t_normal: texture_2d<f32>;
+@group(1) @binding(4)
+var s_normal: sampler;
+@group(1) @binding(5)
+var t_pbr: texture_2d<f32>;
+@group(1) @binding(6)
+var s_pbr: sampler;
 
 struct RealityUniform {
     proj_pos_fid: array<vec4<f32>, 5>,
@@ -23,9 +31,99 @@ struct RealityUniform {
     nodes_params: array<vec4<f32>, 15>,
     nodes_color: array<vec4<f32>, 15>,
     num_nodes: vec4<u32>,
+    sun_dir: vec4<f32>,
+    sun_color: vec4<f32>,
+    ambient_color: vec4<f32>,
 };
 @group(2) @binding(0) var<uniform> reality: RealityUniform;
 
+
+
+// PBR Math Helpers
+const PI = 3.14159265359;
+
+fn get_roughness_metallic(id: f32) -> vec2<f32> {
+    if (id < -0.5) { return vec2<f32>(0.6, 0.0); }
+    else if (id < 0.5) { return vec2<f32>(0.9, 0.0); }
+    else if (id < 1.5) { return vec2<f32>(0.8, 0.0); }
+    else if (id < 2.5) { return vec2<f32>(0.5, 0.1); }
+    else if (id < 3.5) { return vec2<f32>(0.7, 0.0); }
+    else if (id < 4.5) { return vec2<f32>(0.2, 0.0); }
+    else if (id < 5.5) { return vec2<f32>(0.8, 0.0); }
+    else if (id < 6.5) { return vec2<f32>(0.5, 0.0); }
+    else if (id < 7.5) { return vec2<f32>(0.4, 0.0); }
+    else if (id < 8.5) { return vec2<f32>(0.2, 0.8); }
+    else if (id < 9.5) { return vec2<f32>(0.9, 0.0); }
+    else { return vec2<f32>(0.5, 0.0); }
+}
+
+fn DistributionGGX(N: vec3<f32>, H: vec3<f32>, roughness: f32) -> f32 {
+    let a = roughness*roughness;
+    let a2 = a*a;
+    let NdotH = max(dot(N, H), 0.0);
+    let NdotH2 = NdotH*NdotH;
+    let num = a2;
+    var denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+    return num / denom;
+}
+
+fn GeometrySchlickGGX(NdotV: f32, roughness: f32) -> f32 {
+    let r = (roughness + 1.0);
+    let k = (r*r) / 8.0;
+    let num = NdotV;
+    let denom = NdotV * (1.0 - k) + k;
+    return num / denom;
+}
+
+fn GeometrySmith(N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, roughness: f32) -> f32 {
+    let NdotV = max(dot(N, V), 0.0);
+    let NdotL = max(dot(N, L), 0.0);
+    let ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    let ggx1 = GeometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+fn calculate_pbr(
+    N: vec3<f32>, V: vec3<f32>, L: vec3<f32>,
+    albedo: vec3<f32>, roughness: f32, metallic: f32,
+    light_color: vec3<f32>, attenuation: f32
+) -> vec3<f32> {
+    let H = normalize(V + L);
+    let radiance = light_color * attenuation;
+
+    var F0 = vec3<f32>(0.04);
+    F0 = mix(F0, albedo, metallic);
+
+    let NDF = DistributionGGX(N, H, roughness);
+    let G   = GeometrySmith(N, V, L, roughness);
+    let F   = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+    let numerator    = NDF * G * F;
+    let denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+    let specular = numerator / denominator;
+
+    let kS = F;
+    var kD = vec3<f32>(1.0) - kS;
+    kD *= 1.0 - metallic;
+
+    let NdotL = max(dot(N, L), 0.0);
+    return (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
+// ACES Tonemapping
+fn ACESFilm(x: vec3<f32>) -> vec3<f32> {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
 
 fn get_lighting_info(id: f32) -> vec2<f32> {
     if (id < -0.5) { return vec2<f32>(0.0, 0.4); }
@@ -95,6 +193,8 @@ struct VertexOutput {
     @location(1) normal: vec3<f32>,
     @location(2) world_pos: vec3<f32>,
     @location(3) ao: f32,
+    @location(4) tangent: vec3<f32>,
+    @location(5) bitangent: vec3<f32>,
 };
 
 @vertex
@@ -139,6 +239,20 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     out.normal = model.normal;
     out.ao = model.ao;
     out.clip_position = camera.view_proj * vec4<f32>(animated_pos, 1.0);
+
+    // Compute basic tangent space aligned with triplanar mapping
+    let n = abs(model.normal);
+    var t = vec3<f32>(1.0, 0.0, 0.0);
+    if (n.y > 0.5) {
+        t = vec3<f32>(1.0, 0.0, 0.0);
+    } else if (n.x > 0.5) {
+        t = vec3<f32>(0.0, 0.0, 1.0);
+    }
+    t = normalize(t - dot(t, model.normal) * model.normal);
+    let bitan = cross(model.normal, t);
+
+    out.tangent = t;
+    out.bitangent = bitan;
     return out;
 }
 
@@ -214,84 +328,90 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let tex_color = textureSample(t_atlas, s_atlas, final_uv);
 
-    // 3. Lighting
+    // 3. Lighting (PBR & Point Lights)
     let time = reality.global_offset.z;
     let cycle = time * 0.1;
     let light_x = sin(cycle);
     let light_y = cos(cycle);
-    let light_dir = normalize(vec3<f32>(light_x, light_y, 0.5));
+
+    // Sample Normal & PBR maps
+    let normal_map = textureSample(t_normal, s_normal, final_uv).rgb * 2.0 - 1.0;
+    let pbr_map = textureSample(t_pbr, s_pbr, final_uv).rgb;
+
+    // TBN Matrix
+    let T = normalize(in.tangent);
+    let B = normalize(in.bitangent);
+    let N_geom = normalize(in.normal);
+    let TBN = mat3x3<f32>(T, B, N_geom);
+    let N = normalize(TBN * normal_map); // Perturbed normal
+
+    // Procedural Screen-Space SSAO using derivatives
+    let dx = dpdx(in.world_pos);
+    let dy = dpdy(in.world_pos);
+    let cross_der = normalize(cross(dx, dy));
+    let normal_diff = max(0.0, 1.0 - dot(N_geom, cross_der));
+    let ssao = max(0.0, 1.0 - normal_diff * 5.0); // Cavity approximation
+
+    // Mix PBR properties
+    // texture: R = roughness, G = metallic, B = AO
+    let roughness = mix(1.0 - specular_strength, pbr_map.r, 0.8);
+    let metallic = mix(0.0, pbr_map.g, 0.8);
+    let map_ao = pbr_map.b;
+    let ao_factor = in.ao * ssao * map_ao;
+
+    var sun_direction = normalize(reality.sun_dir.xyz);
+    if (length(reality.sun_dir.xyz) < 0.1) {
+        sun_direction = normalize(vec3<f32>(light_x, max(light_y, 0.0), 0.5));
+    }
+    var sun_col = reality.sun_color.rgb;
+    if (length(sun_col) < 0.1) {
+        if (light_y > 0.0) { sun_col = vec3<f32>(1.0, 0.95, 0.9); }
+        else { sun_col = vec3<f32>(0.1, 0.1, 0.3); }
+    }
+
+    var ambient_color = reality.ambient_color.rgb;
+    if (length(ambient_color) < 0.1) {
+        ambient_color = vec3<f32>(0.1, 0.15, 0.2);
+    }
 
     let view_dir = normalize(camera.camera_pos.xyz - in.world_pos);
+    let V = view_dir;
 
-    var total_str = 0.0;
-    var strengths: array<f32, 5>;
+    let albedo = tex_color.rgb * in.color;
+    var Lo = vec3<f32>(0.0);
+
+    var shadow = 1.0;
+    if (sun_direction.y > 0.0) {
+        shadow = ray_march_shadow(in.world_pos, sun_direction);
+    } else {
+        shadow = 0.0;
+    }
+
+    let sun_irradiance = sun_col * 2.0;
+    Lo = Lo + calculate_pbr(N, V, sun_direction, albedo, roughness, metallic, sun_irradiance, shadow);
 
     for (var i = 0u; i < 5u; i = i + 1u) {
-        let dist = max(distance(in.world_pos, reality.proj_pos_fid[i].xyz), 1.0);
-        let strength = reality.proj_pos_fid[i].w / dist;
-        strengths[i] = strength;
-        total_str = total_str + strength;
-    }
-
-    var directional_weight = 0.0;
-    var ambient_strength = 0.0;
-
-    if (total_str > 0.0001) {
-        for (var i = 0u; i < 5u; i = i + 1u) {
-            let weight = strengths[i] / total_str;
-            if (weight > 0.001) {
-                let l_info = get_lighting_info(reality.proj_params[i].w);
-                directional_weight = directional_weight + l_info.x * weight;
-                ambient_strength = ambient_strength + l_info.y * weight;
-            }
+        let p_pos = reality.proj_pos_fid[i].xyz;
+        if (p_pos.y > -999.0 && reality.proj_pos_fid[i].w > 0.0) {
+            let dist = distance(in.world_pos, p_pos);
+            let L = normalize(p_pos - in.world_pos);
+            let atten = 1.0 / (dist * dist + 1.0);
+            Lo = Lo + calculate_pbr(N, V, L, albedo, roughness, metallic, reality.proj_color[i].rgb, atten * 10.0);
         }
-    } else {
-        let l_info = get_lighting_info(-1.0);
-        directional_weight = l_info.x;
-        ambient_strength = l_info.y;
     }
 
-    // Ambient varies with Day/Night ONLY if there is directional light.
-    var ambient = ambient_strength;
-    if (light_y < 0.0) {
-        ambient = mix(ambient_strength, 0.05, directional_weight);
-    }
+    var ambient = ambient_color * albedo * ao_factor * (1.0 - metallic);
 
-    // Raytraced Shadow (only if sun is up)
-    var shadow = 1.0;
-    if (light_y > 0.0 && directional_weight > 0.001) {
-        shadow = ray_march_shadow(in.world_pos, light_dir);
-    } else {
-        shadow = 0.0; // No direct sun at night or if ambient only
-    }
-
-    // Storm Lightning Flash
     let is_stormy = sin(time * 0.05) > 0.8;
-    if (is_stormy && light_y < 0.2) {
+    if (is_stormy && sun_direction.y < 0.2) {
         let lightning_noise = fract(sin(dot(vec2<f32>(time * 10.0, 0.0), vec2<f32>(12.9898, 78.233))) * 43758.5453);
         if (lightning_noise > 0.98) {
-            ambient = ambient + 1.5;
+            ambient = ambient + vec3<f32>(1.5);
         }
     }
 
-    let diff = max(dot(in.normal, light_dir), 0.0) * shadow * directional_weight;
-
-    // AO Factor
-    let ao_factor = in.ao * 0.8 + 0.2;
-
-    // Specular
-    let half_dir = normalize(light_dir + view_dir);
-    let spec_angle = max(dot(in.normal, half_dir), 0.0);
-    let specular = pow(spec_angle, 32.0) * specular_strength * shadow * directional_weight;
-
-    // Combine
-    let albedo = tex_color.rgb * in.color;
-
-    let lighting = (ambient + diff) * ao_factor;
-
-    let emission = albedo * emissive_strength; // Glowing things glow at night too
-
-    var final_rgb = albedo * lighting + vec3<f32>(specular) + emission;
+    let emission = albedo * emissive_strength;
+    var color = ambient + Lo + emission;
 
     // --- Peek Effect Cutout & Rim ---
     var peek_rim_color = vec3<f32>(0.0);
@@ -320,42 +440,31 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             peek_rim_color = vec3<f32>(1.0, 0.2, 0.8) * rim * 2.0;
         }
     }
-    final_rgb = final_rgb + peek_rim_color;
+    
+    // Apply the rim glow to our final color
+    color = color + peek_rim_color;
     // ---------------------------------
 
     // Reflections (Procedural Sky)
-    if (specular_strength > 0.0) {
-        let r = reflect(-view_dir, in.normal);
+    if (roughness < 0.3 || specular_strength > 0.0) {
+        var r: vec3<f32>; // Declared properly so it survives the if/else
+        
+        if (roughness < 0.3) {
+            r = reflect(-V, N);
+        } else {
+            r = reflect(-view_dir, in.normal);
+        }
+        
         // Simple Sky Gradient based on Y
         let t = 0.5 * (r.y + 1.0);
-
-        // Day: Blue Sky
-        let day_top = vec3<f32>(0.2, 0.6, 1.0);
-        let day_bot = vec3<f32>(0.7, 0.8, 1.0);
-
-        // Sunset: Orange/Purple
-        let set_top = vec3<f32>(0.8, 0.3, 0.1);
-        let set_bot = vec3<f32>(0.9, 0.6, 0.3);
-
-        // Night: Black/Stars
-        let night_top = vec3<f32>(0.0, 0.0, 0.1);
-        let night_bot = vec3<f32>(0.0, 0.0, 0.05);
-
-        var sky_color = vec3<f32>(0.0);
-        if (light_y > 0.2) {
-            sky_color = mix(day_bot, day_top, t);
-        } else if (light_y > -0.2) {
-            sky_color = mix(set_bot, set_top, t);
-        } else {
-            sky_color = mix(night_bot, night_top, t);
-        }
-
-        // Fresnel Effect
-        let f0 = 0.04;
-        let fresnel = f0 + (1.0 - f0) * pow(1.0 - max(dot(view_dir, in.normal), 0.0), 5.0);
-
-        final_rgb = mix(final_rgb, sky_color, fresnel * specular_strength * 0.8);
+        let sky_color = mix(vec3<f32>(0.2, 0.6, 1.0), vec3<f32>(0.7, 0.8, 1.0), t);
+        let F = fresnelSchlick(max(dot(N, V), 0.0), mix(vec3<f32>(0.04), albedo, metallic));
+        color = color + sky_color * F * (1.0 - roughness);
     }
 
-    return vec4<f32>(final_rgb, 1.0);
+    // Tonemapping & Gamma Correction
+    color = ACESFilm(color);
+    color = pow(color, vec3<f32>(1.0 / 2.2));
+
+    return vec4<f32>(color, 1.0);
 }

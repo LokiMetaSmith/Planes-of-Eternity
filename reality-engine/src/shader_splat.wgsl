@@ -16,6 +16,9 @@ struct RealityUniform {
     nodes_params: array<vec4<f32>, 15>,
     nodes_color: array<vec4<f32>, 15>,
     num_nodes: vec4<u32>,
+    sun_dir: vec4<f32>,
+    sun_color: vec4<f32>,
+    ambient_color: vec4<f32>,
 };
 @group(2) @binding(0) var<uniform> reality: RealityUniform;
 

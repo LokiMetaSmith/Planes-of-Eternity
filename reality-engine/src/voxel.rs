@@ -1520,9 +1520,7 @@ impl VoxelWorld {
                             for z in 0..CHUNK_SIZE {
                                 for y in 0..CHUNK_SIZE {
                                     for x in 0..CHUNK_SIZE {
-                                        let wx = chunk.key.x * CHUNK_SIZE as i32 + x as i32;
                                         let wy = chunk.key.y * CHUNK_SIZE as i32 + y as i32;
-                                        let wz = chunk.key.z * CHUNK_SIZE as i32 + z as i32;
                                         let mut voxel = Voxel::default();
                                         if wy == -1 {
                                             voxel.id = 5; // Grass
@@ -1786,9 +1784,7 @@ impl VoxelWorld {
                             for z in 0..CHUNK_SIZE {
                                 for y in 0..CHUNK_SIZE {
                                     for x in 0..CHUNK_SIZE {
-                                        let wx = chunk.key.x * CHUNK_SIZE as i32 + x as i32;
                                         let wy = chunk.key.y * CHUNK_SIZE as i32 + y as i32;
-                                        let wz = chunk.key.z * CHUNK_SIZE as i32 + z as i32;
                                         let mut voxel = Voxel::default();
                                         if wy == -1 {
                                             voxel.id = 5; // Grass

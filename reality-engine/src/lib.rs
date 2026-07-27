@@ -2643,7 +2643,7 @@ impl State {
         grad.add_color_stop(0.0, "#0a0a20").ok(); // Dark space
         grad.add_color_stop(0.5, "#1a1230").ok(); // Horizon glow
         grad.add_color_stop(1.0, "#080612").ok(); // Ground fog
-        context.set_fill_style(&grad);
+        context.set_fill_style_canvas_gradient(&grad);
         context.fill_rect(0.0, 0.0, self.width as f64, self.height as f64);
 
         let view_proj = self.engine.camera.build_view_projection_matrix();
@@ -2680,7 +2680,7 @@ impl State {
                 (0, 4), (1, 5), (2, 6), (3, 7), // connections
             ];
 
-            context.set_stroke_style(&wasm_bindgen::JsValue::from_str("rgba(0, 240, 255, 0.15)"));
+            context.set_stroke_style_str("rgba(0, 240, 255, 0.15)");
             for &(u, v) in &edges {
                 if let (Some(p1), Some(p2)) = (proj[u], proj[v]) {
                     context.begin_path();
@@ -2702,7 +2702,7 @@ impl State {
                     let a = splat.color[3];
                     let fill_style = format!("rgba({}, {}, {}, {})", r, g, b, a);
 
-                    context.set_fill_style(&wasm_bindgen::JsValue::from_str(&fill_style));
+                    context.set_fill_style_str(&fill_style);
                     context.begin_path();
                     context.arc(sx as f64, sy as f64, 2.0, 0.0, std::f64::consts::TAU).ok();
                     context.fill();
@@ -2720,7 +2720,7 @@ impl State {
                 let a = effect.color[3];
                 let fill_style = format!("rgba({}, {}, {}, {})", r, g, b, a);
 
-                context.set_fill_style(&wasm_bindgen::JsValue::from_str(&fill_style));
+                context.set_fill_style_str(&fill_style);
                 context.begin_path();
                 context.arc(sx as f64, sy as f64, 6.0, 0.0, std::f64::consts::TAU).ok();
                 context.fill();
@@ -2731,17 +2731,17 @@ impl State {
         for npc in &self.engine.world_state.npcs {
             let pos = npc.location;
             if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
-                context.set_fill_style(&wasm_bindgen::JsValue::from_str("rgba(255, 42, 109, 0.85)"));
+                context.set_fill_style_str("rgba(255, 42, 109, 0.85)");
                 context.begin_path();
                 context.arc(sx as f64, sy as f64, 10.0, 0.0, std::f64::consts::TAU).ok();
                 context.fill();
 
-                context.set_stroke_style(&wasm_bindgen::JsValue::from_str("#ffffff"));
+                context.set_stroke_style_str("#ffffff");
                 context.set_line_width(1.5);
                 context.stroke();
 
                 context.set_font("10px monospace");
-                context.set_fill_style(&wasm_bindgen::JsValue::from_str("#ffffff"));
+                context.set_fill_style_str("#ffffff");
                 let name = format!("{:?}", npc.reality_signature.active_style.archetype);
                 context.fill_text(&name, sx as f64 - 15.0, sy as f64 - 15.0).ok();
             }
@@ -2752,20 +2752,20 @@ impl State {
             let pos = node.position;
             if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
                 let col_str = format!("rgba({}, {}, {}, 0.9)", (node.color[0] * 255.0) as u8, (node.color[1] * 255.0) as u8, (node.color[2] * 255.0) as u8);
-                context.set_fill_style(&wasm_bindgen::JsValue::from_str(&col_str));
+                context.set_fill_style_str(&col_str);
                 context.begin_path();
                 context.arc(sx as f64, sy as f64, 12.0, 0.0, std::f64::consts::TAU).ok();
                 context.fill();
 
                 let is_hovered = self.engine.lambda_system.hovered_node == Some(node_idx);
                 if is_hovered {
-                    context.set_stroke_style(&wasm_bindgen::JsValue::from_str("#ffffff"));
+                    context.set_stroke_style_str("#ffffff");
                     context.set_line_width(2.0);
                     context.stroke();
                 }
 
                 context.set_font("bold 11px Courier New");
-                context.set_fill_style(&wasm_bindgen::JsValue::from_str("#ffffff"));
+                context.set_fill_style_str("#ffffff");
 
                 let text = match &node.node_type {
                     visual_lambda::NodeType::Var(s) => s.clone(),
@@ -2790,7 +2790,7 @@ impl State {
                 let p1 = n1.position;
                 let p2 = n2.position;
                 if let (Some(proj1), Some(proj2)) = (self.project_point(p1, &view_proj), self.project_point(p2, &view_proj)) {
-                    context.set_stroke_style(&wasm_bindgen::JsValue::from_str("rgba(0, 255, 120, 0.5)"));
+                    context.set_stroke_style_str("rgba(0, 255, 120, 0.5)");
                     context.set_line_width(2.0);
                     context.begin_path();
                     context.move_to(proj1.0 as f64, proj1.1 as f64);
@@ -2801,18 +2801,18 @@ impl State {
         }
 
         // 7. Render Debug HUD overlay
-        context.set_fill_style(&wasm_bindgen::JsValue::from_str("rgba(0, 0, 0, 0.65)"));
+        context.set_fill_style_str("rgba(0, 0, 0, 0.65)");
         context.fill_rect(10.0, 10.0, 310.0, 150.0);
-        context.set_stroke_style(&wasm_bindgen::JsValue::from_str("#00f0ff"));
+        context.set_stroke_style_str("#00f0ff");
         context.set_line_width(1.0);
         context.stroke_rect(10.0, 10.0, 310.0, 150.0);
 
         context.set_font("bold 12px Courier New");
-        context.set_fill_style(&wasm_bindgen::JsValue::from_str("#00f0ff"));
+        context.set_fill_style_str("#00f0ff");
         context.fill_text("SYSTEM STATUS: CPU FALLBACK ACTIVE", 20.0, 30.0).ok();
 
         context.set_font("11px Courier New");
-        context.set_fill_style(&wasm_bindgen::JsValue::from_str("#cccccc"));
+        context.set_fill_style_str("#cccccc");
 
         let cam = &self.engine.camera;
         context.fill_text(&format!("CAM EYE   : [{:.2}, {:.2}, {:.2}]", cam.eye.x, cam.eye.y, cam.eye.z), 20.0, 50.0).ok();

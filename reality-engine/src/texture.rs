@@ -334,7 +334,7 @@ impl Texture {
                 let ly = tile_y as f32 * 0.1;
                 let noise_val = fbm(lx, ly, 2);
 
-                let mut roughness = 0.8f32;
+                let mut roughness;
                 let mut metallic = 0.0f32;
                 let ao = 1.0f32;
 

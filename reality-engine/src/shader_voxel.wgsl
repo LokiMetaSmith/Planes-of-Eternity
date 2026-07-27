@@ -413,12 +413,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let emission = albedo * emissive_strength;
     var color = ambient + Lo + emission;
 
-    // Reflection Skybox (approx)
-    if (roughness < 0.3) {
-        let r = reflect(-V, N);
-        
-    var final_rgb = albedo * lighting + vec3<f32>(specular) + emission;
-
     // --- Peek Effect Cutout & Rim ---
     var peek_rim_color = vec3<f32>(0.0);
 
@@ -446,12 +440,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             peek_rim_color = vec3<f32>(1.0, 0.2, 0.8) * rim * 2.0;
         }
     }
-    final_rgb = final_rgb + peek_rim_color;
+    
+    // Apply the rim glow to our final color
+    color = color + peek_rim_color;
     // ---------------------------------
 
     // Reflections (Procedural Sky)
-    if (specular_strength > 0.0) {
-        let r = reflect(-view_dir, in.normal);
+    if (roughness < 0.3 || specular_strength > 0.0) {
+        var r: vec3<f32>; // Declared properly so it survives the if/else
+        
+        if (roughness < 0.3) {
+            r = reflect(-V, N);
+        } else {
+            r = reflect(-view_dir, in.normal);
+        }
+        
         // Simple Sky Gradient based on Y
         let t = 0.5 * (r.y + 1.0);
         let sky_color = mix(vec3<f32>(0.2, 0.6, 1.0), vec3<f32>(0.7, 0.8, 1.0), t);
@@ -459,6 +462,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color = color + sky_color * F * (1.0 - roughness);
     }
 
+    // Tonemapping & Gamma Correction
     color = ACESFilm(color);
     color = pow(color, vec3<f32>(1.0 / 2.2));
 

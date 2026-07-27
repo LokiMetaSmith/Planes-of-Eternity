@@ -39,6 +39,7 @@ impl Default for GenieBridge {
 
 impl GenieBridge {
     pub fn new() -> Self {
+        #[allow(unused_variables)]
         let (req_tx, req_rx) = mpsc::channel::<TerrainRequest>();
         let (res_tx, res_rx) = mpsc::channel::<TerrainResponse>();
         let res_tx_clone = res_tx.clone();

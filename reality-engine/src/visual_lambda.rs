@@ -1641,6 +1641,8 @@ impl LambdaSystem {
             Primitive::Gravity => [0.4, 0.3, 0.5, 1.0], // Dark purple
             Primitive::Levitate => [0.8, 0.9, 1.0, 1.0], // Light blue-white
             Primitive::Extend => [0.5, 0.7, 1.0, 1.0],  // Soft blue-white
+            Primitive::Peek => [0.9, 0.2, 0.8, 1.0], // Pinkish purple
+            Primitive::Orbit => [0.3, 0.8, 0.9, 1.0], // Bright cyan
         }
     }
 }

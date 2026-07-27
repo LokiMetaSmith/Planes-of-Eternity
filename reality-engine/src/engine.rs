@@ -1398,6 +1398,20 @@ impl Engine {
                         self.show_3d_inventory = false;
                     }
                 }
+                Action::ToggleCameraMode => {
+                    if pressed {
+                        self.camera_controller.orbit_mode = !self.camera_controller.orbit_mode;
+                        if self.camera_controller.orbit_mode {
+                            log::info!("Switched to Orbit Camera Mode.");
+                            // Set a focal point somewhere in front of the current camera or at origin
+                            self.camera_controller.orbit_focal_point = cgmath::Point3::new(0.0, 5.0, 0.0);
+                            self.camera_controller.orbit_radius = 20.0;
+                            // Precalculate pitch and yaw towards focal point if we wanted seamless transition
+                        } else {
+                            log::info!("Switched to FPS Camera Mode.");
+                        }
+                    }
+                }
                 // Ignore Voxel Actions (Handled by lib.rs / wrapper)
                 _ => {}
             }
@@ -1771,6 +1785,37 @@ impl Engine {
                         if pressed {
                             log::info!("Extend primitive invoked! Queueing GCT extension.");
                             self.pending_extensions.push([self.camera.eye.x, self.camera.eye.y, self.camera.eye.z]);
+                        }
+                        None
+                    }
+                    Primitive::Orbit => {
+                        if pressed {
+                            self.camera_controller.orbit_mode = !self.camera_controller.orbit_mode;
+                            if self.camera_controller.orbit_mode {
+                                log::info!("Lambda invoked Orbit Camera Mode.");
+                                self.camera_controller.orbit_focal_point = cgmath::Point3::new(0.0, 5.0, 0.0);
+                                self.camera_controller.orbit_radius = 20.0;
+                            } else {
+                                log::info!("Lambda revoked Orbit Camera Mode.");
+                            }
+                        }
+                        None
+                    }
+                    Primitive::Peek => {
+                        if pressed {
+                            log::info!("Peek primitive invoked! Generating Peek zone.");
+                            // We spawn a dropped item that acts as the peek volume
+                            let peek_pos = spawn_pos;
+                            let new_item = crate::reality_types::DroppedItem::new_cube(
+                                format!("peek_zone_{}", uuid::Uuid::new_v4()),
+                                peek_pos,
+                                cgmath::Vector3::new(0.0, 0.0, 0.0),
+                                5.0,                                 // Size of peek volume
+                                [1.0, 0.2, 0.8, 1.0],                // Pinkish purple marker color
+                                1,
+                            );
+
+                            self.world_state.dropped_items.push(new_item);
                         }
                         None
                     }

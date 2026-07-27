@@ -32,6 +32,8 @@ pub enum Primitive {
     Gravity,
     Levitate,
     Extend,
+    Peek,
+    Orbit,
 }
 
 impl fmt::Display for Primitive {
@@ -66,6 +68,8 @@ impl fmt::Display for Primitive {
             Primitive::Rain => write!(f, "RAIN"),
             Primitive::Gravity => write!(f, "GRAVITY"),
             Primitive::Levitate => write!(f, "LEVITATE"),
+            Primitive::Peek => write!(f, "PEEK"),
+            Primitive::Orbit => write!(f, "ORBIT"),
         }
     }
 }
@@ -104,6 +108,8 @@ impl std::str::FromStr for Primitive {
             "GRAVITY" => Ok(Primitive::Gravity),
             "LEVITATE" => Ok(Primitive::Levitate),
             "EXTEND" => Ok(Primitive::Extend),
+            "PEEK" => Ok(Primitive::Peek),
+            "ORBIT" => Ok(Primitive::Orbit),
             _ => Err(()),
         }
     }

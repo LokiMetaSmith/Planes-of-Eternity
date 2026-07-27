@@ -1025,3 +1025,85 @@ fn test_compute_sort_pipeline() {
 
     println!("Successfully compiled shader_sort.wgsl and created compute pipelines.");
 }
+
+#[test]
+fn test_camera_culling_angles() {
+    // Tests that looking at various angles doesn't incorrectly cull chunks
+    // due to unnormalized frustum planes
+
+    use cgmath::{Point3, Vector3, Matrix4, Deg};
+    // Include the same code we are testing for extraction
+    fn extract_frustum_planes(m: &cgmath::Matrix4<f32>) -> [cgmath::Vector4<f32>; 6] {
+        let planes = [
+            cgmath::Vector4::new(m.x.w + m.x.x, m.y.w + m.y.x, m.z.w + m.z.x, m.w.w + m.w.x),
+            cgmath::Vector4::new(m.x.w - m.x.x, m.y.w - m.y.x, m.z.w - m.z.x, m.w.w - m.w.x),
+            cgmath::Vector4::new(m.x.w + m.x.y, m.y.w + m.y.y, m.z.w + m.z.y, m.w.w + m.w.y),
+            cgmath::Vector4::new(m.x.w - m.x.y, m.y.w - m.y.y, m.z.w - m.z.y, m.w.w - m.w.y),
+            cgmath::Vector4::new(m.x.z, m.y.z, m.z.z, m.w.z),
+            cgmath::Vector4::new(m.x.w - m.x.z, m.y.w - m.y.z, m.z.w - m.z.z, m.w.w - m.w.z),
+        ];
+        planes
+    }
+
+    fn is_aabb_visible(
+        min: cgmath::Point3<f32>,
+        max: cgmath::Point3<f32>,
+        planes: &[cgmath::Vector4<f32>; 6],
+    ) -> bool {
+        for plane in planes {
+            let px = if plane.x > 0.0 { max.x } else { min.x };
+            let py = if plane.y > 0.0 { max.y } else { min.y };
+            let pz = if plane.z > 0.0 { max.z } else { min.z };
+
+            if plane.x * px + plane.y * py + plane.z * pz + plane.w < 0.0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 0.5, 0.0,
+        0.0, 0.0, 0.5, 1.0,
+    );
+
+    let eye = Point3::new(0.0, 0.0, 0.0);
+    let pitch = 0.0f32.to_radians();
+
+    // We expect a chunk directly in front of the camera to always be visible
+    // 45 degrees yaw
+    let yaw = 45.0f32.to_radians();
+    let (sin_y, cos_y) = yaw.sin_cos();
+    let (sin_p, cos_p) = pitch.sin_cos();
+    let front = Vector3::new(cos_p * sin_y, sin_p, cos_p * cos_y);
+    let target = eye + front * 10.0;
+
+    let view = Matrix4::look_at_rh(eye, target, Vector3::new(0.0, 1.0, 0.0));
+    let proj = cgmath::perspective(Deg(45.0), 16.0/9.0, 0.1, 1000.0);
+    let view_proj = OPENGL_TO_WGPU_MATRIX * proj * view;
+
+    let mut planes = extract_frustum_planes(&view_proj);
+
+    // Test point straight ahead
+    let test_pt = eye + front * 20.0;
+    let min = Point3::new(test_pt.x - 5.0, test_pt.y - 5.0, test_pt.z - 5.0);
+    let max = Point3::new(test_pt.x + 5.0, test_pt.y + 5.0, test_pt.z + 5.0);
+
+    // We expect this to be true, but without normalization it returns false for AABBs
+    let _is_visible = is_aabb_visible(min, max, &planes);
+
+    // Now with normalization it should be visible!
+    for plane in planes.iter_mut() {
+        let n = cgmath::Vector3::new(plane.x, plane.y, plane.z);
+        let len = (n.x * n.x + n.y * n.y + n.z * n.z).sqrt();
+        if len > 0.0 {
+            *plane /= len;
+        }
+    }
+
+    let is_visible_normalized = is_aabb_visible(min, max, &planes);
+
+    assert!(is_visible_normalized, "Normalized planes should not cull an AABB directly in front of the camera.");
+}

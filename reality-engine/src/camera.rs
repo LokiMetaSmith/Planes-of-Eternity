@@ -88,6 +88,9 @@ pub struct CameraController {
     is_up_pressed: bool,
     is_down_pressed: bool,
     pub is_crouching: bool,
+    pub orbit_mode: bool,
+    pub orbit_focal_point: Point3<f32>,
+    pub orbit_radius: f32,
 }
 
 impl CameraController {
@@ -101,6 +104,9 @@ impl CameraController {
             is_up_pressed: false,
             is_down_pressed: false,
             is_crouching: false,
+            orbit_mode: false,
+            orbit_focal_point: Point3::new(0.0, 0.0, 0.0),
+            orbit_radius: 20.0,
         }
     }
 
@@ -143,6 +149,10 @@ impl CameraController {
     }
 
     pub fn get_movement_velocity(&self, camera: &Camera) -> Vector3<f32> {
+        if self.orbit_mode {
+            return Vector3::zero();
+        }
+
         let (sin_y, cos_y) = camera.yaw.sin_cos();
         let forward_xz = Vector3::new(sin_y, 0.0, cos_y);
         let right_xz = forward_xz.cross(Vector3::unit_y());
@@ -178,6 +188,16 @@ impl CameraController {
     }
 
     pub fn update_camera_target(&self, camera: &mut Camera) {
-        camera.update_target();
+        if self.orbit_mode {
+            let (sin_y, cos_y) = camera.yaw.sin_cos();
+            let (sin_p, cos_p) = camera.pitch.sin_cos();
+
+            // Calculate eye position based on focal point, radius, and spherical coordinates
+            let front = Vector3::new(cos_p * sin_y, sin_p, cos_p * cos_y);
+            camera.eye = self.orbit_focal_point - front * self.orbit_radius;
+            camera.target = self.orbit_focal_point;
+        } else {
+            camera.update_target();
+        }
     }
 }

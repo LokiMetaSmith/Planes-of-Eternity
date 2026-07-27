@@ -416,6 +416,43 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Reflection Skybox (approx)
     if (roughness < 0.3) {
         let r = reflect(-V, N);
+        
+    var final_rgb = albedo * lighting + vec3<f32>(specular) + emission;
+
+    // --- Peek Effect Cutout & Rim ---
+    var peek_rim_color = vec3<f32>(0.0);
+
+    // Check against permanent anomaly nodes
+    let num_nodes = reality.num_nodes.x;
+    for (var i = 0u; i < num_nodes; i++) {
+        let n_pos = reality.nodes_pos_fid[i].xyz;
+        let n_params = reality.nodes_params[i];
+        let n_archetype = u32(n_params.w);
+
+        let d = distance(in.world_pos, n_pos);
+        // radius = scale (y component of params)
+        let radius = n_params.y;
+
+        // Discard geometry inside the peek sphere
+        if (d < radius) {
+            discard;
+        }
+
+        // Add a glowing rim just outside the threshold
+        let rim_width = 0.5;
+        if (d >= radius && d < radius + rim_width) {
+            // HDR glow color (pinkish purple from engine)
+            let rim = (1.0 - (d - radius) / rim_width);
+            peek_rim_color = vec3<f32>(1.0, 0.2, 0.8) * rim * 2.0;
+        }
+    }
+    final_rgb = final_rgb + peek_rim_color;
+    // ---------------------------------
+
+    // Reflections (Procedural Sky)
+    if (specular_strength > 0.0) {
+        let r = reflect(-view_dir, in.normal);
+        // Simple Sky Gradient based on Y
         let t = 0.5 * (r.y + 1.0);
         let sky_color = mix(vec3<f32>(0.2, 0.6, 1.0), vec3<f32>(0.7, 0.8, 1.0), t);
         let F = fresnelSchlick(max(dot(N, V), 0.0), mix(vec3<f32>(0.04), albedo, metallic));

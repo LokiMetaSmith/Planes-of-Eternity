@@ -28,6 +28,7 @@ pub enum Action {
     ToggleUI,
     CloseInventory,
     SelectItem,
+    ToggleCameraMode,
     // Add more actions as needed
 }
 
@@ -59,6 +60,7 @@ impl Action {
             "ToggleUI" => Some(Action::ToggleUI),
             "CloseInventory" => Some(Action::CloseInventory),
             "SelectItem" => Some(Action::SelectItem),
+            "ToggleCameraMode" => Some(Action::ToggleCameraMode),
             _ => None,
         }
     }
@@ -92,6 +94,7 @@ impl std::fmt::Display for Action {
             Action::ToggleUI => "ToggleUI",
             Action::CloseInventory => "CloseInventory",
             Action::SelectItem => "SelectItem",
+            Action::ToggleCameraMode => "ToggleCameraMode",
         };
         write!(f, "{}", s)
     }
@@ -137,6 +140,7 @@ impl Default for InputConfig {
         bindings.insert(Action::ToggleUI, "KeyH".to_string());
         bindings.insert(Action::CloseInventory, "Escape".to_string());
         bindings.insert(Action::SelectItem, "Digit1".to_string());
+        bindings.insert(Action::ToggleCameraMode, "KeyV".to_string());
 
         let mut config = Self {
             bindings,

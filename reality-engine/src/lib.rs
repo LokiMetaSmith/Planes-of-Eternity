@@ -1847,6 +1847,7 @@ impl State {
                 reality_types::RealityArchetype::Cottagecore => (19.0, [0.4, 0.7, 0.3, 1.0]), // Floral Green
                 reality_types::RealityArchetype::WildWest => (20.0, [0.8, 0.5, 0.2, 1.0]), // Dusty Orange
                 reality_types::RealityArchetype::Fractal => (21.0, [1.0, 0.5, 0.0, 1.0]),
+                reality_types::RealityArchetype::Prehistoric => (22.0, [0.3, 0.4, 0.1, 1.0]),
             }
         }
 
@@ -2258,6 +2259,7 @@ impl State {
                 crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
                 crate::reality_types::RealityArchetype::WildWest => [0.8, 0.5, 0.2, 1.0],
                 crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Prehistoric => [0.3, 0.4, 0.1, 1.0],
             };
 
             let mut final_splats = Vec::new();
@@ -3049,6 +3051,7 @@ impl GameClient {
                 reality_types::RealityArchetype::Cottagecore => 19,
                 reality_types::RealityArchetype::WildWest => 20,
                 reality_types::RealityArchetype::Fractal => 21,
+                reality_types::RealityArchetype::Prehistoric => 22,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

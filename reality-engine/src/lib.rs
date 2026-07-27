@@ -2123,6 +2123,17 @@ impl State {
             }
 
             if wgpu_state.num_instances > 0 {
+                // Ensure instance buffer is large enough
+                let required_size = (wgpu_state.num_instances as usize * std::mem::size_of::<Instance>()) as wgpu::BufferAddress;
+                if required_size > wgpu_state.instance_buffer.size() {
+                    wgpu_state.instance_buffer = wgpu_state.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("Instance Buffer Resized"),
+                        size: required_size.next_power_of_two(),
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                }
+
                 wgpu_state.queue.write_buffer(
                     &wgpu_state.instance_buffer,
                     0,

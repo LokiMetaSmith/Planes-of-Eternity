@@ -293,6 +293,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var final_rgb = albedo * lighting + vec3<f32>(specular) + emission;
 
+    // --- Peek Effect Cutout & Rim ---
+    var peek_rim_color = vec3<f32>(0.0);
+
+    // Check against permanent anomaly nodes
+    let num_nodes = reality.num_nodes.x;
+    for (var i = 0u; i < num_nodes; i++) {
+        let n_pos = reality.nodes_pos_fid[i].xyz;
+        let n_params = reality.nodes_params[i];
+        let n_archetype = u32(n_params.w);
+
+        let d = distance(in.world_pos, n_pos);
+        // radius = scale (y component of params)
+        let radius = n_params.y;
+
+        // Discard geometry inside the peek sphere
+        if (d < radius) {
+            discard;
+        }
+
+        // Add a glowing rim just outside the threshold
+        let rim_width = 0.5;
+        if (d >= radius && d < radius + rim_width) {
+            // HDR glow color (pinkish purple from engine)
+            let rim = (1.0 - (d - radius) / rim_width);
+            peek_rim_color = vec3<f32>(1.0, 0.2, 0.8) * rim * 2.0;
+        }
+    }
+    final_rgb = final_rgb + peek_rim_color;
+    // ---------------------------------
+
     // Reflections (Procedural Sky)
     if (specular_strength > 0.0) {
         let r = reflect(-view_dir, in.normal);

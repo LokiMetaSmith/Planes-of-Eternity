@@ -4,3 +4,4 @@ server.log
 dist/
 /reality-engine/dist/
 target/
+node_modules

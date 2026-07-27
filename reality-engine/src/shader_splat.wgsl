@@ -137,7 +137,23 @@ fn vs_main(
     let tick_alpha = clamp(reality.global_offset.w, 0.0, 1.0);
     // Apply Neural Motion Filtering (F_motion affects the delta between frames)
     let delta = instance.position - instance.previous_position;
-    let interpolated_pos = instance.previous_position + (delta * tick_alpha * f_motion);
+    var interpolated_pos = instance.previous_position + (delta * tick_alpha * f_motion);
+
+    // --- Hidden Flag Waving Effect ---
+    // Define an authored volume at the origin, say a box of size 4x4x4
+    let in_flag_volume = interpolated_pos.x > -2.0 && interpolated_pos.x < 2.0 &&
+                         interpolated_pos.y > -2.0 && interpolated_pos.y < 2.0 &&
+                         interpolated_pos.z > -2.0 && interpolated_pos.z < 2.0;
+
+    if (in_flag_volume) {
+        let time = reality.global_offset.z;
+        // Traveling sine wave based on position X and time
+        let wave = sin(interpolated_pos.x * 2.0 + time * 5.0) * 0.2;
+        // Amplitude ramping up from left edge (-2.0)
+        let amplitude_ramp = (interpolated_pos.x + 2.0) / 4.0;
+        interpolated_pos.y += wave * amplitude_ramp;
+    }
+    // ---------------------------------
 
     let camera_dir = normalize(camera.camera_pos.xyz - interpolated_pos);
     var up = vec3<f32>(0.0, 1.0, 0.0);
@@ -192,8 +208,39 @@ fn fs_main(in: SplatOutput) -> @location(0) vec4<f32> {
     let lighting = ambient + (0.6 * shadow);
 
     // Apply Neural Color Filtering
-    // (In a full implementation, we'd have decoupled tracks, for now we modulate the base color)
     let final_color = in.color.rgb * lighting;
 
-    return vec4<f32>(final_color, alpha);
+    // --- Peek Effect Cutout & Rim ---
+    var peek_alpha = alpha;
+    var peek_rim_color = vec3<f32>(0.0);
+
+    // Check against permanent anomaly nodes (reused here as potential "Peek zones" if archetype == Void)
+    let num_nodes = reality.num_nodes.x;
+    for (var i = 0u; i < num_nodes; i++) {
+        let n_pos = reality.nodes_pos_fid[i].xyz;
+        let n_params = reality.nodes_params[i];
+        let n_archetype = u32(n_params.w);
+
+        // Let's assume an archetype ID of 1 (SciFi) or a specific marker denotes a Peek zone for testing.
+        // The engine spawned a pink marker cube for Peek, we'll check distance.
+        let d = distance(in.world_pos, n_pos);
+        // radius = scale (y component of params)
+        let radius = n_params.y;
+
+        // Discard geometry inside the peek sphere (or cube)
+        if (d < radius) {
+            discard;
+        }
+
+        // Add a glowing rim just outside the threshold
+        let rim_width = 0.5;
+        if (d >= radius && d < radius + rim_width) {
+            // HDR glow color (pinkish purple from engine)
+            let rim = (1.0 - (d - radius) / rim_width);
+            peek_rim_color = vec3<f32>(1.0, 0.2, 0.8) * rim * 2.0;
+        }
+    }
+    // ---------------------------------
+
+    return vec4<f32>(final_color + peek_rim_color, peek_alpha);
 }

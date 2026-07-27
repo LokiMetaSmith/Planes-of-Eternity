@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use cgmath::InnerSpace;
+
 #[cfg(target_arch = "wasm32")]
 use cgmath::{Rotation, SquareMatrix};
 #[cfg(target_arch = "wasm32")]
@@ -155,8 +155,7 @@ fn extract_frustum_planes(m: &cgmath::Matrix4<f32>) -> [cgmath::Vector4<f32>; 6]
 
     for plane in planes.iter_mut() {
         // Normalize the plane normal
-        let n = cgmath::Vector3::new(plane.x, plane.y, plane.z);
-        let len = n.magnitude();
+        let len = (plane.x * plane.x + plane.y * plane.y + plane.z * plane.z).sqrt();
         if len > 0.0 {
             *plane /= len;
         }

@@ -85,6 +85,9 @@ struct RealityUniform {
     nodes_params: [[f32; 4]; 15],
     nodes_color: [[f32; 4]; 15],
     num_nodes: [u32; 4], // x=count
+    sun_dir: [f32; 4],
+    sun_color: [f32; 4],
+    ambient_color: [f32; 4],
 }
 
 impl RealityUniform {
@@ -98,6 +101,9 @@ impl RealityUniform {
             nodes_params: [[0.0; 4]; 15],
             nodes_color: [[0.0; 4]; 15],
             num_nodes: [0; 4],
+            sun_dir: [0.0, 1.0, 0.5, 0.0],
+            sun_color: [1.0, 0.95, 0.9, 1.0],
+            ambient_color: [0.1, 0.15, 0.2, 1.0],
         }
     }
 }
@@ -748,6 +754,8 @@ impl State {
 
         // Voxel Texture Atlas
         let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
+        let voxel_normal = texture::Texture::create_procedural_normal_map(&device, &queue);
+        let voxel_pbr = texture::Texture::create_procedural_pbr_map(&device, &queue);
 
         let voxel_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -778,6 +786,38 @@ impl State {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
                 ],
                 label: Some("voxel_bind_group_layout"),
             });
@@ -796,6 +836,22 @@ impl State {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&voxel_density_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&voxel_normal.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&voxel_normal.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&voxel_pbr.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&voxel_pbr.sampler),
                 },
             ],
             label: Some("voxel_bind_group"),

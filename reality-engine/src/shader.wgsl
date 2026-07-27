@@ -16,6 +16,9 @@ struct RealityUniform {
     nodes_params: array<vec4<f32>, 15>,
     nodes_color: array<vec4<f32>, 15>,
     num_nodes: vec4<u32>, // x=count
+    sun_dir: vec4<f32>,
+    sun_color: vec4<f32>,
+    ambient_color: vec4<f32>,
 };
 @group(2) @binding(0)
 var<uniform> reality: RealityUniform;
@@ -920,6 +923,93 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
     return base_color;
 }
 
+
+// PBR Math Helpers
+const PI = 3.14159265359;
+
+fn get_roughness_metallic(id: f32) -> vec2<f32> {
+    if (id < -0.5) { return vec2<f32>(0.6, 0.0); }
+    else if (id < 0.5) { return vec2<f32>(0.9, 0.0); }
+    else if (id < 1.5) { return vec2<f32>(0.8, 0.0); }
+    else if (id < 2.5) { return vec2<f32>(0.5, 0.1); }
+    else if (id < 3.5) { return vec2<f32>(0.7, 0.0); }
+    else if (id < 4.5) { return vec2<f32>(0.2, 0.0); }
+    else if (id < 5.5) { return vec2<f32>(0.8, 0.0); }
+    else if (id < 6.5) { return vec2<f32>(0.5, 0.0); }
+    else if (id < 7.5) { return vec2<f32>(0.4, 0.0); }
+    else if (id < 8.5) { return vec2<f32>(0.2, 0.8); }
+    else if (id < 9.5) { return vec2<f32>(0.9, 0.0); }
+    else { return vec2<f32>(0.5, 0.0); }
+}
+
+fn DistributionGGX(N: vec3<f32>, H: vec3<f32>, roughness: f32) -> f32 {
+    let a = roughness*roughness;
+    let a2 = a*a;
+    let NdotH = max(dot(N, H), 0.0);
+    let NdotH2 = NdotH*NdotH;
+    let num = a2;
+    var denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+    return num / denom;
+}
+
+fn GeometrySchlickGGX(NdotV: f32, roughness: f32) -> f32 {
+    let r = (roughness + 1.0);
+    let k = (r*r) / 8.0;
+    let num = NdotV;
+    let denom = NdotV * (1.0 - k) + k;
+    return num / denom;
+}
+
+fn GeometrySmith(N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, roughness: f32) -> f32 {
+    let NdotV = max(dot(N, V), 0.0);
+    let NdotL = max(dot(N, L), 0.0);
+    let ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    let ggx1 = GeometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+fn calculate_pbr(
+    N: vec3<f32>, V: vec3<f32>, L: vec3<f32>,
+    albedo: vec3<f32>, roughness: f32, metallic: f32,
+    light_color: vec3<f32>, attenuation: f32
+) -> vec3<f32> {
+    let H = normalize(V + L);
+    let radiance = light_color * attenuation;
+
+    var F0 = vec3<f32>(0.04);
+    F0 = mix(F0, albedo, metallic);
+
+    let NDF = DistributionGGX(N, H, roughness);
+    let G   = GeometrySmith(N, V, L, roughness);
+    let F   = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+    let numerator    = NDF * G * F;
+    let denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+    let specular = numerator / denominator;
+
+    let kS = F;
+    var kD = vec3<f32>(1.0) - kS;
+    kD *= 1.0 - metallic;
+
+    let NdotL = max(dot(N, L), 0.0);
+    return (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
+// ACES Tonemapping
+fn ACESFilm(x: vec3<f32>) -> vec3<f32> {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_texture = textureSample(t_diffuse, s_diffuse, in.tex_coords);
@@ -1016,7 +1106,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_diffuse = max(dot(base_normal, light_dir), 0.0) * shadow;
     let lit_base = base_texture.rgb * (base_diffuse + ambient);
 
-    let result = mix(lit_base, lit_reality, in.visibility);
+    var result = mix(lit_base, lit_reality, in.visibility);
+
+    // ACES Tonemapping
+    result = ACESFilm(result);
+    // Gamma correction
+    result = pow(result, vec3<f32>(1.0/2.2));
 
     // Visual Glitch Overlay (Chromatic Aberration simulation via color shift)
     if (in.instability > 0.1) {

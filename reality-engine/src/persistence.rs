@@ -89,7 +89,7 @@ pub fn delete_save(_slot: &str) {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn save_to_indexed_db(key: &str, state: &GameState) {
+pub async fn save_to_indexed_db(key: &str, state: &GameState) -> bool {
     // Large world optimization: yield to event loop before heavy serialization
     wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL)).await.ok();
 
@@ -98,10 +98,18 @@ pub async fn save_to_indexed_db(key: &str, state: &GameState) {
             if let Ok(db) = crate::indexed_db::IndexedDb::new().await {
                 if let Err(e) = db.save(key, &json).await {
                     error!("Failed to save to IndexedDB: {:?}", e);
+                    return false;
                 }
+                return true;
+            } else {
+                error!("Failed to initialize IndexedDB");
+                return false;
             }
         }
-        Err(e) => error!("Failed to serialize game state: {:?}", e),
+        Err(e) => {
+            error!("Failed to serialize game state: {:?}", e);
+            return false;
+        }
     }
 }
 

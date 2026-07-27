@@ -1565,9 +1565,11 @@ impl State {
                     };
                     let game_state_clone = game_state.clone();
                     wasm_bindgen_futures::spawn_local(async move {
-                        persistence::save_to_indexed_db("reality_engine_save", &game_state_clone).await;
+                        let success = persistence::save_to_indexed_db("reality_engine_save", &game_state_clone).await;
+                        if !success {
+                            persistence::save_to_local_storage("reality_engine_save", &game_state_clone);
+                        }
                     });
-                    persistence::save_to_local_storage("reality_engine_save", &game_state);
                     return;
                 }
             }
@@ -1595,9 +1597,11 @@ impl State {
             };
             let game_state_clone = game_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                persistence::save_to_indexed_db("reality_engine_save", &game_state_clone).await;
+                let success = persistence::save_to_indexed_db("reality_engine_save", &game_state_clone).await;
+                if !success {
+                    persistence::save_to_local_storage("reality_engine_save", &game_state_clone);
+                }
             });
-            persistence::save_to_local_storage("reality_engine_save", &game_state);
         }
     }
 
@@ -3335,9 +3339,11 @@ impl GameClient {
         let game_state_clone = game_state.clone();
         let key_clone = key.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            persistence::save_to_indexed_db(&key_clone, &game_state_clone).await;
+            let success = persistence::save_to_indexed_db(&key_clone, &game_state_clone).await;
+            if !success {
+                persistence::save_to_local_storage(&key_clone, &game_state_clone);
+            }
         });
-        persistence::save_to_local_storage(&key, &game_state);
     }
 
     pub async fn enter_vr_session(&self) -> Result<(), JsValue> {
@@ -4278,9 +4284,11 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
                 let game_state_clone = game_state.clone();
                 let key_clone = key.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    persistence::save_to_indexed_db(&key_clone, &game_state_clone).await;
+                    let success = persistence::save_to_indexed_db(&key_clone, &game_state_clone).await;
+                    if !success {
+                        persistence::save_to_local_storage(&key_clone, &game_state_clone);
+                    }
                 });
-                persistence::save_to_local_storage(&key, &game_state);
             }
 
             // Pollinate (Broadcast Presence)

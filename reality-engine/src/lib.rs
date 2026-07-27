@@ -306,6 +306,7 @@ pub struct WgpuState {
 
     instance_buffer: wgpu::Buffer,
     num_instances: u32,
+    max_instances: u32,
 
     diffuse_bind_group: wgpu::BindGroup,
     pub diffuse_texture: texture::Texture,
@@ -704,6 +705,7 @@ impl State {
             contents: bytemuck::cast_slice(&instances),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+        let max_instances = num_instances_initial;
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -1190,6 +1192,7 @@ impl State {
             num_indices,
             instance_buffer,
             num_instances: num_instances_initial,
+            max_instances,
             diffuse_bind_group,
             diffuse_texture,
             camera_uniform,
@@ -2102,6 +2105,24 @@ impl State {
             }
 
             wgpu_state.num_instances = visible_instances.len() as u32;
+
+            if wgpu_state.num_instances > wgpu_state.max_instances {
+                wgpu_state.max_instances = (wgpu_state.num_instances * 2).next_power_of_two();
+                let instances = vec![
+                    Instance {
+                        model: cgmath::Matrix4::identity().into(),
+                        stability: 1.0,
+                        padding: [0.0; 3]
+                    };
+                    wgpu_state.max_instances as usize
+                ];
+                wgpu_state.instance_buffer = wgpu_state.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Instance Buffer Resized"),
+                    contents: bytemuck::cast_slice(&instances),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                });
+            }
+
             if wgpu_state.num_instances > 0 {
                 wgpu_state.queue.write_buffer(
                     &wgpu_state.instance_buffer,

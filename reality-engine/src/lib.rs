@@ -45,6 +45,7 @@ pub mod voxelizer;
 pub mod world;
 #[cfg(target_arch = "wasm32")]
 pub mod xr;
+pub mod steam;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

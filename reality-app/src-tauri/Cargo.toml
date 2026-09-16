@@ -31,3 +31,4 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+steamworks = "0.11"

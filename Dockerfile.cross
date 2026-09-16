@@ -1,8 +1,3 @@
-#!/bin/bash
-set -e
-
-echo "Setting up Docker cross-compilation for Tauri ARM64..."
-cat << 'DOCKERFILE' > Dockerfile.cross
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -58,15 +53,3 @@ WORKDIR /app/reality-app
 RUN npm install
 # Run build targeting aarch64, skipping AppImage to avoid FUSE issues inside Docker
 RUN npm run tauri build -- --target aarch64-unknown-linux-gnu --bundles deb
-DOCKERFILE
-
-echo "Building Docker image and compiling reality-app..."
-docker build -t reality-app-cross -f Dockerfile.cross .
-
-echo "Extracting the compiled binary..."
-CONTAINER_ID=$(docker create reality-app-cross)
-# The binary is named 'reality-engine' because of productName in tauri.conf.json
-docker cp ${CONTAINER_ID}:/app/reality-app/src-tauri/target/aarch64-unknown-linux-gnu/release/reality-engine ./reality-app-steam-frame
-docker rm ${CONTAINER_ID}
-
-echo "Binary available at: ./reality-app-steam-frame"

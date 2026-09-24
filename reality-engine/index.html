@@ -158,14 +158,14 @@
 
         #ui-layer {
             position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 320px;
-            max-height: calc(100vh - 40px);
-            overflow-y: auto;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
             z-index: 10;
-            pointer-events: auto; /* Allow scrolling on the layer itself */
+            pointer-events: none; /* Let clicks pass through empty areas */
         }
+
 
         .cyber-card {
             pointer-events: auto;
@@ -300,6 +300,32 @@
             outline: 2px solid #fff;
             outline-offset: 2px;
             box-shadow: 0 0 15px rgba(5, 255, 161, 0.8);
+        }
+
+
+        /* Draggable & Resizable Support */
+        .draggable-window {
+            position: absolute;
+            resize: both;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .cyber-header {
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+
+        .cyber-header:active {
+            cursor: grabbing;
+        }
+
+        .draggable-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
         }
 
         /* Scrollbar styling */
@@ -570,10 +596,20 @@
         <canvas id="minimap-canvas" width="128" height="128"></canvas>
     </div>
 
-    <div id="player-coordinates" aria-hidden="true" style="position: fixed; bottom: 30px; right: 10px; color: #0f0; background: rgba(0,0,0,0.5); padding: 5px; font-family: monospace; z-index: 1000; border: 1px solid #0f0; border-radius: 3px;">X: 0.00 Y: 0.00 Z: 0.00</div>
+
 
     <div id="ui-layer">
-        <div class="cyber-card">
+    <div id="player-coordinates" aria-hidden="true" style="position: fixed; bottom: 30px; right: 10px; color: #0f0; background: rgba(0,0,0,0.5); padding: 5px; font-family: monospace; z-index: 1000; border: 1px solid #0f0; border-radius: 3px;">X: 0.00 Y: 0.00 Z: 0.00</div>
+    <div id="log-area" class="draggable-window" aria-live="polite" role="log" tabindex="0" aria-label="System Log" style="pointer-events: auto;">
+        <div class="cyber-header" style="background: rgba(5,255,161,0.2); margin-bottom: 10px; padding: 5px;">System Log</div>
+        <div class="draggable-content" style="padding: 0;">
+            <div>> SYSTEM BOOT_SEQUENCE_INIT</div>
+            <div>> CHECKING_REALITY_INTEGRITY...</div>
+            <div>> WARNING: ANOMALY DETECTED</div>
+        </div>
+    </div>
+
+        <div class="cyber-card draggable-window">
             <div class="cyber-header" role="heading" aria-level="2">Anomaly Projector</div>
 
             <div class="control-group">
@@ -788,11 +824,9 @@
         </div>
     </div>
 
-    <div id="log-area" aria-live="polite" role="log" tabindex="0" aria-label="System Log">
-        <div>> SYSTEM BOOT_SEQUENCE_INIT</div>
-        <div>> CHECKING_REALITY_INTEGRITY...</div>
-        <div>> WARNING: ANOMALY DETECTED</div>
-    </div>
+
+
+
 
     <style>
         @keyframes blink {
@@ -1810,7 +1844,7 @@
         }
 
         function log(msg) {
-            const area = document.getElementById('log-area');
+            const area = document.querySelector('#log-area .draggable-content') || document.getElementById('log-area');
             const line = document.createElement('div');
             // Add timestamp
             const time = new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -1854,6 +1888,95 @@
     // Browser AI Director
     window.isAIEnabled = false;
     window.aiInterval = null;
+
+
+        function makeDraggable() {
+            const draggables = document.querySelectorAll('.draggable-window');
+            let zIndexCounter = 100;
+            let initialTopOffset = 20;
+
+            draggables.forEach(win => {
+                const header = win.querySelector('.cyber-header');
+                if (!header) return;
+
+                win.style.top = initialTopOffset + 'px';
+                win.style.right = '20px';
+                win.style.left = 'auto';
+                initialTopOffset += win.offsetHeight + 20;
+
+                win.addEventListener('mousedown', () => {
+                    win.style.zIndex = ++zIndexCounter;
+                });
+
+                win.addEventListener('touchstart', () => {
+                    win.style.zIndex = ++zIndexCounter;
+                }, {passive: true});
+
+                let isDragging = false;
+                let startX, startY, initialLeft, initialTop;
+
+                const onMove = (e) => {
+                    if (!isDragging) return;
+                    e.preventDefault();
+
+                    let clientX = e.clientX;
+                    let clientY = e.clientY;
+                    if (e.touches && e.touches.length > 0) {
+                        clientX = e.touches[0].clientX;
+                        clientY = e.touches[0].clientY;
+                    }
+
+                    const dx = clientX - startX;
+                    const dy = clientY - startY;
+
+                    win.style.left = (initialLeft + dx) + 'px';
+                    win.style.top = (initialTop + dy) + 'px';
+                    win.style.right = 'auto';
+                    win.style.bottom = 'auto';
+                };
+
+                const onEnd = () => {
+                    isDragging = false;
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onEnd);
+                    document.removeEventListener('touchmove', onMove);
+                    document.removeEventListener('touchend', onEnd);
+                };
+
+                const onStart = (e) => {
+                    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+                    isDragging = true;
+
+                    let clientX = e.clientX;
+                    let clientY = e.clientY;
+                    if (e.touches && e.touches.length > 0) {
+                        clientX = e.touches[0].clientX;
+                        clientY = e.touches[0].clientY;
+                    }
+
+                    startX = clientX;
+                    startY = clientY;
+
+                    const rect = win.getBoundingClientRect();
+                    initialLeft = rect.left;
+                    initialTop = rect.top;
+
+                    document.addEventListener('mousemove', onMove, {passive: false});
+                    document.addEventListener('mouseup', onEnd);
+                    document.addEventListener('touchmove', onMove, {passive: false});
+                    document.addEventListener('touchend', onEnd);
+                };
+
+                header.addEventListener('mousedown', onStart);
+                header.addEventListener('touchstart', onStart, {passive: false});
+            });
+        }
+
+        // Initialize draggability
+        document.addEventListener('DOMContentLoaded', () => {
+            makeDraggable();
+        });
 
     document.addEventListener("DOMContentLoaded", () => {
         const btnToggleAI = document.getElementById('btn-toggle-ai');

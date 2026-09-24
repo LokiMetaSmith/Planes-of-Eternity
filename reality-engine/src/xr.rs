@@ -2,6 +2,30 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{XrSession, XrSessionMode};
 
+#[wasm_bindgen(inline_js = "
+export function request_session_with_overlay(xr, mode, dom_id) {
+    let init = {};
+    if (dom_id) {
+        let elem = document.getElementById(dom_id);
+        if (elem) {
+            init = {
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: elem }
+            };
+        }
+    }
+    return xr.requestSession(mode, init);
+}
+")]
+extern "C" {
+    #[wasm_bindgen(catch)]
+    pub async fn request_session_with_overlay(
+        xr: &web_sys::XrSystem,
+        mode: &str,
+        dom_id: Option<&str>,
+    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
+}
+
 #[wasm_bindgen]
 pub async fn is_ar_supported() -> Result<bool, JsValue> {
     let window = web_sys::window().unwrap();
@@ -39,10 +63,8 @@ pub async fn request_ar_session() -> Result<XrSession, JsValue> {
         Err(_) => return Err(JsValue::from_str("WebXR not supported")),
     };
 
-    let promise = xr.request_session(XrSessionMode::ImmersiveAr);
-    let result = wasm_bindgen_futures::JsFuture::from(promise).await?;
-
-    Ok(result.unchecked_into::<XrSession>())
+    let session = request_session_with_overlay(&xr, "immersive-ar", Some("ui-layer")).await?;
+    Ok(session.unchecked_into::<XrSession>())
 }
 
 #[wasm_bindgen]
@@ -82,8 +104,6 @@ pub async fn request_vr_session() -> Result<XrSession, JsValue> {
         Err(_) => return Err(JsValue::from_str("WebXR not supported")),
     };
 
-    let promise = xr.request_session(XrSessionMode::ImmersiveVr);
-    let result = wasm_bindgen_futures::JsFuture::from(promise).await?;
-
-    Ok(result.unchecked_into::<XrSession>())
+    let session = request_session_with_overlay(&xr, "immersive-vr", Some("ui-layer")).await?;
+    Ok(session.unchecked_into::<XrSession>())
 }

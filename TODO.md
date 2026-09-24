@@ -89,6 +89,7 @@
 - [x] **Influence Radius**: Update the logic to apply the area of influence expansion.
 
 ## UI/UX
+- [x] **Draggable Windows**: Implement draggable and resizable UI overlays with WebXR `dom-overlay` support for native VR interaction.
 - [x] Add visual indicator for player coordinate position on the UI
 - [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.
 - [x] **Player Model**: Rendered a voxel sphere player model at the player's position colored by their active archetype to make the player dynamic and fit the game's voxel aesthetic.

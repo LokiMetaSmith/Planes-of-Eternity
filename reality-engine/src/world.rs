@@ -219,6 +219,7 @@ impl WorldState {
             RealityArchetype::WildWest => 0.3,
             RealityArchetype::Fractal => 0.1,
             RealityArchetype::Prehistoric => 0.1,
+            RealityArchetype::PostApocalyptic => 0.2,
         };
 
         // Player influence applies over time
@@ -260,6 +261,7 @@ impl WorldState {
             RealityArchetype::WildWest => 0.3,
             RealityArchetype::Fractal => 0.1,
             RealityArchetype::Prehistoric => 0.1,
+            RealityArchetype::PostApocalyptic => 0.2,
         };
 
         chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);

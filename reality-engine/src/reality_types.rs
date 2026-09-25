@@ -27,6 +27,7 @@ pub enum RealityArchetype {
     WildWest,     // Dusty, saloons, tumbleweeds
     Fractal,      // L-Systems and CFG structures
     Prehistoric,  // Primordial jungle and rugged terrain
+    PostApocalyptic, // Deserted wasteland, ruins
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

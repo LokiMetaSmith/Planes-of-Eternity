@@ -81,7 +81,7 @@
 - [x] **New Archetypes**: Added LiminalSpace archetype to Reality Engine.
 - [x] **New Archetypes**: Added Clockwork archetype to Reality Engine.
 - [x] **New Archetypes**: Added Cottagecore archetype to Reality Engine.
-- [x] **New Archetypes**: Added PostApocalyptic archetype to Reality Engine.
+- [x] **New Archetypes**: Added PostApocalyptic archetype to Reality Engine. (Actually implemented in code and UI)
 - [x] **New Archetypes**: Added WildWest archetype to Reality Engine.
 
 ## Game Mechanics

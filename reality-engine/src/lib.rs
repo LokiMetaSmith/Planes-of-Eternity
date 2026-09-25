@@ -1855,6 +1855,7 @@ impl State {
                 reality_types::RealityArchetype::WildWest => (20.0, [0.8, 0.5, 0.2, 1.0]), // Dusty Orange
                 reality_types::RealityArchetype::Fractal => (21.0, [1.0, 0.5, 0.0, 1.0]),
                 reality_types::RealityArchetype::Prehistoric => (22.0, [0.3, 0.4, 0.1, 1.0]),
+                reality_types::RealityArchetype::PostApocalyptic => (23.0, [0.4, 0.3, 0.2, 1.0]), // Dusty Brown/Orange
             }
         }
 
@@ -2285,6 +2286,7 @@ impl State {
                 crate::reality_types::RealityArchetype::WildWest => [0.8, 0.5, 0.2, 1.0],
                 crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
                 crate::reality_types::RealityArchetype::Prehistoric => [0.3, 0.4, 0.1, 1.0],
+                crate::reality_types::RealityArchetype::PostApocalyptic => [0.4, 0.3, 0.2, 1.0],
             };
 
             let mut final_splats = Vec::new();
@@ -2951,6 +2953,8 @@ impl GameClient {
             19 => reality_types::RealityArchetype::Cottagecore,
             20 => reality_types::RealityArchetype::WildWest,
             21 => reality_types::RealityArchetype::Fractal,
+            22 => reality_types::RealityArchetype::Prehistoric,
+            23 => reality_types::RealityArchetype::PostApocalyptic,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -2985,6 +2989,8 @@ impl GameClient {
             19 => reality_types::RealityArchetype::Cottagecore,
             20 => reality_types::RealityArchetype::WildWest,
             21 => reality_types::RealityArchetype::Fractal,
+            22 => reality_types::RealityArchetype::Prehistoric,
+            23 => reality_types::RealityArchetype::PostApocalyptic,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -3011,6 +3017,8 @@ impl GameClient {
             19 => reality_types::RealityArchetype::Cottagecore,
             20 => reality_types::RealityArchetype::WildWest,
             21 => reality_types::RealityArchetype::Fractal,
+            22 => reality_types::RealityArchetype::Prehistoric,
+            23 => reality_types::RealityArchetype::PostApocalyptic,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -3044,6 +3052,8 @@ impl GameClient {
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
             17 => reality_types::RealityArchetype::LiminalSpace,
+            22 => reality_types::RealityArchetype::Prehistoric,
+            23 => reality_types::RealityArchetype::PostApocalyptic,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -3077,6 +3087,7 @@ impl GameClient {
                 reality_types::RealityArchetype::WildWest => 20,
                 reality_types::RealityArchetype::Fractal => 21,
                 reality_types::RealityArchetype::Prehistoric => 22,
+                reality_types::RealityArchetype::PostApocalyptic => 23,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

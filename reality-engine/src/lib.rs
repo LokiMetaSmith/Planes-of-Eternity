@@ -3472,7 +3472,62 @@ impl GameClient {
             let mut trigger_pressed = false;
 
             for i in 0..input_sources.length() {
-                if let Some(input_source) = input_sources.get(i) {
+                if let Some(input_source) = input_sources.get(i).map(|s| s.unchecked_into::<web_sys::XrInputSource>()) {
+                    // Check for Hand Tracking (Pinch gesture to CastSpell)
+                    let hand_val = js_sys::Reflect::get(&input_source, &JsValue::from_str("hand"));
+                    if let Ok(h) = hand_val {
+                        if h.is_object() {
+                            let index_val = js_sys::Reflect::get(&h, &JsValue::from_str("index-finger-tip"));
+                            let thumb_val = js_sys::Reflect::get(&h, &JsValue::from_str("thumb-tip"));
+                            let wrist_val = js_sys::Reflect::get(&h, &JsValue::from_str("wrist"));
+
+                            if let (Ok(index), Ok(thumb), Ok(wrist)) = (index_val, thumb_val, wrist_val) {
+                                if !index.is_undefined() && !thumb.is_undefined() && !wrist.is_undefined() {
+                                    let index_space: web_sys::XrSpace = index.unchecked_into();
+                                    let thumb_space: web_sys::XrSpace = thumb.unchecked_into();
+                                    let wrist_space: web_sys::XrSpace = wrist.unchecked_into();
+
+                                    let index_pose = frame.get_pose(&index_space, &reference_space_clone);
+                                    let thumb_pose = frame.get_pose(&thumb_space, &reference_space_clone);
+                                    let wrist_pose = frame.get_pose(&wrist_space, &reference_space_clone);
+
+                                    if let (Some(ip), Some(tp), Some(wp)) = (index_pose, thumb_pose, wrist_pose) {
+                                        let ip_pos = ip.transform().position();
+                                        let tp_pos = tp.transform().position();
+                                        let _wp_pos = wp.transform().position();
+
+                                        // Pinch Gesture
+                                        let dx = ip_pos.x() as f32 - tp_pos.x() as f32;
+                                        let dy = ip_pos.y() as f32 - tp_pos.y() as f32;
+                                        let dz = ip_pos.z() as f32 - tp_pos.z() as f32;
+                                        let dist_sq = dx * dx + dy * dy + dz * dz;
+
+                                        if dist_sq < 0.02 * 0.02 {
+                                            trigger_pressed = true; // Maps to process_click below
+                                        }
+
+                                        // Palm / Fist
+                                        let dwx = ip_pos.x() as f32 - _wp_pos.x() as f32;
+                                        let dwy = ip_pos.y() as f32 - _wp_pos.y() as f32;
+                                        let dwz = ip_pos.z() as f32 - _wp_pos.z() as f32;
+                                        let dist_wrist_sq = dwx * dwx + dwy * dwy + dwz * dwz;
+
+                                        if dist_wrist_sq > 0.12 * 0.12 {
+                                            // Open Palm: Trigger Inscribe
+                                            state.engine.camera_controller.process_action(input::Action::Inscribe, true);
+                                            state.engine.camera_controller.process_action(input::Action::Inscribe, false);
+                                        } else if dist_wrist_sq < 0.08 * 0.08 {
+                                            // Fist: Trigger Jump
+                                            state.engine.camera_controller.process_action(input::Action::Jump, true);
+                                            state.engine.camera_controller.process_action(input::Action::Jump, false);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback to Gamepad
                     if let Some(gamepad) = input_source.gamepad() {
                         let buttons = gamepad.buttons();
                         let axes = gamepad.axes();
@@ -3504,7 +3559,7 @@ impl GameClient {
                 }
             }
 
-            // Handle debounced click
+            // Handle debounced click (maps to spell casting implicitly)
             let mut last_trigger = last_trigger_state.borrow_mut();
             if trigger_pressed && !*last_trigger {
                 state.engine.process_click(0.0, 0.0);
@@ -3612,6 +3667,76 @@ impl GameClient {
                     .get(i)
                     .map(|s| s.unchecked_into::<web_sys::XrInputSource>())
                 {
+                    // Check for Hand Tracking (Pinch gesture to CastSpell)
+                    let hand_val = js_sys::Reflect::get(&input_source, &JsValue::from_str("hand"));
+                    if let Ok(h) = hand_val {
+                        if h.is_object() {
+                            let index_val = js_sys::Reflect::get(&h, &JsValue::from_str("index-finger-tip"));
+                            let thumb_val = js_sys::Reflect::get(&h, &JsValue::from_str("thumb-tip"));
+                            let wrist_val = js_sys::Reflect::get(&h, &JsValue::from_str("wrist"));
+
+                            let mut pinch_pressed = false;
+
+                            if let (Ok(index), Ok(thumb), Ok(wrist)) = (index_val, thumb_val, wrist_val) {
+                                if !index.is_undefined() && !thumb.is_undefined() && !wrist.is_undefined() {
+                                    let index_space: web_sys::XrSpace = index.unchecked_into();
+                                    let thumb_space: web_sys::XrSpace = thumb.unchecked_into();
+                                    let wrist_space: web_sys::XrSpace = wrist.unchecked_into();
+
+                                    let index_pose = frame.get_pose(&index_space, &reference_space_clone);
+                                    let thumb_pose = frame.get_pose(&thumb_space, &reference_space_clone);
+                                    let wrist_pose = frame.get_pose(&wrist_space, &reference_space_clone);
+
+                                    if let (Some(ip), Some(tp), Some(wp)) = (index_pose, thumb_pose, wrist_pose) {
+                                        let ip_pos = ip.transform().position();
+                                        let tp_pos = tp.transform().position();
+                                        let _wp_pos = wp.transform().position();
+
+                                        // Pinch Gesture
+                                        let dx = ip_pos.x() as f32 - tp_pos.x() as f32;
+                                        let dy = ip_pos.y() as f32 - tp_pos.y() as f32;
+                                        let dz = ip_pos.z() as f32 - tp_pos.z() as f32;
+                                        let dist_sq = dx * dx + dy * dy + dz * dz;
+
+                                        if dist_sq < 0.02 * 0.02 {
+                                            pinch_pressed = true;
+                                        }
+
+                                        // Palm / Fist
+                                        let dwx = ip_pos.x() as f32 - _wp_pos.x() as f32;
+                                        let dwy = ip_pos.y() as f32 - _wp_pos.y() as f32;
+                                        let dwz = ip_pos.z() as f32 - _wp_pos.z() as f32;
+                                        let dist_wrist_sq = dwx * dwx + dwy * dwy + dwz * dwz;
+
+                                        // Simple state tracking using last_trigger_pressed for pinch, we need something for palm/fist but we can just use the controller action which might self-debounce depending on engine tick. To be safe, we just emit the action.
+                                        if dist_wrist_sq > 0.12 * 0.12 {
+                                            // Open Palm: Trigger Inscribe
+                                            state.engine.camera_controller.process_action(input::Action::Inscribe, true);
+                                            state.engine.camera_controller.process_action(input::Action::Inscribe, false);
+                                        } else if dist_wrist_sq < 0.08 * 0.08 {
+                                            // Fist: Trigger Jump
+                                            state.engine.camera_controller.process_action(input::Action::Jump, true);
+                                            state.engine.camera_controller.process_action(input::Action::Jump, false);
+                                        }
+                                    }
+                                }
+                            }
+
+                            let idx = (i as usize).min(3);
+                            if pinch_pressed && !last_trigger_pressed[idx] {
+                                state
+                                    .engine
+                                    .camera_controller
+                                    .process_action(input::Action::CastSpell, true);
+                                state
+                                    .engine
+                                    .camera_controller
+                                    .process_action(input::Action::CastSpell, false);
+                            }
+                            last_trigger_pressed[idx] = pinch_pressed;
+                        }
+                    }
+
                     if let Some(gamepad) = input_source.gamepad() {
                         let buttons = gamepad.buttons();
 

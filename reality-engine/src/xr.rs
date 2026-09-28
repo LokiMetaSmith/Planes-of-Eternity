@@ -9,7 +9,7 @@ export function request_session_with_overlay(xr, mode, dom_id) {
         let elem = document.getElementById(dom_id);
         if (elem) {
             init = {
-                optionalFeatures: ['dom-overlay'],
+                optionalFeatures: ['dom-overlay', 'hand-tracking'],
                 domOverlay: { root: elem }
             };
         }

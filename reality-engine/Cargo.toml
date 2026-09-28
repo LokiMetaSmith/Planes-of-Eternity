@@ -43,7 +43,7 @@ features = [
     "RequestMode", "Headers", "Performance", "AudioContext", "AudioDestinationNode", "AudioNode",
     "AudioParam", "GainNode", "OscillatorNode", "OscillatorType", "AudioContextState",
     "WebGl2RenderingContext", "WheelEvent", "Worker", "WorkerOptions", "WorkerType", "XrInputSource",
-    "XrInputSourceArray", "XrSpace", "Gamepad", "GamepadButton", "GamepadMappingType",
+    "XrInputSourceArray", "XrSpace", "Gamepad", "XrHand", "XrJointSpace", "XrJointPose", "GamepadButton", "GamepadMappingType",
     "IdbDatabase", "IdbFactory", "IdbOpenDbRequest", "IdbTransaction", "IdbObjectStore",
     "IdbRequest", "IdbTransactionMode", "IdbVersionChangeEvent", "DomStringList",
     "Location", "CanvasRenderingContext2d", "CanvasGradient"

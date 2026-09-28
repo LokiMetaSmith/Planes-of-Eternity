@@ -3402,6 +3402,9 @@ impl GameClient {
         let g_xr = f_xr.clone();
 
         let last_trigger_state = Rc::new(RefCell::new(false));
+        // Used to debounce trigger action per controller (Left/Right index approximation)
+        let mut last_palm_pressed = vec![false; 4];
+        let mut last_fist_pressed = vec![false; 4];
 
         *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
             let mut state = state_xr.borrow_mut();
@@ -3479,24 +3482,41 @@ impl GameClient {
                         if h.is_object() {
                             let index_val = js_sys::Reflect::get(&h, &JsValue::from_str("index-finger-tip"));
                             let thumb_val = js_sys::Reflect::get(&h, &JsValue::from_str("thumb-tip"));
+                            let middle_val = js_sys::Reflect::get(&h, &JsValue::from_str("middle-finger-tip"));
+                            let ring_val = js_sys::Reflect::get(&h, &JsValue::from_str("ring-finger-tip"));
+                            let pinky_val = js_sys::Reflect::get(&h, &JsValue::from_str("pinky-finger-tip"));
                             let wrist_val = js_sys::Reflect::get(&h, &JsValue::from_str("wrist"));
 
-                            if let (Ok(index), Ok(thumb), Ok(wrist)) = (index_val, thumb_val, wrist_val) {
-                                if !index.is_undefined() && !thumb.is_undefined() && !wrist.is_undefined() {
+                            if let (Ok(index), Ok(thumb), Ok(middle), Ok(ring), Ok(pinky), Ok(wrist)) =
+                                (index_val, thumb_val, middle_val, ring_val, pinky_val, wrist_val) {
+                                if !index.is_undefined() && !thumb.is_undefined() && !middle.is_undefined()
+                                    && !ring.is_undefined() && !pinky.is_undefined() && !wrist.is_undefined() {
+
                                     let index_space: web_sys::XrSpace = index.unchecked_into();
                                     let thumb_space: web_sys::XrSpace = thumb.unchecked_into();
+                                    let middle_space: web_sys::XrSpace = middle.unchecked_into();
+                                    let ring_space: web_sys::XrSpace = ring.unchecked_into();
+                                    let pinky_space: web_sys::XrSpace = pinky.unchecked_into();
                                     let wrist_space: web_sys::XrSpace = wrist.unchecked_into();
 
                                     let index_pose = frame.get_pose(&index_space, &reference_space_clone);
                                     let thumb_pose = frame.get_pose(&thumb_space, &reference_space_clone);
+                                    let middle_pose = frame.get_pose(&middle_space, &reference_space_clone);
+                                    let ring_pose = frame.get_pose(&ring_space, &reference_space_clone);
+                                    let pinky_pose = frame.get_pose(&pinky_space, &reference_space_clone);
                                     let wrist_pose = frame.get_pose(&wrist_space, &reference_space_clone);
 
-                                    if let (Some(ip), Some(tp), Some(wp)) = (index_pose, thumb_pose, wrist_pose) {
+                                    if let (Some(ip), Some(tp), Some(mp), Some(rp), Some(pp), Some(wp)) =
+                                        (index_pose, thumb_pose, middle_pose, ring_pose, pinky_pose, wrist_pose) {
+
                                         let ip_pos = ip.transform().position();
                                         let tp_pos = tp.transform().position();
-                                        let _wp_pos = wp.transform().position();
+                                        let mp_pos = mp.transform().position();
+                                        let rp_pos = rp.transform().position();
+                                        let pp_pos = pp.transform().position();
+                                        let wp_pos = wp.transform().position();
 
-                                        // Pinch Gesture
+                                        // Pinch Gesture (Index to Thumb)
                                         let dx = ip_pos.x() as f32 - tp_pos.x() as f32;
                                         let dy = ip_pos.y() as f32 - tp_pos.y() as f32;
                                         let dz = ip_pos.z() as f32 - tp_pos.z() as f32;
@@ -3506,21 +3526,50 @@ impl GameClient {
                                             trigger_pressed = true; // Maps to process_click below
                                         }
 
-                                        // Palm / Fist
-                                        let dwx = ip_pos.x() as f32 - _wp_pos.x() as f32;
-                                        let dwy = ip_pos.y() as f32 - _wp_pos.y() as f32;
-                                        let dwz = ip_pos.z() as f32 - _wp_pos.z() as f32;
-                                        let dist_wrist_sq = dwx * dwx + dwy * dwy + dwz * dwz;
+                                        // Palm / Fist Distances from Wrist
+                                        let calc_dist_sq = |finger: &web_sys::DomPointReadOnly, wrist: &web_sys::DomPointReadOnly| -> f32 {
+                                            let dwx = finger.x() as f32 - wrist.x() as f32;
+                                            let dwy = finger.y() as f32 - wrist.y() as f32;
+                                            let dwz = finger.z() as f32 - wrist.z() as f32;
+                                            dwx * dwx + dwy * dwy + dwz * dwz
+                                        };
 
-                                        if dist_wrist_sq > 0.12 * 0.12 {
-                                            // Open Palm: Trigger Inscribe
+                                        let d_thumb_sq = calc_dist_sq(&tp_pos, &wp_pos);
+                                        let d_index_sq = calc_dist_sq(&ip_pos, &wp_pos);
+                                        let d_middle_sq = calc_dist_sq(&mp_pos, &wp_pos);
+                                        let d_ring_sq = calc_dist_sq(&rp_pos, &wp_pos);
+                                        let d_pinky_sq = calc_dist_sq(&pp_pos, &wp_pos);
+
+                                        let mut palm_pressed = false;
+                                        let mut fist_pressed = false;
+
+                                        // Open Palm: Trigger Inscribe
+                                        if d_thumb_sq > 0.08 * 0.08 && d_index_sq > 0.11 * 0.11 &&
+                                           d_middle_sq > 0.11 * 0.11 && d_ring_sq > 0.10 * 0.10 &&
+                                           d_pinky_sq > 0.09 * 0.09 {
+                                            palm_pressed = true;
+                                        }
+
+                                        // Fist: Trigger Jump
+                                        if d_thumb_sq < 0.08 * 0.08 && d_index_sq < 0.08 * 0.08 &&
+                                           d_middle_sq < 0.08 * 0.08 && d_ring_sq < 0.08 * 0.08 &&
+                                           d_pinky_sq < 0.08 * 0.08 {
+                                            fist_pressed = true;
+                                        }
+
+                                        let idx = (i as usize).min(3);
+
+                                        if palm_pressed && !last_palm_pressed[idx] {
                                             state.engine.camera_controller.process_action(input::Action::Inscribe, true);
                                             state.engine.camera_controller.process_action(input::Action::Inscribe, false);
-                                        } else if dist_wrist_sq < 0.08 * 0.08 {
-                                            // Fist: Trigger Jump
+                                        }
+                                        last_palm_pressed[idx] = palm_pressed;
+
+                                        if fist_pressed && !last_fist_pressed[idx] {
                                             state.engine.camera_controller.process_action(input::Action::Jump, true);
                                             state.engine.camera_controller.process_action(input::Action::Jump, false);
                                         }
+                                        last_fist_pressed[idx] = fist_pressed;
                                     }
                                 }
                             }
@@ -3656,6 +3705,8 @@ impl GameClient {
 
         // Used to debounce trigger action per controller (Left/Right index approximation)
         let mut last_trigger_pressed = vec![false; 4];
+        let mut last_palm_pressed = vec![false; 4];
+        let mut last_fist_pressed = vec![false; 4];
 
         *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
             let mut state = state_xr.borrow_mut();
@@ -3673,26 +3724,43 @@ impl GameClient {
                         if h.is_object() {
                             let index_val = js_sys::Reflect::get(&h, &JsValue::from_str("index-finger-tip"));
                             let thumb_val = js_sys::Reflect::get(&h, &JsValue::from_str("thumb-tip"));
+                            let middle_val = js_sys::Reflect::get(&h, &JsValue::from_str("middle-finger-tip"));
+                            let ring_val = js_sys::Reflect::get(&h, &JsValue::from_str("ring-finger-tip"));
+                            let pinky_val = js_sys::Reflect::get(&h, &JsValue::from_str("pinky-finger-tip"));
                             let wrist_val = js_sys::Reflect::get(&h, &JsValue::from_str("wrist"));
 
                             let mut pinch_pressed = false;
 
-                            if let (Ok(index), Ok(thumb), Ok(wrist)) = (index_val, thumb_val, wrist_val) {
-                                if !index.is_undefined() && !thumb.is_undefined() && !wrist.is_undefined() {
+                            if let (Ok(index), Ok(thumb), Ok(middle), Ok(ring), Ok(pinky), Ok(wrist)) =
+                                (index_val, thumb_val, middle_val, ring_val, pinky_val, wrist_val) {
+                                if !index.is_undefined() && !thumb.is_undefined() && !middle.is_undefined()
+                                    && !ring.is_undefined() && !pinky.is_undefined() && !wrist.is_undefined() {
+
                                     let index_space: web_sys::XrSpace = index.unchecked_into();
                                     let thumb_space: web_sys::XrSpace = thumb.unchecked_into();
+                                    let middle_space: web_sys::XrSpace = middle.unchecked_into();
+                                    let ring_space: web_sys::XrSpace = ring.unchecked_into();
+                                    let pinky_space: web_sys::XrSpace = pinky.unchecked_into();
                                     let wrist_space: web_sys::XrSpace = wrist.unchecked_into();
 
                                     let index_pose = frame.get_pose(&index_space, &reference_space_clone);
                                     let thumb_pose = frame.get_pose(&thumb_space, &reference_space_clone);
+                                    let middle_pose = frame.get_pose(&middle_space, &reference_space_clone);
+                                    let ring_pose = frame.get_pose(&ring_space, &reference_space_clone);
+                                    let pinky_pose = frame.get_pose(&pinky_space, &reference_space_clone);
                                     let wrist_pose = frame.get_pose(&wrist_space, &reference_space_clone);
 
-                                    if let (Some(ip), Some(tp), Some(wp)) = (index_pose, thumb_pose, wrist_pose) {
+                                    if let (Some(ip), Some(tp), Some(mp), Some(rp), Some(pp), Some(wp)) =
+                                        (index_pose, thumb_pose, middle_pose, ring_pose, pinky_pose, wrist_pose) {
+
                                         let ip_pos = ip.transform().position();
                                         let tp_pos = tp.transform().position();
-                                        let _wp_pos = wp.transform().position();
+                                        let mp_pos = mp.transform().position();
+                                        let rp_pos = rp.transform().position();
+                                        let pp_pos = pp.transform().position();
+                                        let wp_pos = wp.transform().position();
 
-                                        // Pinch Gesture
+                                        // Pinch Gesture (Index to Thumb)
                                         let dx = ip_pos.x() as f32 - tp_pos.x() as f32;
                                         let dy = ip_pos.y() as f32 - tp_pos.y() as f32;
                                         let dz = ip_pos.z() as f32 - tp_pos.z() as f32;
@@ -3702,22 +3770,50 @@ impl GameClient {
                                             pinch_pressed = true;
                                         }
 
-                                        // Palm / Fist
-                                        let dwx = ip_pos.x() as f32 - _wp_pos.x() as f32;
-                                        let dwy = ip_pos.y() as f32 - _wp_pos.y() as f32;
-                                        let dwz = ip_pos.z() as f32 - _wp_pos.z() as f32;
-                                        let dist_wrist_sq = dwx * dwx + dwy * dwy + dwz * dwz;
+                                        // Palm / Fist Distances from Wrist
+                                        let calc_dist_sq = |finger: &web_sys::DomPointReadOnly, wrist: &web_sys::DomPointReadOnly| -> f32 {
+                                            let dwx = finger.x() as f32 - wrist.x() as f32;
+                                            let dwy = finger.y() as f32 - wrist.y() as f32;
+                                            let dwz = finger.z() as f32 - wrist.z() as f32;
+                                            dwx * dwx + dwy * dwy + dwz * dwz
+                                        };
 
-                                        // Simple state tracking using last_trigger_pressed for pinch, we need something for palm/fist but we can just use the controller action which might self-debounce depending on engine tick. To be safe, we just emit the action.
-                                        if dist_wrist_sq > 0.12 * 0.12 {
-                                            // Open Palm: Trigger Inscribe
+                                        let d_thumb_sq = calc_dist_sq(&tp_pos, &wp_pos);
+                                        let d_index_sq = calc_dist_sq(&ip_pos, &wp_pos);
+                                        let d_middle_sq = calc_dist_sq(&mp_pos, &wp_pos);
+                                        let d_ring_sq = calc_dist_sq(&rp_pos, &wp_pos);
+                                        let d_pinky_sq = calc_dist_sq(&pp_pos, &wp_pos);
+
+                                        let mut palm_pressed = false;
+                                        let mut fist_pressed = false;
+
+                                        // Open Palm: Trigger Inscribe
+                                        if d_thumb_sq > 0.08 * 0.08 && d_index_sq > 0.11 * 0.11 &&
+                                           d_middle_sq > 0.11 * 0.11 && d_ring_sq > 0.10 * 0.10 &&
+                                           d_pinky_sq > 0.09 * 0.09 {
+                                            palm_pressed = true;
+                                        }
+
+                                        // Fist: Trigger Jump
+                                        if d_thumb_sq < 0.08 * 0.08 && d_index_sq < 0.08 * 0.08 &&
+                                           d_middle_sq < 0.08 * 0.08 && d_ring_sq < 0.08 * 0.08 &&
+                                           d_pinky_sq < 0.08 * 0.08 {
+                                            fist_pressed = true;
+                                        }
+
+                                        let idx = (i as usize).min(3);
+
+                                        if palm_pressed && !last_palm_pressed[idx] {
                                             state.engine.camera_controller.process_action(input::Action::Inscribe, true);
                                             state.engine.camera_controller.process_action(input::Action::Inscribe, false);
-                                        } else if dist_wrist_sq < 0.08 * 0.08 {
-                                            // Fist: Trigger Jump
+                                        }
+                                        last_palm_pressed[idx] = palm_pressed;
+
+                                        if fist_pressed && !last_fist_pressed[idx] {
                                             state.engine.camera_controller.process_action(input::Action::Jump, true);
                                             state.engine.camera_controller.process_action(input::Action::Jump, false);
                                         }
+                                        last_fist_pressed[idx] = fist_pressed;
                                     }
                                 }
                             }

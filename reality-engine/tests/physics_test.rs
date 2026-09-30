@@ -1,6 +1,5 @@
 use reality_engine::engine::{Engine, PhysicsState};
 use reality_engine::input::Action;
-use reality_engine::lambda::{parse, Primitive};
 
 #[test]
 fn test_gravity_and_fly_spells() {

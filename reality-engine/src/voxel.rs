@@ -277,6 +277,8 @@ pub struct Chunk {
     pub history: VecDeque<Vec<Voxel>>,
     #[serde(skip)]
     pub splats: Vec<crate::splat::SplatVertex>,
+    #[serde(skip)]
+    pub is_fully_solid: bool,
 }
 
 pub fn noise2d(x: f32, z: f32) -> f32 {
@@ -353,7 +355,23 @@ impl Chunk {
             size,
             history: VecDeque::with_capacity(HISTORY_DEPTH),
             splats: Vec::new(),
+            is_fully_solid: false, // Initially empty (all air)
         }
+    }
+
+    pub fn update_solid_state(&mut self) {
+        if self.size != CHUNK_SIZE {
+            self.is_fully_solid = false;
+            return;
+        }
+        let vol = self.size * self.size * self.size;
+        let mut solid_count = 0;
+        for v in &self.data {
+            if v.id != 0 {
+                solid_count += 1;
+            }
+        }
+        self.is_fully_solid = solid_count == vol;
     }
 
     #[inline(always)]
@@ -469,6 +487,7 @@ impl Chunk {
             size: new_size,
             history: VecDeque::new(), // LODs don't need history
             splats: self.splats.clone(),
+            is_fully_solid: false, // LODs are currently never considered solid occluders to be safe
         }
     }
 

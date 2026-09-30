@@ -25,14 +25,20 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn build_view_projection_matrix(&self) -> Matrix4<f32> {
-        let view = Matrix4::look_at_rh(self.eye, self.target, self.up);
-        let proj = if let Some(p) = self.projection_override {
+    pub fn build_view_matrix(&self) -> Matrix4<f32> {
+        Matrix4::look_at_rh(self.eye, self.target, self.up)
+    }
+
+    pub fn build_projection_matrix(&self) -> Matrix4<f32> {
+        if let Some(p) = self.projection_override {
             p
         } else {
             cgmath::perspective(Deg(self.fovy), self.aspect, self.znear, self.zfar)
-        };
-        OPENGL_TO_WGPU_MATRIX * proj * view
+        }
+    }
+
+    pub fn build_view_projection_matrix(&self) -> Matrix4<f32> {
+        OPENGL_TO_WGPU_MATRIX * self.build_projection_matrix() * self.build_view_matrix()
     }
 
     pub fn build_inverse_view_projection_matrix(&self) -> Matrix4<f32> {

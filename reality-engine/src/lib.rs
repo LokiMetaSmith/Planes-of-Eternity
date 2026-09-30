@@ -43,6 +43,7 @@ pub mod visual_lambda;
 pub mod voxel;
 pub mod voxelizer;
 pub mod world;
+pub mod culling;
 #[cfg(target_arch = "wasm32")]
 pub mod xr;
 pub mod steam;
@@ -357,6 +358,8 @@ pub struct State {
 
     pub voxel_world: voxel::VoxelWorld,
     pub num_splats: u32,
+
+    pub software_culler: crate::culling::SoftwareOcclusionCuller,
 
     pub voxel_meshes: std::collections::HashMap<voxel::ChunkKey, ChunkMesh>,
     pub voxel_dirty: bool,
@@ -1306,6 +1309,7 @@ impl State {
             npc_animations: std::collections::HashMap::new(),
             voxel_world,
             num_splats: 0,
+            software_culler: crate::culling::SoftwareOcclusionCuller::new(),
             voxel_meshes: std::collections::HashMap::new(),
             voxel_dirty: false,
             last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
@@ -2175,7 +2179,39 @@ impl State {
         let frustum_planes = extract_frustum_planes(&view_proj);
         let cam_pos = self.engine.camera.eye;
 
-        for chunk in self.voxel_world.chunks.values() {
+        // Software Occlusion Culling setup
+        self.software_culler.clear();
+        let view_matrix = self.engine.camera.build_view_matrix();
+        use cgmath::InnerSpace;
+        let view_rot_mat4 = view_matrix;
+        let view_rot = cgmath::Matrix3::new(
+            view_rot_mat4.x.x, view_rot_mat4.x.y, view_rot_mat4.x.z,
+            view_rot_mat4.y.x, view_rot_mat4.y.y, view_rot_mat4.y.z,
+            view_rot_mat4.z.x, view_rot_mat4.z.y, view_rot_mat4.z.z,
+        );
+        let view_trans = cgmath::Vector3::new(view_rot_mat4.w.x, view_rot_mat4.w.y, view_rot_mat4.w.z);
+        let proj_matrix = self.engine.camera.build_projection_matrix();
+        let focal_len_px = cgmath::Vector2::new(
+            proj_matrix.x.x * (self.software_culler.width as f32 * 0.5),
+            proj_matrix.y.y * (self.software_culler.height as f32 * 0.5),
+        );
+        let near_plane = 0.1; // Camera near plane
+
+        // 1. Collect and sort chunks front-to-back
+        let mut sorted_chunks: Vec<_> = self.voxel_world.chunks.values().collect();
+        sorted_chunks.sort_by(|a, b| {
+            let size = voxel::CHUNK_SIZE as f32;
+            let ca = cgmath::Point3::new(a.key.x as f32 * size + size * 0.5, a.key.y as f32 * size + size * 0.5, a.key.z as f32 * size + size * 0.5);
+            let cb = cgmath::Point3::new(b.key.x as f32 * size + size * 0.5, b.key.y as f32 * size + size * 0.5, b.key.z as f32 * size + size * 0.5);
+            let da = (ca - cam_pos).magnitude2();
+            let db = (cb - cam_pos).magnitude2();
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Track occluded chunks to skip them in the voxel mesh pass later
+        let mut occluded_chunks = std::collections::HashSet::new();
+
+        for chunk in sorted_chunks {
             let size = voxel::CHUNK_SIZE as f32;
             let min_x = chunk.key.x as f32 * size;
             let min_y = chunk.key.y as f32 * size;
@@ -2185,7 +2221,22 @@ impl State {
             let aabb_max = cgmath::Point3::new(min_x + size, min_y + size, min_z + size);
 
             if is_aabb_visible(aabb_min, aabb_max, &frustum_planes) {
-                active_splats.extend(chunk.splats.iter().cloned());
+                // Query Software Occlusion Culler
+                if !self.software_culler.is_occluded(aabb_min, aabb_max, &view_rot, &view_trans, &focal_len_px, near_plane) {
+                    active_splats.extend(chunk.splats.iter().cloned());
+
+                    // If it's a fully solid occluder, rasterize it to depth buffer
+                    if chunk.is_fully_solid {
+                        self.software_culler.rasterize_occluder(aabb_min, aabb_max, &view_rot, &view_trans, &focal_len_px, near_plane);
+                    }
+                } else {
+                    // It is occluded, so we skip it (and we track it for the voxel mesh pass)
+                    let key_str = format!("{}:{}:{}", chunk.key.x, chunk.key.y, chunk.key.z);
+                    occluded_chunks.insert(key_str);
+                }
+            } else {
+                let key_str = format!("{}:{}:{}", chunk.key.x, chunk.key.y, chunk.key.z);
+                occluded_chunks.insert(key_str);
             }
         }
 
@@ -2591,9 +2642,13 @@ impl State {
 
             // Optimization: Extract frustum planes once per frame instead of per-chunk
             // Note: frustum_planes already calculated above for splats
-            for mesh in self.voxel_meshes.values() {
-                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &frustum_planes) {
+            for (key, mesh) in &self.voxel_meshes {
+                let key_str = format!("{}:{}:{}", key.x, key.y, key.z);
+                if occluded_chunks.contains(&key_str) {
                     continue;
+                }
+                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &frustum_planes) {
+                    continue; // Double check just in case, though it should be handled above
                 }
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 render_pass

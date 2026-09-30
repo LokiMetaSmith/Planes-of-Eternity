@@ -58,6 +58,8 @@ impl Voxelizer {
             }
         }
 
+        chunk.update_solid_state();
+
         chunk
     }
 }

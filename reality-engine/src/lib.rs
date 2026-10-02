@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 #[cfg(target_arch = "wasm32")]
-use cgmath::{Rotation, SquareMatrix};
+use cgmath::{Rotation, SquareMatrix, InnerSpace};
 #[cfg(target_arch = "wasm32")]
 use wgpu::util::DeviceExt;
 
@@ -4674,6 +4674,76 @@ impl GameClient {
         } else {
             true
         }
+    }
+
+    #[wasm_bindgen]
+    pub fn import_splat_from_string(&mut self, splat_data: js_sys::JsString, label: js_sys::JsString) -> bool {
+        let splat_str: String = splat_data.into();
+        let label_str: String = label.into();
+
+        let mut new_splats = Vec::new();
+        for line in splat_str.lines() {
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() == 14 {
+                if let (Ok(px), Ok(py), Ok(pz), Ok(rx), Ok(ry), Ok(rz), Ok(rw), Ok(sx), Ok(sy), Ok(sz), Ok(cr), Ok(cg), Ok(cb), Ok(ca)) = (
+                    parts[0].parse::<f32>(), parts[1].parse::<f32>(), parts[2].parse::<f32>(),
+                    parts[3].parse::<f32>(), parts[4].parse::<f32>(), parts[5].parse::<f32>(), parts[6].parse::<f32>(),
+                    parts[7].parse::<f32>(), parts[8].parse::<f32>(), parts[9].parse::<f32>(),
+                    parts[10].parse::<f32>(), parts[11].parse::<f32>(), parts[12].parse::<f32>(), parts[13].parse::<f32>()
+                ) {
+                    new_splats.push(crate::splat::SplatVertex {
+                        position: [px, py, pz],
+                        rotation: [rx, ry, rz, rw],
+                        scale: [sx, sy, sz],
+                        color: [cr, cg, cb, ca],
+                        previous_position: [px, py, pz],
+                        archetype_id: 0,
+                        target_archetype_id: 0,
+                        morph_weight: 0.0,
+                    });
+                }
+            }
+        }
+
+        if new_splats.is_empty() {
+            log::warn!("No valid splats parsed from import data.");
+            return false;
+        }
+
+        log::info!("Imported {} splats for '{}'", new_splats.len(), label_str);
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let forward = (state.engine.camera.target - state.engine.camera.eye).normalize();
+            let spawn_pos = state.engine.camera.eye + forward * 5.0;
+
+            for splat in &mut new_splats {
+                splat.position[0] += spawn_pos.x;
+                splat.position[1] += spawn_pos.y;
+                splat.position[2] += spawn_pos.z;
+                splat.previous_position = splat.position;
+            }
+
+            let mut animations = std::collections::HashMap::new();
+            animations.insert(crate::engine::AnimationState::Idle, vec![new_splats]);
+
+            let player = crate::engine::Splat4DPlayer {
+                animations,
+                current_state: crate::engine::AnimationState::Idle,
+                next_state: None,
+                current_frame: 0,
+                timer: 0.0,
+                blend_timer: 0.0,
+                blend_duration: 0.5,
+                frame_rate: 1.0,
+                loop_playback: true,
+                position: spawn_pos,
+                archetype_override: None,
+            };
+
+            state.engine.active_4d_splats.push(player);
+            return true;
+        }
+        false
     }
 
     pub fn get_inventory_json(&self) -> String {

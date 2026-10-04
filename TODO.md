@@ -146,4 +146,4 @@
 - [x] **Fix Global Pitch Darkness Bug**: Fix the issue where looking up and down drastically causes the background or chunks to go completely dark (except the UI). This involves ensuring the WGSL lighting fallback logic (e.g. \`ray_march_shadow\` and \`sky_color\` reflections) handles the scenario when pointing at the void correctly and returning a valid sky color.
 - [x] **Expanding Host Test Coverage**: Added tests in `reality-engine/tests/render_test.rs` to verify that platform-specific rendering logic (`shader_voxel.wgsl`, `shader_splat.wgsl`, `shader_sort.wgsl`) compile perfectly and map correctly to WGPU pipeline definitions natively on the host.
 - [x] Implement WebXR hand tracking and pinch, palm, fist gestures.
-- [ ] Fix Trunk build error 'cargo artifacts not found for target crate' during E2E verification.
+- [x] Fix Trunk build error 'cargo artifacts not found for target crate' during E2E verification.

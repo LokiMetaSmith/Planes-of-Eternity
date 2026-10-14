@@ -1860,6 +1860,7 @@ impl State {
                 reality_types::RealityArchetype::Fractal => (21.0, [1.0, 0.5, 0.0, 1.0]),
                 reality_types::RealityArchetype::Prehistoric => (22.0, [0.3, 0.4, 0.1, 1.0]),
                 reality_types::RealityArchetype::PostApocalyptic => (23.0, [0.4, 0.3, 0.2, 1.0]), // Dusty Brown/Orange
+                reality_types::RealityArchetype::Underwater => (24.0, [0.0, 0.5, 0.8, 1.0]), // Deep Blue/Teal
             }
         }
 
@@ -2338,6 +2339,7 @@ impl State {
                 crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
                 crate::reality_types::RealityArchetype::Prehistoric => [0.3, 0.4, 0.1, 1.0],
                 crate::reality_types::RealityArchetype::PostApocalyptic => [0.4, 0.3, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Underwater => [0.0, 0.5, 0.8, 1.0],
             };
 
             let mut final_splats = Vec::new();
@@ -3010,6 +3012,7 @@ impl GameClient {
             21 => reality_types::RealityArchetype::Fractal,
             22 => reality_types::RealityArchetype::Prehistoric,
             23 => reality_types::RealityArchetype::PostApocalyptic,
+            24 => reality_types::RealityArchetype::Underwater,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -3046,6 +3049,7 @@ impl GameClient {
             21 => reality_types::RealityArchetype::Fractal,
             22 => reality_types::RealityArchetype::Prehistoric,
             23 => reality_types::RealityArchetype::PostApocalyptic,
+            24 => reality_types::RealityArchetype::Underwater,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -3109,6 +3113,7 @@ impl GameClient {
             17 => reality_types::RealityArchetype::LiminalSpace,
             22 => reality_types::RealityArchetype::Prehistoric,
             23 => reality_types::RealityArchetype::PostApocalyptic,
+            24 => reality_types::RealityArchetype::Underwater,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -3143,6 +3148,7 @@ impl GameClient {
                 reality_types::RealityArchetype::Fractal => 21,
                 reality_types::RealityArchetype::Prehistoric => 22,
                 reality_types::RealityArchetype::PostApocalyptic => 23,
+                reality_types::RealityArchetype::Underwater => 24,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {

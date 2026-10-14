@@ -109,7 +109,7 @@
 - [x] Fix UI dropdowns to include missing Reality Archetypes (WildWest, Fractal, Prehistoric, PostApocalyptic).
 - [ ] Add a lambda primitive for querying entity health.
 - [ ] Introduce a minimap overlay that renders a top-down view of the chunk.
-- [ ] Implement a new "Underwater" archetype with caustic mappings.
+- [x] Implement a new "Underwater" archetype with caustic mappings.
 - [x] **Expanding Host Test Coverage**: Added specific tests to expand test coverage for platform-specific rendering logic (i.e. headless WebGPU shader compilation validation).
 - [x] Add shaders to liquids, and gasses, as well as existing landscape.
 - [x] A specific spell-casting UI or particle effects for when spells hit the ground.

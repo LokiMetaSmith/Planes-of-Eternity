@@ -28,6 +28,7 @@ pub enum RealityArchetype {
     Fractal,      // L-Systems and CFG structures
     Prehistoric,  // Primordial jungle and rugged terrain
     PostApocalyptic, // Deserted wasteland, ruins
+    Underwater,   // Underwater with caustic mappings
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

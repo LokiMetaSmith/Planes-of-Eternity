@@ -230,6 +230,8 @@ fn get_lighting_info(id: f32) -> vec2<f32> {
         return vec2<f32>(1.0, 0.3); // Prehistoric
     } else if (id < 23.5) {
         return vec2<f32>(1.0, 0.3); // PostApocalyptic
+    } else if (id < 24.5) {
+        return vec2<f32>(0.5, 0.8); // Underwater
     }
 
     return vec2<f32>(0.5, 0.3); // fallback
@@ -434,6 +436,13 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let p = pos * scale * 2.0;
         let n = fbm(p, 5, roughness);
         return (n * n) * 10.0 * params.z;
+    } else if (id < 24.5) {
+        // Underwater (Smooth wavy dunes)
+        let p = pos * scale * 0.5;
+        let n1 = sin(p.x * 3.0 + reality.global_offset.z) * 0.5;
+        let n2 = cos(p.y * 2.0 + reality.global_offset.z * 1.5) * 0.5;
+        let n3 = fbm(p, 3, roughness) * 0.5;
+        return (n1 + n2 + n3) * 5.0 * params.z;
     }
 
     return 0.0;

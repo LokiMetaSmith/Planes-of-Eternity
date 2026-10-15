@@ -1765,6 +1765,28 @@ impl Engine {
                         }
                         None
                     }
+                    Primitive::Health => {
+                        if pressed {
+                            log::info!(
+                                "Player Health (fidelity): {}",
+                                self.player_projector.reality_signature.fidelity
+                            );
+
+                            for npc in self.world_state.npcs.iter_mut() {
+                                let dist =
+                                    cgmath::MetricSpace::distance(npc.location, self.camera.eye);
+                                if dist < 50.0 {
+                                    if let Some(behavior) = &npc.behavior {
+                                        npc.chat_message = Some((
+                                            format!("HP: {}", behavior.energy),
+                                            crate::projector::get_current_timestamp(),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        None
+                    }
                     Primitive::Heal => {
                         if pressed {
                             self.player_projector.reality_signature.fidelity =

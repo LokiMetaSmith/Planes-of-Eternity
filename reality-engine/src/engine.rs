@@ -1833,6 +1833,15 @@ impl Engine {
                         }
                         None
                     }
+                    Primitive::Health => {
+                        if pressed {
+                            log::info!(
+                                "Entity Health - Player Fidelity: {}",
+                                self.player_projector.reality_signature.fidelity
+                            );
+                        }
+                        None
+                    }
                     Primitive::Peek => {
                         if pressed {
                             log::info!("Peek primitive invoked! Generating Peek zone.");

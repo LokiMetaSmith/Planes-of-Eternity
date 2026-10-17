@@ -1780,6 +1780,7 @@ impl Engine {
                                     if let Some(behavior) = &npc.behavior {
                                         npc.chat_message = Some((
                                             format!("HP: {}", behavior.health),
+                                            format!("MP: {}", behavior.energy),
                                             crate::projector::get_current_timestamp(),
                                         ));
                                     }
@@ -1831,6 +1832,15 @@ impl Engine {
                             } else {
                                 log::info!("Lambda revoked Orbit Camera Mode.");
                             }
+                        }
+                        None
+                    }
+                    Primitive::Health => {
+                        if pressed {
+                            log::info!(
+                                "Entity Health - Player Fidelity: {}",
+                                self.player_projector.reality_signature.fidelity
+                            );
                         }
                         None
                     }

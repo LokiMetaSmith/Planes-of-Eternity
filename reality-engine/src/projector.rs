@@ -52,12 +52,18 @@ pub struct NpcBehavior {
     pub preferred_archetype: RealityArchetype,
     pub energy: f32,
     pub mutation_progress: f32,
+    #[serde(default = "default_health")]
+    pub health: f32,
     #[serde(default)]
     pub hostile: bool,
     #[serde(default)]
     pub goal_stack: Vec<Goal>,
     #[serde(skip)]
     pub animation_playback: Option<AnimationPlayback>,
+}
+
+fn default_health() -> f32 {
+    100.0
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

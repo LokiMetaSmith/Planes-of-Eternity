@@ -207,6 +207,7 @@ impl Engine {
                     npc.behavior = Some(crate::projector::NpcBehavior {
                         preferred_archetype: arch,
                         energy: 100.0,
+                        health: 100.0,
                         mutation_progress: 0.0,
                         hostile: arch == RealityArchetype::Horror,
                         goal_stack: Vec::new(),
@@ -1778,7 +1779,8 @@ impl Engine {
                                 if dist < 50.0 {
                                     if let Some(behavior) = &npc.behavior {
                                         npc.chat_message = Some((
-                                            format!("HP: {}", behavior.energy),
+                                            format!("HP: {}", behavior.health),
+                                            format!("MP: {}", behavior.energy),
                                             crate::projector::get_current_timestamp(),
                                         ));
                                     }
@@ -2136,6 +2138,7 @@ impl Engine {
             npc.behavior = Some(crate::projector::NpcBehavior {
                 preferred_archetype: arch,
                 energy: 100.0,
+                health: 100.0,
                 mutation_progress: 0.0,
                 hostile: arch == RealityArchetype::Horror,
                 goal_stack: Vec::new(),

@@ -1643,7 +1643,10 @@ impl LambdaSystem {
             Primitive::Extend => [0.5, 0.7, 1.0, 1.0],  // Soft blue-white
             Primitive::Peek => [0.9, 0.2, 0.8, 1.0], // Pinkish purple
             Primitive::Orbit => [0.3, 0.8, 0.9, 1.0], // Bright cyan
-            Primitive::Health => [1.0, 0.4, 0.4, 1.0], // Light red
+
+
+            Primitive::Health => [1.0, 0.0, 0.0, 1.0], // Red
+
         }
     }
 }

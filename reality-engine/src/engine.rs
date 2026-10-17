@@ -207,6 +207,7 @@ impl Engine {
                     npc.behavior = Some(crate::projector::NpcBehavior {
                         preferred_archetype: arch,
                         energy: 100.0,
+                        health: 100.0,
                         mutation_progress: 0.0,
                         hostile: arch == RealityArchetype::Horror,
                         goal_stack: Vec::new(),
@@ -1811,6 +1812,29 @@ impl Engine {
                         }
                         None
                     }
+                    Primitive::Health => {
+                        if pressed {
+                            let mut closest_npc = None;
+                            let mut min_dist_sq = std::f32::MAX;
+
+                            for (idx, npc) in self.world_state.npcs.iter().enumerate() {
+                                let dist_sq = (npc.location - self.camera.eye).magnitude2();
+                                if dist_sq < min_dist_sq {
+                                    min_dist_sq = dist_sq;
+                                    closest_npc = Some(idx);
+                                }
+                            }
+
+                            if let Some(idx) = closest_npc {
+                                if let Some(behavior) = &self.world_state.npcs[idx].behavior {
+                                    let health_val = behavior.health;
+                                    let health_msg = format!("Health: {:.1}", health_val);
+                                    self.world_state.npcs[idx].chat_message = Some((health_msg, crate::projector::get_current_timestamp()));
+                                }
+                            }
+                        }
+                        None
+                    }
                     Primitive::Peek => {
                         if pressed {
                             log::info!("Peek primitive invoked! Generating Peek zone.");
@@ -2105,6 +2129,7 @@ impl Engine {
             npc.behavior = Some(crate::projector::NpcBehavior {
                 preferred_archetype: arch,
                 energy: 100.0,
+                health: 100.0,
                 mutation_progress: 0.0,
                 hostile: arch == RealityArchetype::Horror,
                 goal_stack: Vec::new(),

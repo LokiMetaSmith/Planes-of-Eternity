@@ -4817,6 +4817,7 @@ impl GameClient {
                 z: npc.location.z,
                 archetype: format!("{:?}", npc.reality_signature.active_style.archetype),
                 player_distance: npc.location.distance(player_loc),
+                health: npc.behavior.as_ref().map(|b| b.health).unwrap_or(100.0),
                 chat_message: npc.chat_message.as_ref().map(|(msg, _)| msg.clone()),
             };
             return serde_json::to_string(&npc_state).unwrap_or_else(|_| "{}".to_string());

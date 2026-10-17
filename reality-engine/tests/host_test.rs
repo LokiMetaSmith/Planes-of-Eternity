@@ -376,6 +376,7 @@ fn test_npc_evolution_and_movement() {
     npc.behavior = Some(reality_engine::projector::NpcBehavior {
         preferred_archetype: RealityArchetype::SciFi,
         energy: 100.0,
+        health: 100.0,
         mutation_progress: 0.0,
         hostile: false,
         goal_stack: vec![],

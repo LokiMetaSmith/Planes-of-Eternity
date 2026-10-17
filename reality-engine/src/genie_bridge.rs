@@ -373,6 +373,7 @@ pub struct NpcStateView {
     pub z: f32,
     pub archetype: String,
     pub player_distance: f32,
+    pub health: f32,
     pub chat_message: Option<String>,
 }
 

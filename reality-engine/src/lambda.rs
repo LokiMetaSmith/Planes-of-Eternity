@@ -34,6 +34,7 @@ pub enum Primitive {
     Extend,
     Peek,
     Orbit,
+    Health,
 }
 
 impl fmt::Display for Primitive {
@@ -70,6 +71,7 @@ impl fmt::Display for Primitive {
             Primitive::Levitate => write!(f, "LEVITATE"),
             Primitive::Peek => write!(f, "PEEK"),
             Primitive::Orbit => write!(f, "ORBIT"),
+            Primitive::Health => write!(f, "HEALTH"),
         }
     }
 }
@@ -110,6 +112,7 @@ impl std::str::FromStr for Primitive {
             "EXTEND" => Ok(Primitive::Extend),
             "PEEK" => Ok(Primitive::Peek),
             "ORBIT" => Ok(Primitive::Orbit),
+            "HEALTH" => Ok(Primitive::Health),
             _ => Err(()),
         }
     }

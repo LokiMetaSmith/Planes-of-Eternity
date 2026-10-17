@@ -1766,6 +1766,28 @@ impl Engine {
                         }
                         None
                     }
+                    Primitive::Health => {
+                        if pressed {
+                            log::info!(
+                                "Player Health (fidelity): {}",
+                                self.player_projector.reality_signature.fidelity
+                            );
+
+                            for npc in self.world_state.npcs.iter_mut() {
+                                let dist =
+                                    cgmath::MetricSpace::distance(npc.location, self.camera.eye);
+                                if dist < 50.0 {
+                                    if let Some(behavior) = &npc.behavior {
+                                        npc.chat_message = Some((
+                                            format!("HP: {}", behavior.health),
+                                            crate::projector::get_current_timestamp(),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        None
+                    }
                     Primitive::Heal => {
                         if pressed {
                             self.player_projector.reality_signature.fidelity =
@@ -1808,29 +1830,6 @@ impl Engine {
                                 self.camera_controller.orbit_radius = 20.0;
                             } else {
                                 log::info!("Lambda revoked Orbit Camera Mode.");
-                            }
-                        }
-                        None
-                    }
-                    Primitive::Health => {
-                        if pressed {
-                            let mut closest_npc = None;
-                            let mut min_dist_sq = std::f32::MAX;
-
-                            for (idx, npc) in self.world_state.npcs.iter().enumerate() {
-                                let dist_sq = (npc.location - self.camera.eye).magnitude2();
-                                if dist_sq < min_dist_sq {
-                                    min_dist_sq = dist_sq;
-                                    closest_npc = Some(idx);
-                                }
-                            }
-
-                            if let Some(idx) = closest_npc {
-                                if let Some(behavior) = &self.world_state.npcs[idx].behavior {
-                                    let health_val = behavior.health;
-                                    let health_msg = format!("Health: {:.1}", health_val);
-                                    self.world_state.npcs[idx].chat_message = Some((health_msg, crate::projector::get_current_timestamp()));
-                                }
                             }
                         }
                         None

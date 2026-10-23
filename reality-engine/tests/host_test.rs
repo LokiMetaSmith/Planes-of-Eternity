@@ -648,8 +648,8 @@ fn test_splat_vertex_alignment() {
     use reality_engine::splat::SplatVertex;
     assert_eq!(
         std::mem::size_of::<SplatVertex>(),
-        80,
-        "SplatVertex should be exactly 80 bytes"
+        84,
+        "SplatVertex should be exactly 84 bytes"
     );
     assert_eq!(
         std::mem::align_of::<SplatVertex>(),

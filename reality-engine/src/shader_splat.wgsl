@@ -7,6 +7,12 @@ struct CameraUniform {
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
+struct BoneUniform {
+    bones: array<mat4x4<f32>, 64>,
+};
+@group(0) @binding(1)
+var<uniform> skeleton: BoneUniform;
+
 struct RealityUniform {
     proj_pos_fid: array<vec4<f32>, 5>,
     proj_params: array<vec4<f32>, 5>,
@@ -60,6 +66,7 @@ struct SplatVertexInput {
     @location(5) archetype_id: u32,
     @location(6) target_archetype_id: u32,
     @location(7) morph_weight: f32,
+    @location(8) bone_index: i32,
 };
 
 struct SplatOutput {
@@ -94,6 +101,14 @@ fn vs_main(
     var f_scale = 1.0;
     var f_color = 1.0;
 
+    var base_pos = instance.position;
+    if (instance.bone_index >= 0) {
+        // Apply GPU Skinning
+        let bone_mat = skeleton.bones[instance.bone_index];
+        let skinned = bone_mat * vec4<f32>(base_pos, 1.0);
+        base_pos = skinned.xyz / skinned.w;
+    }
+
     // Apply Neural Filtering based on both current and target archetypes (Morphed)
     for (var i = 0u; i < 5u; i++) {
         let p_pos = reality.proj_pos_fid[i].xyz;
@@ -101,7 +116,7 @@ fn vs_main(
         let p_params = reality.proj_params[i];
         let p_archetype = u32(p_params.w);
 
-        let dist = distance(instance.position, p_pos);
+        let dist = distance(base_pos, p_pos);
         if (dist < p_fid) {
             let influence = 1.0 - (dist / p_fid);
 

@@ -35,6 +35,7 @@ pub enum Primitive {
     Peek,
     Orbit,
     Health,
+    SetBoneRotation,
 }
 
 impl fmt::Display for Primitive {
@@ -72,6 +73,7 @@ impl fmt::Display for Primitive {
             Primitive::Peek => write!(f, "PEEK"),
             Primitive::Orbit => write!(f, "ORBIT"),
             Primitive::Health => write!(f, "HEALTH"),
+            Primitive::SetBoneRotation => write!(f, "SET_BONE_ROTATION"),
         }
     }
 }

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 #[cfg(target_arch = "wasm32")]
-use cgmath::{Rotation, SquareMatrix, InnerSpace};
+use cgmath::{Rotation, SquareMatrix, InnerSpace, One};
 #[cfg(target_arch = "wasm32")]
 use wgpu::util::DeviceExt;
 
@@ -337,6 +337,9 @@ pub struct WgpuState {
     pub sort_bind_group_1: wgpu::BindGroup,
     pub max_splat_capacity: u32,
 
+    pub skeleton_buffer: wgpu::Buffer,
+    pub skeleton_bind_group: wgpu::BindGroup,
+
     pub voxel_atlas: texture::Texture,
     pub voxel_bind_group: wgpu::BindGroup,
     pub voxel_density_texture: wgpu::Texture,
@@ -573,12 +576,68 @@ impl State {
                 label: Some("camera_bind_group_layout"),
             });
 
+        // Setup Skeleton Buffer (max 64 bones for prototype)
+        let skeleton_buffer_size = (64 * 16 * 4) as wgpu::BufferAddress; // 64 mat4x4<f32>
+        let skeleton_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Skeleton Uniform Buffer"),
+            size: skeleton_buffer_size,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Initialize with identity matrices
+        let mut initial_skeleton_data = Vec::with_capacity(64 * 16);
+        for _ in 0..64 {
+            let id = cgmath::Matrix4::<f32>::one();
+            let arr: [[f32; 4]; 4] = id.into();
+            let arr_flat = [
+                arr[0][0], arr[0][1], arr[0][2], arr[0][3],
+                arr[1][0], arr[1][1], arr[1][2], arr[1][3],
+                arr[2][0], arr[2][1], arr[2][2], arr[2][3],
+                arr[3][0], arr[3][1], arr[3][2], arr[3][3],
+            ];
+            initial_skeleton_data.extend_from_slice(&arr_flat);
+        }
+        queue.write_buffer(&skeleton_buffer, 0, bytemuck::cast_slice(&initial_skeleton_data));
+
+        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry { // Skeleton binding
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("camera_bind_group_layout"),
+        });
+
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: skeleton_buffer.as_entire_binding(),
+                },
+            ],
             label: Some("camera_bind_group"),
         });
 
@@ -966,6 +1025,7 @@ impl State {
                 archetype_id: 0,
                 target_archetype_id: 0,
                 morph_weight: 0.0,
+                        bone_index: -1,
             }]),
             usage: wgpu::BufferUsages::VERTEX
                 | wgpu::BufferUsages::STORAGE
@@ -1221,6 +1281,23 @@ impl State {
             sort_bind_group_layout_1,
             sort_bind_group_1,
             max_splat_capacity,
+
+            skeleton_buffer,
+            skeleton_bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &camera_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: camera_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: skeleton_buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("camera_bind_group_clone"),
+            }),
+
             voxel_atlas,
             voxel_bind_group,
             voxel_density_texture,
@@ -1810,6 +1887,32 @@ impl State {
 
         // NPC animations are handled per-NPC in active_splats update
 
+        // Combine skeleton data from players to global buffer (just takes the first for the demo to simplify)
+        let mut global_bone_matrices: Vec<[f32; 16]> = vec![[
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ]; 64];
+        for player in &self.engine.active_4d_splats {
+            if let Some(skeleton) = &player.skeleton {
+                let globals = skeleton.evaluate_global_transforms();
+                for (i, mat) in globals.iter().enumerate().take(64) {
+                    let c0 = mat.x;
+                    let c1 = mat.y;
+                    let c2 = mat.z;
+                    let c3 = mat.w;
+                    global_bone_matrices[i] = [
+                        c0.x, c0.y, c0.z, c0.w,
+                        c1.x, c1.y, c1.z, c1.w,
+                        c2.x, c2.y, c2.z, c2.w,
+                        c3.x, c3.y, c3.z, c3.w,
+                    ];
+                }
+                break; // Just use first skeleton for global splat shader
+            }
+        }
+
         // Sync WGPU buffers with Engine State
         let wgpu_state = match &mut self.wgpu_state {
             Some(w) => w,
@@ -1847,6 +1950,11 @@ impl State {
             &wgpu_state.camera_buffer,
             0,
             bytemuck::cast_slice(&[wgpu_state.camera_uniform]),
+        );
+        wgpu_state.queue.write_buffer(
+            &wgpu_state.skeleton_buffer,
+            0,
+            bytemuck::cast_slice(&global_bone_matrices),
         );
 
         // Helper to map archetype to ID and Color
@@ -2278,6 +2386,7 @@ impl State {
                 archetype_id: 0,
                 target_archetype_id: 0,
                 morph_weight: 0.0,
+                        bone_index: -1,
             });
         }
 
@@ -2323,6 +2432,7 @@ impl State {
                         archetype_id: 0,
                         target_archetype_id: 0,
                         morph_weight: 0.0,
+                        bone_index: -1,
                     });
                 }
             }
@@ -2470,22 +2580,11 @@ impl State {
                 if player.current_frame < frames.len() {
                     let mut final_splats = frames[player.current_frame].clone();
 
-                    // Apply skinning if skeleton and mappings exist
-                    if let Some(skeleton) = &player.skeleton {
+                    // Pass bone mappings to GPU
+                    if let Some(_skeleton) = &player.skeleton {
                         if player.splat_bone_indices.len() == final_splats.len() {
-                            let globals = skeleton.evaluate_global_transforms();
                             for (i, splat) in final_splats.iter_mut().enumerate() {
-                                let bone_idx = player.splat_bone_indices[i];
-                                if bone_idx < globals.len() {
-                                    let global_mat = globals[bone_idx];
-                                    let pos = cgmath::Vector4::new(splat.position[0], splat.position[1], splat.position[2], 1.0);
-                                    let new_pos = global_mat * pos;
-                                    splat.position = [new_pos.x, new_pos.y, new_pos.z];
-                                    splat.previous_position = splat.position;
-
-                                    // To rigorously skin rotations, we would extract the rotation from the global_mat,
-                                    // but we leave this unimplemented for now to keep the demo simple.
-                                }
+                                splat.bone_index = player.splat_bone_indices[i] as i32;
                             }
                         }
                     }
@@ -4768,6 +4867,7 @@ impl GameClient {
                         archetype_id: 0,
                         target_archetype_id: 0,
                         morph_weight: 0.0,
+                        bone_index: -1,
                     });
                 }
             }
@@ -5040,6 +5140,7 @@ pub async fn generate_splats_worker_entry(prompt: String) -> String {
             archetype_id: 5, // Genie archetype default
             target_archetype_id: 5,
             morph_weight: 0.0,
+                        bone_index: -1,
         });
     }
 

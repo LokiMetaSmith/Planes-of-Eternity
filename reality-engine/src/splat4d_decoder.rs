@@ -55,6 +55,7 @@ impl Splat4DDecoder {
                 archetype_id: 0,
                 target_archetype_id: 0,
                 morph_weight: 0.0,
+    bone_index: -1,
             });
         }
         frames.push(current_frame.clone());
@@ -85,6 +86,7 @@ impl Splat4DDecoder {
                         archetype_id: 0,
                         target_archetype_id: 0,
                         morph_weight: 0.0,
+    bone_index: -1,
                     };
                     delta_idx += 1;
                 } else {

@@ -1644,6 +1644,7 @@ impl LambdaSystem {
             Primitive::Peek => [0.9, 0.2, 0.8, 1.0], // Pinkish purple
             Primitive::Orbit => [0.3, 0.8, 0.9, 1.0], // Bright cyan
             Primitive::Health => [1.0, 0.0, 0.0, 1.0], // Red
+            Primitive::SetBoneRotation => [0.9, 0.2, 0.2, 1.0],
         }
     }
 }

@@ -1856,6 +1856,23 @@ impl Engine {
                         }
                         None
                     }
+                    Primitive::SetBoneRotation => {
+                        if pressed {
+                            log::info!("SetBoneRotation primitive invoked! Animating arm bone for active 4D splats.");
+                            for player in &mut self.active_4d_splats {
+                                if let Some(skeleton) = &mut player.skeleton {
+                                    for bone in &mut skeleton.bones {
+                                        if bone.name.contains("arm") {
+                                            use cgmath::{Rotation3, Rad};
+                                            // Explicit rotation override triggered by Lambda spell
+                                            bone.local_rotation = cgmath::Quaternion::from_angle_z(Rad(1.57)); // 90 degree raise
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        None
+                    }
                     _ => self.primitive_to_anomaly(*p, spawn_pos),
                 }
             }

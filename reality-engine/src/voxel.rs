@@ -1149,6 +1149,7 @@ impl Chunk {
                             archetype_id: 0, // Voxel splats are default
                             target_archetype_id: 0,
                             morph_weight: 0.0,
+    bone_index: -1,
                         });
                     }
                 }

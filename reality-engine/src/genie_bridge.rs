@@ -353,6 +353,7 @@ impl GenieBridge {
                     archetype_id: 5, // Genie archetype default
                     target_archetype_id: 5,
                     morph_weight: 0.0,
+    bone_index: -1,
                 });
             }
 

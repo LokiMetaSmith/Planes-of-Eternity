@@ -10,7 +10,8 @@ pub struct SplatVertex {
     pub previous_position: [f32; 3],
     pub archetype_id: u32,
     pub target_archetype_id: u32,
-    pub morph_weight: f32, // 80 bytes total (20 u32s)
+    pub morph_weight: f32,
+    pub bone_index: i32, // 84 bytes total (21 u32s, will align to 84 or 88 depending on padding, let's keep it tightly packed for wgpu)
 }
 
 /// 4D Splat Header: Metadata for the stream.
@@ -145,6 +146,14 @@ impl SplatVertex {
                         + std::mem::size_of::<u32>() * 2) as wgpu::BufferAddress,
                     shader_location: 7,
                     format: wgpu::VertexFormat::Float32,
+                },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 3]>() * 3
+                        + std::mem::size_of::<[f32; 4]>() * 2
+                        + std::mem::size_of::<u32>() * 2
+                        + std::mem::size_of::<f32>()) as wgpu::BufferAddress,
+                    shader_location: 8,
+                    format: wgpu::VertexFormat::Sint32,
                 },
             ],
         }

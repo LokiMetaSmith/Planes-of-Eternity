@@ -1,3 +1,4 @@
+use crate::rigging::Skeleton;
 use crate::audio::AudioManager;
 use crate::camera::{Camera, CameraController};
 use crate::input::{Action, InputConfig};
@@ -54,6 +55,8 @@ pub struct Splat4DPlayer {
     pub loop_playback: bool,
     pub position: cgmath::Point3<f32>,
     pub archetype_override: Option<u32>,
+    pub skeleton: Option<Skeleton>,
+    pub splat_bone_indices: Vec<usize>,
 }
 
 pub struct Engine {

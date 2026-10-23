@@ -26,6 +26,7 @@ pub mod lsystem;
 pub mod cfg;
 #[cfg(target_arch = "wasm32")]
 pub mod crash_report;
+pub mod rigging;
 pub mod engine;
 pub mod genie_bridge;
 pub mod indexed_db;
@@ -1761,6 +1762,22 @@ impl State {
                     player.current_frame = 0;
                 }
             }
+
+            // Procedural Bone Animation
+            if let Some(skeleton) = &mut player.skeleton {
+                let time = self.engine.time;
+                for bone in &mut skeleton.bones {
+                    if bone.name == "head" {
+                        use cgmath::{Rotation3, Rad};
+                        // Nodding head
+                        bone.local_rotation = cgmath::Quaternion::from_angle_x(Rad((time * 2.0).sin() * 0.2));
+                    } else if bone.name.contains("arm") {
+                        use cgmath::{Rotation3, Rad};
+                        // Swinging arms
+                        bone.local_rotation = cgmath::Quaternion::from_angle_x(Rad((time * 3.0).cos() * 0.5));
+                    }
+                }
+            }
         }
 
         // Handle pending dreams from the engine
@@ -2444,6 +2461,51 @@ impl State {
                 // Keep the splat's original opacity
 
                 active_splats.push(splat);
+            }
+        }
+
+        // Add Procedural Splats (Splat4DPlayer)
+        for player in &self.engine.active_4d_splats {
+            if let Some(frames) = player.animations.get(&player.current_state) {
+                if player.current_frame < frames.len() {
+                    let mut final_splats = frames[player.current_frame].clone();
+
+                    // Apply skinning if skeleton and mappings exist
+                    if let Some(skeleton) = &player.skeleton {
+                        if player.splat_bone_indices.len() == final_splats.len() {
+                            let globals = skeleton.evaluate_global_transforms();
+                            for (i, splat) in final_splats.iter_mut().enumerate() {
+                                let bone_idx = player.splat_bone_indices[i];
+                                if bone_idx < globals.len() {
+                                    let global_mat = globals[bone_idx];
+                                    let pos = cgmath::Vector4::new(splat.position[0], splat.position[1], splat.position[2], 1.0);
+                                    let new_pos = global_mat * pos;
+                                    splat.position = [new_pos.x, new_pos.y, new_pos.z];
+                                    splat.previous_position = splat.position;
+
+                                    // To rigorously skin rotations, we would extract the rotation from the global_mat,
+                                    // but we leave this unimplemented for now to keep the demo simple.
+                                }
+                            }
+                        }
+                    }
+
+                    for mut splat in final_splats {
+                        splat.position[0] += player.position.x;
+                        splat.position[1] += player.position.y;
+                        splat.position[2] += player.position.z;
+                        splat.previous_position[0] += player.position.x;
+                        splat.previous_position[1] += player.position.y;
+                        splat.previous_position[2] += player.position.z;
+
+                        if let Some(arch_id) = player.archetype_override {
+                            splat.archetype_id = arch_id;
+                            splat.target_archetype_id = arch_id;
+                        }
+
+                        active_splats.push(splat);
+                    }
+                }
             }
         }
 
@@ -4729,6 +4791,35 @@ impl GameClient {
                 splat.previous_position = splat.position;
             }
 
+
+            // --- Auto-Rigging ---
+            let mut min_y = f32::MAX;
+            let mut max_y = f32::MIN;
+            for splat in &new_splats {
+                if splat.position[1] < min_y { min_y = splat.position[1]; }
+                if splat.position[1] > max_y { max_y = splat.position[1]; }
+            }
+            let height = max_y - min_y;
+            let mid_y = min_y + height * 0.5;
+
+            let mut skeleton = crate::rigging::Skeleton::new();
+            // Bone 0: Root
+            let root_idx = skeleton.add_bone(crate::rigging::Bone::new("root", None));
+            // Bone 1: Head (relative to Root)
+            let mut head_bone = crate::rigging::Bone::new("head", Some(root_idx));
+            head_bone.local_translation = cgmath::Vector3::new(0.0, height * 0.5, 0.0);
+            let head_idx = skeleton.add_bone(head_bone);
+
+            let mut splat_bone_indices = Vec::with_capacity(new_splats.len());
+            for splat in &new_splats {
+                if splat.position[1] > mid_y {
+                    splat_bone_indices.push(head_idx);
+                } else {
+                    splat_bone_indices.push(root_idx);
+                }
+            }
+            // --------------------
+
             let mut animations = std::collections::HashMap::new();
             animations.insert(crate::engine::AnimationState::Idle, vec![new_splats]);
 
@@ -4744,6 +4835,8 @@ impl GameClient {
                 loop_playback: true,
                 position: spawn_pos,
                 archetype_override: None,
+                skeleton: Some(skeleton),
+                splat_bone_indices,
             };
 
             state.engine.active_4d_splats.push(player);

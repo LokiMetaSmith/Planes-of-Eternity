@@ -226,6 +226,10 @@ fn get_lighting_info(id: f32) -> vec2<f32> {
         return vec2<f32>(1.0, 0.3); // Clockwork
     } else if (id < 19.5) {
         return vec2<f32>(1.0, 0.3); // Cottagecore
+    } else if (id < 20.5) {
+        return vec2<f32>(1.0, 0.3); // WildWest
+    } else if (id < 21.5) {
+        return vec2<f32>(1.0, 0.3); // Fractal
     } else if (id < 22.5) {
         return vec2<f32>(1.0, 0.3); // Prehistoric
     } else if (id < 23.5) {
@@ -425,6 +429,16 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
         let p = pos * scale * 0.5;
         let n = fbm(p, 4, roughness);
         return n * 12.0 * params.z;
+    } else if (id < 20.5) {
+        // WildWest (Sandy dunes, canyons)
+        let p = pos * scale * 1.5;
+        let n = fbm(p, 3, roughness);
+        return (n * n) * 10.0 * params.z;
+    } else if (id < 21.5) {
+        // Fractal (Sharp, crystalline structures)
+        let p = pos * scale * 3.0;
+        let v = voronoi(p);
+        return v * 15.0 * params.z;
     } else if (id < 22.5) {
         // Prehistoric (Rugged, twisted terrain)
         let p = pos * scale;
@@ -929,16 +943,41 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
 
         let base_col = mix(path, grass, smoothstep(0.3, 0.7, n));
         return mix(base_col, flower, f_pattern * smoothstep(0.5, 0.6, n)); // Flowers only on grass
+    } else if (id < 20.5) {
+        // WildWest (Dusty, sandy)
+        let n = fbm(pos_in.xz * scale, 4, roughness);
+        return mix(vec3<f32>(0.8, 0.5, 0.2), vec3<f32>(0.6, 0.3, 0.1), n);
+    } else if (id < 21.5) {
+        // Fractal (Neon/orange structures)
+        let v = voronoi(pos_in.xz * scale * 3.0);
+        return mix(vec3<f32>(0.1, 0.05, 0.1), vec3<f32>(1.0, 0.5, 0.0), v);
     } else if (id < 22.5) {
         // Prehistoric (Jungle green and earth brown)
-        let n = fbm(pos_in.xz * params.y, 4, params.x);
+        let n = fbm(pos_in.xz * scale, 4, roughness);
         let col = mix(vec3<f32>(0.2, 0.1, 0.05), vec3<f32>(0.1, 0.3, 0.1), n);
         return col;
     } else if (id < 23.5) {
         // PostApocalyptic (Dusty brown and orange)
-        let n = fbm(pos_in.xz * params.y, 5, params.x);
+        let n = fbm(pos_in.xz * scale, 5, roughness);
         let col = mix(vec3<f32>(0.4, 0.3, 0.2), vec3<f32>(0.3, 0.2, 0.15), n);
         return col;
+    } else if (id < 24.5) {
+        // Underwater (Caustic mappings)
+        let time = reality.global_offset.z;
+        let p = pos_in.xz * scale;
+
+        let sand = vec3<f32>(0.8, 0.7, 0.5);
+        let deep_water = vec3<f32>(0.1, 0.3, 0.6);
+
+        let caustic_scale = 3.0;
+        let v1 = voronoi(p * caustic_scale + vec2<f32>(time * 0.5, time * 0.3));
+        let v2 = voronoi(p * caustic_scale * 1.5 - vec2<f32>(time * 0.4, time * 0.6));
+
+        let caustic = pow(min(v1, v2), 2.0); // sharp lines
+        let caustic_color = vec3<f32>(0.8, 0.9, 1.0) * caustic * 2.0;
+
+        let base = mix(sand, deep_water, 0.3); // a bit of water tint
+        return base + caustic_color;
     }
 
     return base_color;

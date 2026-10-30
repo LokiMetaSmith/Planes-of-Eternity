@@ -7,6 +7,7 @@ pub mod splat_gen;
 pub mod text_encoder;
 pub mod continuous_diffusion;
 pub mod gct;
+pub mod dit;
 
 // Placeholder exports until other modules are implemented
 pub mod fetch_weights;

@@ -1,8 +1,9 @@
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
+use reality_genie::dataset::TrajectoryDataset;
 use reality_genie::dit::{
-    ActionConditionedDiT, ActionConditioningEmbedder, CausalTemporalAttention, DiTConfig,
-    FrameAnchorBuffer,
+    ActionConditionedDiT, ActionConditionedSampler, ActionConditioningEmbedder,
+    CausalTemporalAttention, DiTConfig, FrameAnchorBuffer,
 };
 
 #[test]
@@ -68,12 +69,9 @@ fn test_causal_temporal_mask() -> candle_core::Result<()> {
     assert_eq!(mask.dims(), &[1, 1, t * s, t * s]);
 
     let mask_vec = mask.flatten_all()?.to_vec1::<f32>()?;
-    // Verification: frame 0 spatial tokens should not attend to frame 1 spatial tokens (value should be -1e9)
-    // token 0 is frame 0, token 4 is frame 1
     let idx_0_to_4 = 0 * (t * s) + 4;
     assert_eq!(mask_vec[idx_0_to_4], -1e9f32);
 
-    // token 4 (frame 1) CAN attend to token 0 (frame 0) (value should be 0.0)
     let idx_4_to_0 = 4 * (t * s) + 0;
     assert_eq!(mask_vec[idx_4_to_0], 0.0f32);
 
@@ -113,6 +111,35 @@ fn test_action_conditioned_dit_forward() -> candle_core::Result<()> {
     let output = dit.forward(&x, &actions, &timesteps, &anchor_context)?;
 
     assert_eq!(output.dims(), &[b, t, s, c]);
+
+    Ok(())
+}
+
+#[test]
+fn test_trajectory_dataset() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let dataset = TrajectoryDataset::generate_synthetic(4, 3, 8, 32, 5, &device)?;
+
+    assert_eq!(dataset.len(), 4);
+    assert!(!dataset.is_empty());
+
+    let (batch_latents, batch_actions) = dataset.get_batch(&[0, 2])?;
+    assert_eq!(batch_latents.dims(), &[2, 3, 8, 32]);
+    assert_eq!(batch_actions.dims(), &[2, 3]);
+
+    Ok(())
+}
+
+#[test]
+fn test_action_conditioned_sampler_rollout() -> candle_core::Result<()> {
+    let dit = ActionConditionedDiT::default_cpu()?;
+    let sampler = ActionConditionedSampler::new(dit, 2);
+
+    let actions = vec![1u32, 2u32, 3u32];
+    let latents_vec = sampler.rollout_from_actions_vec(&actions)?;
+
+    // Expected shape: [1, 3, 64, 256] -> 1 * 3 * 64 * 256 = 49152 floats
+    assert_eq!(latents_vec.len(), 3 * 64 * 256);
 
     Ok(())
 }

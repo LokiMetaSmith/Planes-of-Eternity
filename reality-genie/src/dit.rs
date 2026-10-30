@@ -107,6 +107,20 @@ impl FrameAnchorBuffer {
         }
     }
 
+    /// Calculate long-horizon drift variance across cached keyframes
+    pub fn compute_drift_variance(&self) -> Result<f32> {
+        if self.cached_anchors.len() < 2 {
+            return Ok(0.0f32);
+        }
+
+        let first = &self.cached_anchors[0];
+        let last = &self.cached_anchors[self.cached_anchors.len() - 1];
+
+        let diff = (last - first)?;
+        let sq_diff = diff.sqr()?.mean_all()?;
+        sq_diff.to_scalar::<f32>()
+    }
+
     pub fn clear(&mut self) {
         self.cached_anchors.clear();
     }
@@ -540,6 +554,49 @@ impl ActionConditionedSampler {
         }
     }
 
+    /// Sample/predict next frame latents with Classifier-Free Guidance (CFG)
+    pub fn sample_next_frame_cfg(
+        &self,
+        b: usize,
+        action: u32,
+        text_tokens: Option<&Tensor>,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        guidance_scale: f64,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let s = self.model.config.num_spatial_tokens;
+        let c = self.model.config.d_model;
+        let dtype = DType::F32;
+
+        let actions_tensor = Tensor::from_vec(vec![action; b], (b,), device)?;
+        let null_actions_tensor = Tensor::zeros_like(&actions_tensor)?;
+        let anchor_ctx = anchor_buffer.get_anchor_context(device, b, s, c, dtype)?;
+
+        let mut x_t = Tensor::randn(0.0f32, 1.0f32, (b, 1, s, c), device)?;
+
+        for step in (0..self.num_denoising_steps).rev() {
+            let timestep = (step * 1000 / self.num_denoising_steps) as u32;
+            let timesteps_tensor = Tensor::from_vec(vec![timestep; b], (b,), device)?;
+
+            let pred_cond = self.model.forward_multimodal(&x_t, &actions_tensor, text_tokens, &timesteps_tensor, &anchor_ctx)?;
+
+            let pred_noise = if guidance_scale > 1.0 {
+                let pred_uncond = self.model.forward_multimodal(&x_t, &null_actions_tensor, None, &timesteps_tensor, &anchor_ctx)?;
+                let diff = (&pred_cond - &pred_uncond)?;
+                (&pred_uncond + (&diff * guidance_scale)?)?
+            } else {
+                pred_cond
+            };
+
+            let alpha = 1.0 / (self.num_denoising_steps as f32);
+            x_t = (&x_t - (&pred_noise * (alpha as f64))?)?;
+        }
+
+        anchor_buffer.push_frame(x_t.clone(), step_index)?;
+        Ok(x_t)
+    }
+
     /// Sample/predict next frame latents [B, 1, S, C] given user action and current anchor context
     pub fn sample_next_frame(
         &self,
@@ -549,31 +606,7 @@ impl ActionConditionedSampler {
         step_index: usize,
         device: &Device,
     ) -> Result<Tensor> {
-        let s = self.model.config.num_spatial_tokens;
-        let c = self.model.config.d_model;
-        let dtype = DType::F32;
-
-        let actions_tensor = Tensor::from_vec(vec![action; b], (b,), device)?;
-        let anchor_ctx = anchor_buffer.get_anchor_context(device, b, s, c, dtype)?;
-
-        // Initialize with pure Gaussian noise latents for 1 frame: [B, 1, S, C]
-        let mut x_t = Tensor::randn(0.0f32, 1.0f32, (b, 1, s, c), device)?;
-
-        for step in (0..self.num_denoising_steps).rev() {
-            let timestep = (step * 1000 / self.num_denoising_steps) as u32;
-            let timesteps_tensor = Tensor::from_vec(vec![timestep; b], (b,), device)?;
-
-            let pred_noise = self.model.forward(&x_t, &actions_tensor, &timesteps_tensor, &anchor_ctx)?;
-
-            // Denoising step: x_{t-1} = x_t - alpha * pred_noise
-            let alpha = 1.0 / (self.num_denoising_steps as f32);
-            x_t = (&x_t - (&pred_noise * (alpha as f64))?)?;
-        }
-
-        // Cache newly predicted frame into sliding window buffer
-        anchor_buffer.push_frame(x_t.clone(), step_index)?;
-
-        Ok(x_t)
+        self.sample_next_frame_cfg(b, action, None, anchor_buffer, step_index, 1.0, device)
     }
 
     /// Autoregressively rollout a trajectory sequence of frame latents given an action sequence [B, T]
@@ -592,7 +625,6 @@ impl ActionConditionedSampler {
             frame_list.push(frame);
         }
 
-        // Concatenate along temporal axis -> [B, T, S, C]
         Tensor::cat(&frame_list, 1)
     }
 

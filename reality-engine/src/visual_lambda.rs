@@ -109,13 +109,11 @@ pub struct LambdaRenderer {
     capacity: usize,
     opaque_count: u32,
 
-    // Line Rendering
     line_pipeline: wgpu::RenderPipeline,
     line_vertex_buffer: wgpu::Buffer,
     line_vertex_count: u32,
     line_capacity: usize,
 
-    // Player Voxel Rendering
     player_vertex_buffer: wgpu::Buffer,
     player_index_buffer: wgpu::Buffer,
     player_num_indices: u32,
@@ -222,7 +220,6 @@ impl LambdaRenderer {
             multiview: None,
         });
 
-        // Line Pipeline
         let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Lambda Line Pipeline"),
             layout: Some(&pipeline_layout),
@@ -263,7 +260,6 @@ impl LambdaRenderer {
             multiview: None,
         });
 
-        // Create Sphere Mesh
         let (vertices, indices) = create_sphere_mesh(1.0, 16, 16);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -278,7 +274,6 @@ impl LambdaRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        // Initial empty instance buffer (size for 100 nodes for now)
         let capacity = 100;
         let instances = vec![
             LambdaInstance {
@@ -294,8 +289,7 @@ impl LambdaRenderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        // Initial Line Buffer
-        let line_capacity = 200; // 100 edges = 200 vertices
+        let line_capacity = 200;
         let line_vertices = vec![
             LambdaLineVertex {
                 position: [0.0; 3],
@@ -349,7 +343,6 @@ impl LambdaRenderer {
         hovered_node: Option<usize>,
         hovered_edge: Option<usize>,
     ) {
-        // Update Instances
         if nodes.len() > self.capacity {
             self.capacity = (nodes.len() * 2).max(self.capacity * 2);
             let instances = vec![
@@ -367,12 +360,10 @@ impl LambdaRenderer {
             });
         }
 
-        // Helper: Collect subtree indices if hovered
         let mut highlighted_nodes = std::collections::HashSet::new();
         if let Some(hover_idx) = hovered_node {
             highlighted_nodes.insert(hover_idx);
 
-            // BFS to highlight descendants
             let mut stack = vec![hover_idx];
             while let Some(parent) = stack.pop() {
                 for &(p, c) in edges {
@@ -383,19 +374,6 @@ impl LambdaRenderer {
                 }
             }
 
-            // Also highlight ports pointing to this binder (if it's an Abs)
-            // (Edges for ports are (Port, Binder), but our BFS follows Structure edges (Parent, Child))
-            // Wait, edges are mixed.
-            // Structure: (Parent, Child)
-            // Wire: (Port, Binder)
-            // We need to differentiate to correctly highlight subtree vs usage.
-            // But `edges` is just a list of (usize, usize).
-            // `build_subtree` pushes (Port, Binder) for wires.
-            // If we traverse (Port, Binder), then if we hover Port, we highlight Binder?
-            // If we hover Binder, we don't necessarily highlight Ports (backward edge).
-            // But we want to see USAGE.
-
-            // Let's iterate all edges to find usage
             if matches!(nodes[hover_idx].node_type, NodeType::Abs(_)) {
                 for &(src, dst) in edges {
                     if dst == hover_idx && matches!(nodes[src].node_type, NodeType::Port) {
@@ -405,38 +383,32 @@ impl LambdaRenderer {
             }
         }
 
-        // Sort Nodes: Opaque first, then Transparent
         let mut instances: Vec<LambdaInstance> = nodes
             .iter()
             .enumerate()
             .map(|(i, n)| {
                 let mut color = n.color;
 
-                // Apply Highlight
                 if n.is_editing {
-                    // Editing Highlight: Pulse/Yellow-Orange tint
                     color[0] = 1.0;
                     color[1] = (color[1] + 0.5).min(0.8);
                     color[2] *= 0.2;
                     color[3] = (color[3] + 0.3).min(1.0);
                 } else if let Some(hover_idx) = hovered_node {
                     if i == hover_idx {
-                        // Direct Hover: Brighten significantly
                         color[0] = (color[0] + 0.5).min(1.0);
                         color[1] = (color[1] + 0.5).min(1.0);
                         color[2] = (color[2] + 0.5).min(1.0);
                         color[3] = (color[3] + 0.2).min(1.0);
                     } else if highlighted_nodes.contains(&i) {
-                        // Subtree/Related: Slight brighten
                         color[0] = (color[0] + 0.2).min(1.0);
                         color[1] = (color[1] + 0.2).min(1.0);
                         color[2] = (color[2] + 0.2).min(1.0);
                     } else {
-                        // Unrelated: Dim slightly
                         color[0] *= 0.5;
                         color[1] *= 0.5;
                         color[2] *= 0.5;
-                        color[3] *= 0.8; // Make bubbles ghostlier
+                        color[3] *= 0.8;
                     }
                 }
 
@@ -448,11 +420,10 @@ impl LambdaRenderer {
             })
             .collect();
 
-        // Sort: Opaque (Alpha >= 0.95) first
         instances.sort_by(|a, b| {
             let a_opaque = a.color[3] >= 0.95;
             let b_opaque = b.color[3] >= 0.95;
-            b_opaque.cmp(&a_opaque) // True > False, so Opaque first
+            b_opaque.cmp(&a_opaque)
         });
 
         self.opaque_count = instances.iter().take_while(|i| i.color[3] >= 0.95).count() as u32;
@@ -461,8 +432,6 @@ impl LambdaRenderer {
             queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
         }
 
-        // Update Lines
-        // We use curves now, so we need more vertices per edge (e.g. 10 segments = 20 vertices)
         let segments_per_edge = 10;
         let required_line_vertices = edges.len() * segments_per_edge * 2;
 
@@ -489,7 +458,6 @@ impl LambdaRenderer {
                 let start_node = &nodes[start_idx];
                 let end_node = &nodes[end_idx];
 
-                // Skip edges connected to invisible nodes (collapsed)
                 if start_node.scale < 0.001 || end_node.scale < 0.001 {
                     continue;
                 }
@@ -497,20 +465,16 @@ impl LambdaRenderer {
                 let p0 = start_node.position;
                 let p2 = end_node.position;
 
-                // Color Logic
                 let mut color = [1.0, 1.0, 1.0, 0.5];
-
                 let is_wire = matches!(start_node.node_type, NodeType::Port);
 
                 if Some(edge_idx) == hovered_edge {
-                    color = [1.0, 1.0, 0.0, 1.0]; // Yellow highlight
+                    color = [1.0, 1.0, 0.0, 1.0];
                 } else if is_wire {
-                    color = [0.8, 0.8, 1.0, 0.8]; // Blueish wires
+                    color = [0.8, 0.8, 1.0, 0.8];
                 }
 
                 let p1 = get_control_point(p0, p2, is_wire);
-
-                // Generate Curve Segments (Quadratic Bezier)
                 let mut prev_pos = p0;
 
                 for i in 1..=segments_per_edge {
@@ -548,7 +512,6 @@ impl LambdaRenderer {
         camera_bind_group: &'a wgpu::BindGroup,
         num_instances: u32,
     ) {
-        // Draw Lines
         if self.line_vertex_count > 0 {
             render_pass.set_pipeline(&self.line_pipeline);
             render_pass.set_bind_group(0, camera_bind_group, &[]);
@@ -556,7 +519,6 @@ impl LambdaRenderer {
             render_pass.draw(0..self.line_vertex_count, 0..1);
         }
 
-        // Draw Opaque Nodes
         if self.opaque_count > 0 {
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_bind_group(0, camera_bind_group, &[]);
@@ -566,7 +528,6 @@ impl LambdaRenderer {
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.opaque_count);
         }
 
-        // Draw Transparent Nodes
         if num_instances > self.opaque_count {
             render_pass.set_pipeline(&self.transparent_pipeline);
             render_pass.set_bind_group(0, camera_bind_group, &[]);
@@ -610,7 +571,6 @@ fn create_voxel_sphere_mesh(radius: f32, voxel_size: f32) -> (Vec<LambdaVertex>,
                 let py = y as f32 * voxel_size;
                 let pz = z as f32 * voxel_size;
 
-                // Only include cubes whose center is within the radius
                 if px * px + py * py + pz * pz <= radius * radius {
                     let min_x = px - voxel_size / 2.0;
                     let max_x = px + voxel_size / 2.0;
@@ -620,32 +580,26 @@ fn create_voxel_sphere_mesh(radius: f32, voxel_size: f32) -> (Vec<LambdaVertex>,
                     let max_z = pz + voxel_size / 2.0;
 
                     let face_vertices = [
-                        // Top (Y+)
                         ([min_x, max_y, max_z], [0.0, 1.0, 0.0]),
                         ([max_x, max_y, max_z], [0.0, 1.0, 0.0]),
                         ([max_x, max_y, min_z], [0.0, 1.0, 0.0]),
                         ([min_x, max_y, min_z], [0.0, 1.0, 0.0]),
-                        // Bottom (Y-)
                         ([min_x, min_y, min_z], [0.0, -1.0, 0.0]),
                         ([max_x, min_y, min_z], [0.0, -1.0, 0.0]),
                         ([max_x, min_y, max_z], [0.0, -1.0, 0.0]),
                         ([min_x, min_y, max_z], [0.0, -1.0, 0.0]),
-                        // Right (X+)
                         ([max_x, min_y, min_z], [1.0, 0.0, 0.0]),
                         ([max_x, max_y, min_z], [1.0, 0.0, 0.0]),
                         ([max_x, max_y, max_z], [1.0, 0.0, 0.0]),
                         ([max_x, min_y, max_z], [1.0, 0.0, 0.0]),
-                        // Left (X-)
                         ([min_x, min_y, max_z], [-1.0, 0.0, 0.0]),
                         ([min_x, max_y, max_z], [-1.0, 0.0, 0.0]),
                         ([min_x, max_y, min_z], [-1.0, 0.0, 0.0]),
                         ([min_x, min_y, min_z], [-1.0, 0.0, 0.0]),
-                        // Front (Z+)
                         ([max_x, min_y, max_z], [0.0, 0.0, 1.0]),
                         ([max_x, max_y, max_z], [0.0, 0.0, 1.0]),
                         ([min_x, max_y, max_z], [0.0, 0.0, 1.0]),
                         ([min_x, min_y, max_z], [0.0, 0.0, 1.0]),
-                        // Back (Z-)
                         ([min_x, min_y, min_z], [0.0, 0.0, -1.0]),
                         ([min_x, max_y, min_z], [0.0, 0.0, -1.0]),
                         ([max_x, max_y, min_z], [0.0, 0.0, -1.0]),
@@ -694,7 +648,6 @@ fn create_sphere_mesh(radius: f32, sectors: u32, stacks: u32) -> (Vec<LambdaVert
             let x = xy * sector_angle.cos();
             let y = xy * sector_angle.sin();
 
-            // For a sphere, normal is normalized position
             let nx = x / radius;
             let ny = y / radius;
             let nz = z / radius;
@@ -731,7 +684,7 @@ fn create_sphere_mesh(radius: f32, sectors: u32, stacks: u32) -> (Vec<LambdaVert
 #[derive(Clone, Debug)]
 pub struct VisualNode {
     pub id: u64,
-    pub term: Rc<Term>, // Back reference to logic
+    pub term: Rc<Term>,
     pub position: Point3<f32>,
     pub target_position: Point3<f32>,
     pub velocity: Vector3<f32>,
@@ -749,27 +702,24 @@ pub enum NodeType {
     Abs(String),
     App,
     Prim(Primitive),
-    Port, // New: Represents a variable usage port (bound variable)
+    Port,
 }
 
 #[derive(Clone, Debug)]
 pub enum AnimationState {
     Idle,
     Reducing {
-        // We are reducing: (\x.Body) Arg
-        // Abs index is the bubble. Arg index is the root of the argument.
-        // We want to visually move Arg to Ports.
         abs_idx: usize,
         arg_idx: usize,
         ports: Vec<usize>,
         progress: f32,
-        new_term: Rc<Term>, // The result to switch to after animation
+        new_term: Rc<Term>,
     },
 }
 
 pub struct LambdaSystem {
     pub nodes: Vec<VisualNode>,
-    pub edges: Vec<(usize, usize)>, // Indices into nodes
+    pub edges: Vec<(usize, usize)>,
     pub root_term: Option<Rc<Term>>,
     next_id: u64,
     pub dragged_node: Option<usize>,
@@ -843,8 +793,7 @@ impl LambdaSystem {
         let mut closest_idx = None;
 
         for (i, node) in self.nodes.iter().enumerate() {
-            // Ray-Sphere Intersection
-            let radius = node.scale; // Use node scale as radius!
+            let radius = node.scale;
             let l = node.position - ray_origin;
             let tca = l.dot(ray_dir);
             if tca < 0.0 {
@@ -874,7 +823,7 @@ impl LambdaSystem {
     pub fn intersect_edge(&self, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) -> Option<usize> {
         let mut closest_dist = std::f32::MAX;
         let mut closest_idx = None;
-        let threshold = 0.2; // Hit radius
+        let threshold = 0.2;
 
         for (edge_idx, &(start, end)) in self.edges.iter().enumerate() {
             if start >= self.nodes.len() || end >= self.nodes.len() {
@@ -889,7 +838,6 @@ impl LambdaSystem {
             let is_wire = matches!(self.nodes[start].node_type, NodeType::Port);
             let p1 = get_control_point(p0, p2, is_wire);
 
-            // Ray-Curve Intersection (Approximate with segments)
             let segments = 10;
             let mut prev_pos = p0;
 
@@ -964,7 +912,6 @@ impl LambdaSystem {
     pub fn start_drag(&mut self, idx: usize, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) {
         if idx < self.nodes.len() {
             self.dragged_node = Some(idx);
-            // Calculate distance to object
             let diff = self.nodes[idx].position - ray_origin;
             self.drag_distance = diff.dot(ray_dir);
         }
@@ -973,11 +920,10 @@ impl LambdaSystem {
     pub fn update_drag(&mut self, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) {
         if let Some(idx) = self.dragged_node {
             if idx < self.nodes.len() {
-                // Project ray to distance
                 let target = ray_origin + ray_dir * self.drag_distance;
                 self.nodes[idx].target_position = target;
-                self.nodes[idx].position = target; // Snap or smooth? Snap for responsiveness
-                self.nodes[idx].velocity = Vector3::new(0.0, 0.0, 0.0); // Reset physics
+                self.nodes[idx].position = target;
+                self.nodes[idx].velocity = Vector3::new(0.0, 0.0, 0.0);
             }
         }
     }
@@ -993,13 +939,11 @@ impl LambdaSystem {
         let dragged_node = &self.nodes[dragged_idx];
         let dropped_node = &self.nodes[dropped_on_idx];
 
-        // Check for Rewiring: Port -> Abs
         if let (NodeType::Port, NodeType::Abs(param_name)) =
             (&dragged_node.node_type, &dropped_node.node_type)
         {
             let new_var = Term::var(param_name);
             if let Some(root) = &self.root_term {
-                // Replace the specific Port instance with a new Var referencing the Abs binder
                 let new_root = Term::replace(root, &dragged_node.term, new_var);
                 self.set_term(new_root);
             }
@@ -1009,8 +953,6 @@ impl LambdaSystem {
         let dragged_term = dragged_node.term.clone();
         let dropped_on_term = dropped_node.term.clone();
 
-        // Logic: Dragged node becomes argument to Dropped node
-        // New Term: App(Dropped, Dragged)
         let new_sub_term = Term::app(dropped_on_term.clone(), dragged_term);
 
         if let Some(root) = &self.root_term {
@@ -1021,12 +963,10 @@ impl LambdaSystem {
 
     pub fn end_drag(&mut self) {
         if let Some(dragged_idx) = self.dragged_node {
-            // Check for overlap with other nodes
             for i in 0..self.nodes.len() {
                 if i == dragged_idx {
                     continue;
                 }
-                // Skip invisible nodes
                 if self.nodes[i].scale < 0.001 {
                     continue;
                 }
@@ -1036,7 +976,6 @@ impl LambdaSystem {
                     .distance(self.nodes[dragged_idx].position);
                 let combined_radius = self.nodes[i].scale + self.nodes[dragged_idx].scale;
 
-                // If overlapping significantly
                 if dist < combined_radius * 0.8 {
                     self.handle_drop(dragged_idx, i);
                     break;
@@ -1051,7 +990,6 @@ impl LambdaSystem {
             self.nodes[idx].collapsed = !self.nodes[idx].collapsed;
             let is_collapsed = self.nodes[idx].collapsed;
             self.set_subtree_visibility(idx, !is_collapsed);
-            // Ensure the node itself remains visible
             self.nodes[idx].scale = if matches!(self.nodes[idx].node_type, NodeType::Abs(_)) {
                 3.0
             } else {
@@ -1079,7 +1017,6 @@ impl LambdaSystem {
     }
 
     fn set_subtree_visibility(&mut self, root_idx: usize, visible: bool) {
-        // Simple visibility toggle
         let mut stack = vec![root_idx];
         let mut visited = std::collections::HashSet::new();
         visited.insert(root_idx);
@@ -1088,11 +1025,9 @@ impl LambdaSystem {
             for &(p, c) in &self.edges {
                 if p == parent && !visited.contains(&c) {
                     visited.insert(c);
-                    // Set scale based on visibility and type
                     if !visible {
                         self.nodes[c].scale = 0.0;
                     } else {
-                        // Restore default scale
                         self.nodes[c].scale = match self.nodes[c].node_type {
                             NodeType::Abs(_) => 3.0,
                             NodeType::Port => 0.2,
@@ -1107,7 +1042,6 @@ impl LambdaSystem {
     }
 
     pub fn reduce_root(&mut self) -> bool {
-        // Don't interrupt animation
         if let AnimationState::Reducing { .. } = self.animation_state {
             return false;
         }
@@ -1115,36 +1049,12 @@ impl LambdaSystem {
         if let Some(root) = &self.root_term {
             let (new_root, reduced) = root.reduce();
             if reduced {
-                // Detect Reduction Type for Animation
-                // We want to animate Beta Reduction: (\x.M) N
-                // Check if root is App(Abs(x, M), N)
                 if let Term::App(func, _arg) = &**root {
                     if let Term::Abs(_param, _body) = &**func {
-                        // Found a Beta Reduction!
-                        // Need to find visual nodes corresponding to Abs and Arg
-                        // This is tricky because `nodes` is flat.
-                        // But we built the graph. The root is node 0.
-                        // App is node 0.
-                        // Func (Abs) is the left child of 0.
-                        // Arg is the right child of 0.
-
-                        // Find children of 0
                         let mut left_child = None;
                         let mut right_child = None;
                         for &(p, c) in &self.edges {
                             if p == 0 {
-                                // How to distinguish left/right?
-                                // In build_subtree, we pushed left then right.
-                                // So left_child < right_child usually?
-                                // Or check node type/term?
-                                // We know Func is Abs.
-                                // Edges were pushed in order: Left then Right in build_subtree.
-                                // But we can't rely on edge order in self.edges (it's a vec but iterate might be unstable if we used map? No, it's vec).
-                                // But build_subtree pushes (node_index, left_idx) then (node_index, right_idx).
-                                // So left child has smaller index usually? No, recursive.
-                                // Left child is built first. So left_idx < right_idx (usually).
-
-                                // Better heuristic: Check if we already found left_child.
                                 if matches!(self.nodes[c].node_type, NodeType::Abs(_))
                                     && left_child.is_none()
                                 {
@@ -1156,16 +1066,9 @@ impl LambdaSystem {
                         }
 
                         if let (Some(abs_idx), Some(arg_idx)) = (left_child, right_child) {
-                            // Find Ports for 'param' inside Abs
-                            // We need to scan nodes for NodeType::Port that link to abs_idx
-                            // In build_subtree, Port -> Binder edge is created.
-                            // Wait, Edge direction is (Port, Binder)?
-                            // Yes: `self.edges.push((node_index, binder_idx));`
-
                             let mut ports = Vec::new();
                             for i in 0..self.nodes.len() {
                                 if matches!(self.nodes[i].node_type, NodeType::Port) {
-                                    // Check if this port connects to abs_idx
                                     for &(src, dst) in &self.edges {
                                         if src == i && dst == abs_idx {
                                             ports.push(i);
@@ -1186,7 +1089,6 @@ impl LambdaSystem {
                     }
                 }
 
-                // Fallback for other reductions (e.g. inner)
                 self.set_term(new_root);
                 return true;
             }
@@ -1197,7 +1099,6 @@ impl LambdaSystem {
     pub fn update(&mut self, dt: f32) -> Vec<LambdaEvent> {
         let mut events = Vec::new();
 
-        // Auto-Reduce Logic
         if self.auto_reduce && !self.paused && matches!(self.animation_state, AnimationState::Idle)
         {
             self.auto_reduce_timer += dt;
@@ -1209,7 +1110,6 @@ impl LambdaSystem {
             }
         }
 
-        // Animation Logic
         if let AnimationState::Reducing {
             ref abs_idx,
             ref arg_idx,
@@ -1219,42 +1119,23 @@ impl LambdaSystem {
         } = self.animation_state
         {
             if !self.paused {
-                *progress += dt * 2.0; // 0.5s duration
+                *progress += dt * 2.0;
             }
 
             if *progress >= 1.0 {
-                // Animation Complete
                 let term = new_term.clone();
                 self.animation_state = AnimationState::Idle;
                 self.set_term(term);
                 return events;
             }
 
-            // Animate!
-            // 1. Move Arg towards Abs (Consumption)
-            // 2. Move Arg towards Ports (Substitution) - if we could duplicate it visualy...
-            // For now, let's just move Arg towards Abs center.
-
-            // We can't easily move the whole subtree of Arg without updating all children.
-            // But `set_anchor` does that via delta.
-            // Let's calculate delta for arg_idx to move towards abs_idx.
-
             let target_pos = self.nodes[*abs_idx].position;
             let current_pos = self.nodes[*arg_idx].position;
             let dir = target_pos - current_pos;
 
-            // We need frame delta.
-            // Actually, let's just modify the `target_position` of the arg root?
-            // The physics loop below will pull it.
-            // But physics is springy. We want deterministic animation.
-
-            // Let's force position.
-            let lerp_pos = current_pos + dir * (dt * 5.0); // Move fast
-
-            // Move subtree
+            let lerp_pos = current_pos + dir * (dt * 5.0);
             let delta = lerp_pos - current_pos;
 
-            // BFS to move arg subtree
             let mut stack = vec![*arg_idx];
             let mut visited = std::collections::HashSet::new();
             while let Some(idx) = stack.pop() {
@@ -1266,19 +1147,13 @@ impl LambdaSystem {
                 self.nodes[idx].position += delta;
                 self.nodes[idx].target_position += delta;
 
-                // 1. Shrink Effect: As progress -> 1.0, scale -> 0.1
-                // But only if we are being consumed.
-                // The argument is being consumed by the Abs bubble.
-                // Let's shrink it as it gets closer.
                 let shrink_factor = 1.0 - (*progress * 0.9);
                 if matches!(self.nodes[idx].node_type, NodeType::Abs(_)) {
-                    // Keep bubbles somewhat visible
                     self.nodes[idx].scale = 3.0 * shrink_factor;
                 } else {
                     self.nodes[idx].scale = shrink_factor;
                 }
 
-                // Find children
                 for &(p, c) in &self.edges {
                     if p == idx {
                         stack.push(c);
@@ -1286,14 +1161,9 @@ impl LambdaSystem {
                 }
             }
 
-            // 2. Bubble Pulse: Pulse the Abs bubble
-            // Base scale 3.0. Pulse up to 3.5.
-            let pulse = (*progress * std::f32::consts::PI).sin(); // 0 -> 1 -> 0
+            let pulse = (*progress * std::f32::consts::PI).sin();
             self.nodes[*abs_idx].scale = 3.0 + (pulse * 0.5);
 
-            // 3. Color Shift: Shift Abs color to Reddish to show activity
-            // Base is [1.0, 1.0, 1.0, 0.3]
-            // Shift to [1.0, 0.5, 0.5, 0.5]
             self.nodes[*abs_idx].color = [
                 1.0,
                 1.0 - (pulse * 0.5),
@@ -1301,11 +1171,8 @@ impl LambdaSystem {
                 0.3 + (pulse * 0.2),
             ];
 
-            // Glow effect on Ports?
-            // We can pulse their scale
             for &port_idx in ports {
                 self.nodes[port_idx].scale = 0.2 + (pulse * 0.3);
-                // Also highlight color
                 self.nodes[port_idx].color = [0.2 + (pulse * 0.8), 0.2, 0.2, 1.0];
             }
         }
@@ -1315,27 +1182,23 @@ impl LambdaSystem {
             return events;
         }
 
-        let repulsion_strength = 50.0; // Increased for bubbles
+        let repulsion_strength = 50.0;
         let centering_strength = 0.5;
         let damping = 0.9;
         let base_rest_length = 3.0;
 
-        // 1. Repulsion
-        // Optimization: Halve the number of distance calculations by iterating over unique pairs
-        // and applying forces symmetrically (Newton's Third Law).
-        // Uses `split_at_mut` to safely borrow two mutable node references simultaneously.
         for i in 0..node_count {
             let (left, right) = self.nodes.split_at_mut(i + 1);
             let node_i = &mut left[i];
 
             if node_i.scale < 0.001 {
                 continue;
-            } // Skip invisible
+            }
 
             for node_j in right.iter_mut() {
                 if node_j.scale < 0.001 {
                     continue;
-                } // Skip invisible
+                }
 
                 let dir = node_i.position - node_j.position;
                 let dist_sq = dir.magnitude2();
@@ -1345,22 +1208,17 @@ impl LambdaSystem {
                     node_i.velocity += push;
                     node_j.velocity -= push;
                 } else {
-                    // Check radii collision
                     let r1 = node_i.scale;
                     let r2 = node_j.scale;
-                    let min_dist = (r1 + r2) * 1.1; // Add padding
+                    let min_dist = (r1 + r2) * 1.1;
 
                     if dist_sq < (min_dist * min_dist) {
-                        // Hard push (collision)
-                        // Optimization: Avoid expensive .normalize() by dividing the precomputed squared distance's square root.
-                        // This skips redundant magnitude recalculations (sqrt(x^2 + y^2 + z^2))
                         let dist = dist_sq.sqrt();
                         let scalar_force = (repulsion_strength * 5.0 * dt) / dist;
                         let force = dir * scalar_force;
                         node_i.velocity += force;
                         node_j.velocity -= force;
                     } else if dist_sq < 150.0 {
-                        // Soft push (repulsion)
                         let dist = dist_sq.sqrt();
                         let scalar_force = (repulsion_strength * dt) / (dist_sq * dist);
                         let force = dir * scalar_force;
@@ -1371,7 +1229,6 @@ impl LambdaSystem {
             }
         }
 
-        // 2. Spring Forces (Edges)
         for &(start, end) in &self.edges {
             if start >= node_count || end >= node_count {
                 continue;
@@ -1383,19 +1240,17 @@ impl LambdaSystem {
             let dir = self.nodes[end].position - self.nodes[start].position;
             let dist_sq = dir.magnitude2();
 
-            // Dynamic Spring Params based on Edge Type
             let is_wire = matches!(self.nodes[start].node_type, NodeType::Port);
 
             let (stiffness, rest_len) = if is_wire {
-                (0.5, base_rest_length * 2.0) // Loose, long wires
+                (0.5, base_rest_length * 2.0)
             } else {
-                (5.0, base_rest_length) // Stiff structure
+                (5.0, base_rest_length)
             };
 
             if dist_sq > 0.00000001 {
                 let dist = dist_sq.sqrt();
                 let force = (dist - rest_len) * stiffness;
-                // Optimization: Avoid .normalize() by dividing the scalar force by the pre-calculated distance
                 let scalar_force = (force * dt) / dist;
                 let force_vec = dir * scalar_force;
                 self.nodes[start].velocity += force_vec;
@@ -1403,26 +1258,20 @@ impl LambdaSystem {
             }
         }
 
-        // 3. Centering / Target Force & Integration
         for node in &mut self.nodes {
             if node.scale < 0.001 {
-                node.position = node.target_position; // Snap hidden nodes
+                node.position = node.target_position;
                 node.velocity = Vector3::new(0.0, 0.0, 0.0);
                 continue;
             }
 
             if node.is_pinned {
                 node.velocity = Vector3::new(0.0, 0.0, 0.0);
-                // Allow spring/target calculations to happen but don't apply to pos
             } else {
-                // Pull towards "ideal" tree layout target (weakly)
                 let to_target = node.target_position - node.position;
                 node.velocity += to_target * centering_strength * dt;
 
-                // Update Position
                 node.position += node.velocity * dt;
-
-                // Damping
                 node.velocity *= damping;
             }
         }
@@ -1438,13 +1287,10 @@ impl LambdaSystem {
         let scope = HashMap::new();
 
         if let Some(term) = &self.root_term {
-            // Calculate layout positions
-            // Start at anchor_pos relative to World Origin
             self.build_subtree(term.clone(), self.anchor_pos, 0, &scope);
         }
     }
 
-    // Returns the index of the node representing this term
     fn build_subtree(
         &mut self,
         term: Rc<Term>,
@@ -1457,9 +1303,8 @@ impl LambdaSystem {
 
         match &*term {
             Term::Abs(param, body) => {
-                // Create Bubble Node
-                let color = [1.0, 1.0, 1.0, 0.3]; // Translucent White
-                let scale = 3.0; // Large Bubble
+                let color = [1.0, 1.0, 1.0, 0.3];
+                let scale = 3.0;
                 let node_index = self.nodes.len();
 
                 self.nodes.push(VisualNode {
@@ -1476,25 +1321,19 @@ impl LambdaSystem {
                     is_pinned: false,
                 });
 
-                // Update Scope
                 let mut new_scope = scope.clone();
                 new_scope.insert(param.clone(), node_index);
 
-                // Build Body
                 let child_pos = pos + Vector3::new(0.0, -2.0, 0.0);
                 let child_idx = self.build_subtree(body.clone(), child_pos, depth + 1, &new_scope);
 
-                // Edge from Abs to Body (Structure)
                 self.edges.push((node_index, child_idx));
 
                 node_index
             }
             Term::Var(name) => {
-                // Check if Bound
                 if let Some(&binder_idx) = scope.get(name) {
-                    // It is bound!
-                    // Create a "Port" node at the usage site
-                    let color = [0.2, 0.2, 0.2, 1.0]; // Dark Grey Port
+                    let color = [0.2, 0.2, 0.2, 1.0];
                     let scale = 0.2;
                     let node_index = self.nodes.len();
 
@@ -1512,12 +1351,10 @@ impl LambdaSystem {
                         is_pinned: false,
                     });
 
-                    // Create WIRE Edge (Port -> Binder)
                     self.edges.push((node_index, binder_idx));
 
                     node_index
                 } else {
-                    // Free Variable
                     let color = self.hash_color(name);
                     let scale = 1.0;
                     let node_index = self.nodes.len();
@@ -1540,9 +1377,8 @@ impl LambdaSystem {
                 }
             }
             Term::App(func, arg) => {
-                // Application Node
                 let color = [0.5, 0.5, 0.5, 0.8];
-                let scale = 0.5; // Connector
+                let scale = 0.5;
                 let node_index = self.nodes.len();
 
                 self.nodes.push(VisualNode {
@@ -1559,7 +1395,6 @@ impl LambdaSystem {
                     is_pinned: false,
                 });
 
-                // Build Children
                 let horizontal_spacing = 3.0 * (0.8f32).powi(depth);
                 let left_pos = pos + Vector3::new(-horizontal_spacing, -2.0, 0.0);
                 let right_pos = pos + Vector3::new(horizontal_spacing, -2.0, 0.0);
@@ -1602,7 +1437,6 @@ impl LambdaSystem {
             sum = sum.wrapping_add(b as u32);
         }
 
-        // Simple procedural color generation
         let r = ((sum * 123) % 255) as f32 / 255.0;
         let g = ((sum * 456) % 255) as f32 / 255.0;
         let b = ((sum * 789) % 255) as f32 / 255.0;
@@ -1612,6 +1446,7 @@ impl LambdaSystem {
 
     fn get_primitive_color(&self, p: Primitive) -> [f32; 4] {
         match p {
+            Primitive::GenieDit => [1.0, 0.4, 0.9, 1.0],
             Primitive::Fire => [1.0, 0.0, 0.0, 1.0],
             Primitive::Water => [0.0, 0.0, 1.0, 1.0],
             Primitive::Earth => [0.6, 0.4, 0.2, 1.0],
@@ -1621,7 +1456,7 @@ impl LambdaSystem {
             Primitive::Energy => [1.0, 1.0, 0.0, 1.0],
             Primitive::Stable => [1.0, 1.0, 1.0, 1.0],
             Primitive::Void => [0.1, 0.1, 0.1, 1.0],
-            Primitive::Dream => [0.9, 0.3, 0.8, 1.0], // Magic pink/purple
+            Primitive::Dream => [0.9, 0.3, 0.8, 1.0],
             Primitive::Move => [0.2, 0.5, 1.0, 1.0],
             Primitive::Jump => [1.0, 0.5, 0.2, 1.0],
             Primitive::Drop => [0.5, 0.2, 0.1, 1.0],
@@ -1633,17 +1468,17 @@ impl LambdaSystem {
             Primitive::Descend => [0.5, 0.3, 0.2, 1.0],
             Primitive::Stop => [1.0, 0.2, 0.2, 1.0],
             Primitive::Pickup => [0.2, 0.8, 0.2, 1.0],
-            Primitive::Heal => [0.2, 1.0, 0.5, 1.0], // Bright green-ish
-            Primitive::Acid => [0.2, 1.0, 0.2, 1.0], // Bright green
-            Primitive::Fog => [0.8, 0.8, 0.8, 0.8],  // Light gray
-            Primitive::Cloud => [0.9, 0.9, 0.9, 0.8], // White
-            Primitive::Rain => [0.5, 0.5, 1.0, 0.8], // Light blue
-            Primitive::Gravity => [0.4, 0.3, 0.5, 1.0], // Dark purple
-            Primitive::Levitate => [0.8, 0.9, 1.0, 1.0], // Light blue-white
-            Primitive::Extend => [0.5, 0.7, 1.0, 1.0],  // Soft blue-white
-            Primitive::Peek => [0.9, 0.2, 0.8, 1.0], // Pinkish purple
-            Primitive::Orbit => [0.3, 0.8, 0.9, 1.0], // Bright cyan
-            Primitive::Health => [1.0, 0.0, 0.0, 1.0], // Red
+            Primitive::Heal => [0.2, 1.0, 0.5, 1.0],
+            Primitive::Acid => [0.2, 1.0, 0.2, 1.0],
+            Primitive::Fog => [0.8, 0.8, 0.8, 0.8],
+            Primitive::Cloud => [0.9, 0.9, 0.9, 0.8],
+            Primitive::Rain => [0.5, 0.5, 1.0, 0.8],
+            Primitive::Gravity => [0.4, 0.3, 0.5, 1.0],
+            Primitive::Levitate => [0.8, 0.9, 1.0, 1.0],
+            Primitive::Extend => [0.5, 0.7, 1.0, 1.0],
+            Primitive::Peek => [0.9, 0.2, 0.8, 1.0],
+            Primitive::Orbit => [0.3, 0.8, 0.9, 1.0],
+            Primitive::Health => [1.0, 0.0, 0.0, 1.0],
             Primitive::SetBoneRotation => [0.9, 0.2, 0.2, 1.0],
         }
     }
@@ -1671,10 +1506,8 @@ fn get_control_point(p0: Point3<f32>, p2: Point3<f32>, is_wire: bool) -> Point3<
             let r = Vector3::new(-dir.z, 0.0, dir.x);
             let r_mag_sq = r.magnitude2();
             if r_mag_sq < 0.0001 {
-                Vector3::unit_x() // fallback
+                Vector3::unit_x()
             } else {
-                // Optimization: Avoid implicit `.magnitude()` calculation inside `.normalize()`
-                // by using the previously computed squared magnitude and doing the scalar multiplication manually.
                 r * (1.0 / r_mag_sq.sqrt())
             }
         } else {
@@ -1699,25 +1532,17 @@ mod tests {
     #[test]
     fn test_auto_reduce() {
         let mut sys = LambdaSystem::new();
-        // (\x.x) y -> y
         let term = lambda::parse("(\\x.x) y").unwrap();
         sys.set_term(term);
 
         sys.auto_reduce = true;
         sys.paused = false;
 
-        // Update 1: Accumulate some time
         sys.update(0.4);
         assert!(matches!(sys.animation_state, AnimationState::Idle));
 
-        // Update 2: Cross the 0.5s threshold
-        // Timer was 0.4. Add 0.2 -> 0.6 (>0.5). Triggers Reduce.
-        // Animation Logic runs with dt=0.2. Progress += 0.4. Total Progress 0.4.
-        // Should remain in Reducing state.
         sys.update(0.2);
 
-        // Should have triggered reduction.
-        // In (\x.x) y, it IS a beta reduction, so it should enter AnimationState::Reducing.
         match sys.animation_state {
             AnimationState::Reducing { .. } => {}
             _ => panic!("Should be reducing"),
@@ -1735,7 +1560,6 @@ mod tests {
 
         sys.update(0.6);
 
-        // Should NOT be reducing
         match sys.animation_state {
             AnimationState::Idle => {}
             _ => panic!("Should stay idle when paused"),
@@ -1745,18 +1569,15 @@ mod tests {
     #[test]
     fn test_rewire_variable() {
         let mut sys = LambdaSystem::new();
-        // \x. (\y. x) -> outer x is dragged to inner y binder -> \x. (\y. y)
         let term = lambda::parse("(\\x.\\y.x)").unwrap();
         sys.set_term(term);
 
-        // Find nodes
         let mut x_port_idx = None;
         let mut y_abs_idx = None;
 
         for (i, node) in sys.nodes.iter().enumerate() {
             match &node.node_type {
                 NodeType::Port => {
-                    // There is only one port: 'x' bound to outer 'x'
                     x_port_idx = Some(i);
                 }
                 NodeType::Abs(name) => {
@@ -1771,12 +1592,9 @@ mod tests {
         assert!(x_port_idx.is_some());
         assert!(y_abs_idx.is_some());
 
-        // Drag x port to y abs
         sys.handle_drop(x_port_idx.unwrap(), y_abs_idx.unwrap());
 
-        // Result should be (\x.\y.y)
         if let Some(root) = &sys.root_term {
-            // Remove spaces for comparison
             let s = root.to_string().replace(" ", "");
             assert_eq!(s, "(λx.(λy.y))");
         } else {
@@ -1787,14 +1605,9 @@ mod tests {
     #[test]
     fn test_rewire_specific_instance() {
         let mut sys = LambdaSystem::new();
-        // \x. (\y. x x)
-        // Two x's. Both bound to outer x.
-        // We drag the FIRST one to y.
-        // Result should be \x. (\y. y x)
         let term = lambda::parse("(\\x.\\y.x x)").unwrap();
         sys.set_term(term);
 
-        // Find nodes
         let mut first_x_idx = None;
         let mut y_abs_idx = None;
         let mut x_count = 0;
@@ -1802,7 +1615,6 @@ mod tests {
         for (i, node) in sys.nodes.iter().enumerate() {
             match &node.node_type {
                 NodeType::Port => {
-                    // Check if it's 'x' (via term string since Port doesn't have name field)
                     if node.term.to_string() == "x" {
                         if x_count == 0 {
                             first_x_idx = Some(i);
@@ -1827,7 +1639,6 @@ mod tests {
 
         if let Some(root) = &sys.root_term {
             let s = root.to_string().replace(" ", "");
-            // (x x) -> (y x)
             assert_eq!(s, "(λx.(λy.(yx)))");
         } else {
             panic!("Root term is None");
@@ -1837,7 +1648,6 @@ mod tests {
     #[test]
     fn test_intersect_edge() {
         let mut sys = LambdaSystem::new();
-        // Manually setup two nodes and an edge
         let n1 = VisualNode {
             id: 0,
             term: Rc::new(Term::Var("a".to_string())),
@@ -1868,17 +1678,12 @@ mod tests {
         sys.nodes.push(n2);
         sys.edges.push((0, 1));
 
-        // Ray passing through the middle of the edge (0,0,0) -> (10,0,0)
-        // Midpoint is (5,0,0).
-        // Since it is NOT a wire (Var -> Var is structure), it is a straight line.
-
         let ray_origin = Point3::new(5.0, 0.0, -5.0);
         let ray_dir = Vector3::new(0.0, 0.0, 1.0);
 
         let hit = sys.intersect_edge(ray_origin, ray_dir);
         assert_eq!(hit, Some(0));
 
-        // Test miss
         let ray_origin_miss = Point3::new(5.0, 5.0, -5.0);
         let hit_miss = sys.intersect_edge(ray_origin_miss, ray_dir);
         assert_eq!(hit_miss, None);

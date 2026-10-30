@@ -36,11 +36,13 @@ pub enum Primitive {
     Orbit,
     Health,
     SetBoneRotation,
+    GenieDit,
 }
 
 impl fmt::Display for Primitive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Primitive::GenieDit => write!(f, "GENIE_DIT"),
             Primitive::Extend => write!(f, "EXTEND"),
             Primitive::Fire => write!(f, "FIRE"),
             Primitive::Water => write!(f, "WATER"),
@@ -83,6 +85,7 @@ impl std::str::FromStr for Primitive {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
+            "GENIE_DIT" | "GENIEDIT" => Ok(Primitive::GenieDit),
             "FIRE" => Ok(Primitive::Fire),
             "WATER" => Ok(Primitive::Water),
             "EARTH" => Ok(Primitive::Earth),
@@ -243,31 +246,23 @@ impl Term {
     pub fn reduce(&self) -> (Rc<Term>, bool) {
         match self {
             Term::App(func, arg) => {
-                // Try to reduce the function part first (Normal Order strategy requires checking if func is an Abstraction)
-
-                // If func is an abstraction, we BETA REDUCE!
                 if let Term::Abs(param, body) = &**func {
-                    // (\x.M) N -> M[N/x]
                     return (body.substitute(param, arg), true);
                 }
 
-                // If func is NOT an abstraction yet, try to reduce it.
                 let (new_func, reduced_func) = func.reduce();
                 if reduced_func {
                     return (Term::app(new_func, arg.clone()), true);
                 }
 
-                // If func couldn't reduce, try reducing the argument
                 let (new_arg, reduced_arg) = arg.reduce();
                 if reduced_arg {
                     return (Term::app(func.clone(), new_arg), true);
                 }
 
-                // Nothing to reduce
                 (Rc::new(self.clone()), false)
             }
             Term::Abs(param, body) => {
-                // Reduce under abstraction? (Full Normal Order)
                 let (new_body, reduced) = body.reduce();
                 if reduced {
                     (Term::abs(param, new_body), true)
@@ -335,7 +330,7 @@ fn tokenize(input: &str) -> Vec<Token> {
             }
             _ => {
                 chars.next();
-            } // Skip unknown
+            }
         }
     }
     tokens
@@ -346,7 +341,6 @@ fn parse_tokens(tokens: &[Token], depth: usize) -> Option<(Rc<Term>, &[Token])> 
         return None;
     }
 
-    // Security Enhancement: Prevent Stack Overflow DoS from deeply nested expressions
     const MAX_PARSE_DEPTH: usize = 64;
     if depth > MAX_PARSE_DEPTH {
         log::warn!(
@@ -356,10 +350,8 @@ fn parse_tokens(tokens: &[Token], depth: usize) -> Option<(Rc<Term>, &[Token])> 
         return None;
     }
 
-    // Parse one term (atom or parenthesized or lambda)
     let (mut left, mut rest) = parse_atom(tokens, depth)?;
 
-    // Handle application: Term Term ...
     while let Some((right, next_rest)) = parse_atom(rest, depth) {
         left = Term::app(left, right);
         rest = next_rest;
@@ -379,11 +371,10 @@ fn parse_atom(tokens: &[Token], depth: usize) -> Option<(Rc<Term>, &[Token])> {
             if rest.first() == Some(&Token::RParen) {
                 Some((term, &rest[1..]))
             } else {
-                None // Unbalanced
+                None
             }
         }
         Token::Lambda => {
-            // \x. Body
             if let Some(Token::Ident(param)) = tokens.get(1) {
                 if tokens.get(2) == Some(&Token::Dot) {
                     let (body, rest) = parse_tokens(&tokens[3..], depth + 1)?;
@@ -396,7 +387,6 @@ fn parse_atom(tokens: &[Token], depth: usize) -> Option<(Rc<Term>, &[Token])> {
             }
         }
         Token::Ident(name) => {
-            // Check if it's a Primitive
             if let Ok(prim) = name.parse::<Primitive>() {
                 Some((Term::prim(prim), &tokens[1..]))
             } else {
@@ -422,9 +412,7 @@ mod tests {
 
     #[test]
     fn test_primitive_app() {
-        let term = parse("GROWTH TREE").unwrap(); // TREE is var, GROWTH is prim
-                                                  // "TREE" is not a known prim, so it's a Var("TREE")
-        println!("{}", term);
+        let term = parse("GROWTH TREE").unwrap();
         assert_eq!(term.to_string(), "(GROWTH TREE)");
     }
 
@@ -438,18 +426,14 @@ mod tests {
 
     #[test]
     fn test_complex() {
-        // (\x.\y.x) a b -> a
-        let term = parse("(\\x.\\y.x) a b").unwrap(); // ((\x.\y.x) a) b
-        let (step1, _) = term.reduce(); // (\y.a) b
-        let (step2, _) = step1.reduce(); // a
+        let term = parse("(\\x.\\y.x) a b").unwrap();
+        let (step1, _) = term.reduce();
+        let (step2, _) = step1.reduce();
         assert_eq!(step2.to_string(), "a");
     }
 
     #[test]
     fn test_shadowing() {
-        // (\x.(\x.x)) y -> (\x.x)
-        // Outer x is replaced by y? No, inner x shadows it.
-        // Body is (\x.x). substitute(x, y) on (\x.x) should return (\x.x)
         let term = parse("(\\x.(\\x.x)) y").unwrap();
         let (reduced, _) = term.reduce();
         assert_eq!(reduced.to_string(), "(λx.x)");
@@ -457,14 +441,8 @@ mod tests {
 
     #[test]
     fn test_capture_avoidance() {
-        // (\x.\y.x) y -> (\y'.y) NOT (\y.y)
-        // x is substituted by y. y is bound in inner abs.
         let term = parse("(\\x.\\y.x) y").unwrap();
         let (reduced, _) = term.reduce();
-        // Inner param 'y' should be renamed to avoid capturing the free 'y' being passed in.
-        // The implementation appends '
-        // Expect: (\y'.y)
-        println!("Reduced: {}", reduced);
         assert!(reduced.to_string().contains("y'"));
     }
 }

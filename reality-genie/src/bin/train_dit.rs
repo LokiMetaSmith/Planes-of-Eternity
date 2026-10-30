@@ -36,6 +36,7 @@ fn main() -> Result<()> {
         num_spatial_tokens,
         max_temporal_frames: t_frames,
         max_anchor_frames: 2,
+        vocab_size_text: 1000,
         dropout: 0.0,
     };
 

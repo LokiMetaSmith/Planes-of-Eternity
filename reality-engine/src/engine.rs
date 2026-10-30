@@ -62,7 +62,7 @@ pub struct Splat4DPlayer {
 pub struct Engine {
     pub world_state: WorldState,
     pub player_projector: RealityProjector,
-    pub active_anomaly: Option<RealityProjector>, // The one we are currently placing/editing
+    pub active_anomaly: Option<RealityProjector>,
     pub lambda_system: LambdaSystem,
     pub camera: Camera,
     pub camera_controller: CameraController,
@@ -90,6 +90,8 @@ pub struct Engine {
     pub anchor_distance: f32,
     pub fbm_noise: Fbm<Simplex>,
     pub physics_state: PhysicsState,
+
+    pub active_action_buffer: Vec<u32>,
 }
 
 pub struct CollisionResult {
@@ -110,7 +112,7 @@ impl Engine {
             znear: 0.1,
             zfar: 100.0,
             yaw: std::f32::consts::PI,
-            pitch: -0.4636, // ~ -26.5 degrees
+            pitch: -0.4636,
             projection_override: None,
             velocity: Vector3::new(0.0, 0.0, 0.0),
             is_grounded: true,
@@ -121,10 +123,8 @@ impl Engine {
         let (player_projector, world_state, active_anomaly, lambda_system, input_config) =
             if let Some(state) = initial_state {
                 log::info!("Restoring game state...");
-                // Restore camera position
                 camera.eye = state.player.projector.location;
 
-                // Create a default active anomaly
                 let mut anomaly_sig = RealitySignature::default();
                 anomaly_sig.active_style.archetype = RealityArchetype::SciFi;
                 anomaly_sig.active_style.roughness = 0.8;
@@ -135,7 +135,6 @@ impl Engine {
 
                 let mut ls = LambdaSystem::new();
 
-                // Restore Lambda State
                 let source = if state.lambda_source.is_empty() {
                     "FIRE".to_string()
                 } else {
@@ -147,7 +146,6 @@ impl Engine {
                         ls.apply_layout(state.lambda_layout);
                     }
                 } else {
-                    // Fallback
                     let term = lambda::parse("FIRE").unwrap();
                     ls.set_term(term);
                 }
@@ -179,7 +177,6 @@ impl Engine {
 
                 let mut world_state = WorldState::default();
 
-                // Spawn initial NPCs
                 let archetypes = vec![
                     RealityArchetype::SciFi,
                     RealityArchetype::Horror,
@@ -232,10 +229,6 @@ impl Engine {
                 )
             };
 
-        // Initial Lambda Setup
-        // Check if lambda system needs init from state? For now, always reset as it's not persisted.
-        // It was initialized above.
-
         let audio = AudioManager::new();
 
         Self {
@@ -265,6 +258,7 @@ impl Engine {
             anchor_distance: 8.0,
             fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
             physics_state: PhysicsState::Flying,
+            active_action_buffer: Vec::new(),
         }
     }
 
@@ -337,15 +331,13 @@ impl Engine {
         let mut smashed_any = false;
         let mut hit_any = false;
 
-        let smash_threshold = 8.0; // Speed required to smash blocks
+        let smash_threshold = 8.0;
 
-        // Sub-stepping for anti-tunneling
         let speed = vel.magnitude();
         let num_steps = ((speed * dt * 2.0).ceil() as usize).max(1);
         let step_dt = dt / num_steps as f32;
 
         for _ in 0..num_steps {
-            // Try X movement
             let mut next_pos_x = pos;
             next_pos_x.x += vel.x * step_dt;
             if !self.is_occupied(next_pos_x, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
@@ -355,7 +347,6 @@ impl Engine {
                 hit_any = true;
             }
 
-            // Try Y movement
             let mut next_pos_y = pos;
             next_pos_y.y += vel.y * step_dt;
             if !self.is_occupied(next_pos_y, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
@@ -365,7 +356,6 @@ impl Engine {
                 hit_any = true;
             }
 
-            // Try Z movement
             let mut next_pos_z = pos;
             next_pos_z.z += vel.z * step_dt;
             if !self.is_occupied(next_pos_z, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
@@ -391,6 +381,13 @@ impl Engine {
     ) -> bool {
         self.time += dt;
 
+        // Stream player gameplay input sequence to GenieBridge for action-conditioned trajectory rollout
+        if let Some(ref mut vw) = voxel_world {
+            if !self.active_action_buffer.is_empty() {
+                vw.genie.request_action_dit_rollout(self.active_action_buffer.clone(), 2);
+            }
+        }
+
         // Process any queued EXTEND spells
         let mut extensions = Vec::new();
         std::mem::swap(&mut self.pending_extensions, &mut extensions);
@@ -402,7 +399,6 @@ impl Engine {
 
                 let trajectory = vec![pos];
 
-                // Gather neighbors
                 let mut neighbors = Vec::new();
                 let offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)];
                 for (dx, dz) in offsets {
@@ -453,15 +449,14 @@ impl Engine {
                                 let mut voxel = crate::voxel::Voxel::default();
                                 if wy <= terrain_height {
                                     if wy == terrain_height {
-                                        voxel.id = 5; // Grass
+                                        voxel.id = 5;
                                     } else if wy > terrain_height - 3 {
-                                        voxel.id = 8; // Dirt
+                                        voxel.id = 8;
                                     } else {
-                                        voxel.id = 1; // Stone
+                                        voxel.id = 1;
                                     }
                                 }
 
-                                // Water
                                 if wy <= -2 && voxel.id == 0 {
                                     voxel.id = 4;
                                 }
@@ -476,7 +471,6 @@ impl Engine {
             }
         }
 
-        // --- NPC AI Logic ---
         let current_time = crate::projector::get_current_timestamp();
         for npc in &mut self.world_state.npcs {
             if let Some((_, timestamp)) = npc.chat_message {
@@ -486,20 +480,14 @@ impl Engine {
             }
         }
 
-        // Simple wandering and reality projection
-
         let mut npcs_to_update = Vec::new();
-        // First we extract the npcs into a temporary vector so we don't have multiple mutable borrows to self.world_state
         let mut npcs = std::mem::take(&mut self.world_state.npcs);
-
-        // We need to re-borrow voxel_world for each NPC, so we use a shadow binding
         let mut vw_opt = voxel_world;
 
         for npc in &mut npcs {
             use crate::projector::{Goal, GoalStatus};
             use cgmath::InnerSpace;
 
-            // 1. Evaluate Interrupts (Reactive events)
             if let Some(behavior) = &mut npc.behavior {
                 let dir_to_player = self.camera.eye - npc.location;
                 let dist_to_player_sq = dir_to_player.magnitude2();
@@ -507,7 +495,6 @@ impl Engine {
                 let mut interrupt_triggered = false;
 
                 if behavior.hostile && dist_to_player_sq < 400.0 {
-                    // Aggro radius (20 units squared)
                     let current_is_attack = match behavior.goal_stack.last() {
                         Some(Goal::Attack(_)) => true,
                         _ => false,
@@ -520,10 +507,9 @@ impl Engine {
                         let _ = interrupt_triggered;
                     }
                 } else if dist_to_player_sq < 25.0 {
-                    // Startled by player getting too close (5 units)
                     let current_is_escape = match behavior.goal_stack.last() {
                         Some(Goal::Escape) => true,
-                        Some(Goal::Attack(_)) => true, // hostile overrides
+                        Some(Goal::Attack(_)) => true,
                         _ => false,
                     };
 
@@ -535,7 +521,6 @@ impl Engine {
                     }
                 }
 
-                // If remote script sets target location, interrupt and wander there
                 if !interrupt_triggered && npc.target_location.is_some() {
                     let current_is_wander = match behavior.goal_stack.last() {
                         Some(Goal::Wander) => true,
@@ -550,13 +535,11 @@ impl Engine {
                     }
                 }
 
-                // 2. High-level brain (Assign top-level goals if stack is empty)
                 if behavior.goal_stack.is_empty() {
                     let current_archetype = self.world_state.get_dominant_archetype_at(npc.location);
 
                     if let Some(arch) = current_archetype {
                         if arch == behavior.preferred_archetype {
-                            // Thriving
                             if rand::random::<f32>() < 0.2 {
                                 behavior.goal_stack.push(Goal::ExpandInfluence);
                             } else if rand::random::<f32>() < 0.5 {
@@ -566,7 +549,6 @@ impl Engine {
                                 behavior.goal_stack.push(Goal::Idle(2.0));
                             }
                         } else {
-                            // Agitated
                             if behavior.mutation_progress >= 100.0 {
                                 behavior.goal_stack.push(Goal::Evolve);
                             } else if rand::random::<f32>() < 0.6 {
@@ -576,20 +558,17 @@ impl Engine {
                             }
                         }
                     } else {
-                        // Void / Neutral
                         behavior.goal_stack.push(Goal::Wander);
                     }
                 }
             }
 
-            // 3. Update top goal
             let mut goal_status = GoalStatus::Continue;
             let mut top_goal = None;
             if let Some(behavior) = &mut npc.behavior {
                 if let Some(goal) = behavior.goal_stack.last().cloned() {
                     top_goal = Some(goal.clone());
 
-                    // Map Goal to AnimationState
                     if let Some(anim_playback) = &mut behavior.animation_playback {
                         let desired_state = match goal {
                             Goal::Idle(_) => AnimationState::Idle,
@@ -611,7 +590,6 @@ impl Engine {
             }
 
             if let Some(goal) = top_goal {
-                // Execute goal
                 goal_status = match goal {
                     Goal::Idle(time_left) => {
                         if let Some(behavior) = &mut npc.behavior {
@@ -619,7 +597,6 @@ impl Engine {
                             if new_time <= 0.0 {
                                 GoalStatus::Success
                             } else {
-                                // Replace with updated time
                                 behavior.goal_stack.pop();
                                 behavior.goal_stack.push(Goal::Idle(new_time));
                                 GoalStatus::Continue
@@ -730,18 +707,14 @@ impl Engine {
                         let dist_sq = dir.magnitude2();
 
                         if dist_sq < 4.0 {
-                            // Player hit
                             let push_dir = dir * (10.0 / dist_sq.sqrt().max(0.1));
                             self.camera.eye += push_dir;
-                            // Attack successful, end goal
                             npc.target_location = None;
                             GoalStatus::Success
                         } else if dist_sq > 625.0 {
-                            // Player escaped (25 units away)
                             npc.target_location = None;
                             GoalStatus::Failure
                         } else {
-                            // Chase
                             if dist_sq.is_finite() && dist_sq > 0.01 {
                                 let move_vel = dir * (6.0 / dist_sq.sqrt());
                                 if let Some(vw) = vw_opt.as_mut() {
@@ -756,9 +729,8 @@ impl Engine {
                     }
                     Goal::GatherResource(_) => {
                         let mut status = GoalStatus::Continue;
-                        // Find closest item
                         let mut closest_item_idx = None;
-                        let mut min_dist_sq = 900.0; // max search radius 30 units
+                        let mut min_dist_sq = 900.0;
 
                         for (i, item) in self.world_state.dropped_items.iter().enumerate() {
                             let d_sq = (item.position - npc.location).magnitude2();
@@ -771,14 +743,12 @@ impl Engine {
                         if let Some(idx) = closest_item_idx {
                             let item_pos = self.world_state.dropped_items[idx].position;
                             if min_dist_sq < 2.0 {
-                                // Pick it up
                                 self.world_state.dropped_items.remove(idx);
                                 if let Some(behavior) = &mut npc.behavior {
                                     behavior.energy = (behavior.energy + 20.0).min(100.0);
                                 }
                                 status = GoalStatus::Success;
                             } else {
-                                // Move towards it
                                 let dir = item_pos - npc.location;
                                 if min_dist_sq.is_finite() && min_dist_sq > 0.01 {
                                     let move_vel = dir * (3.0 / min_dist_sq.sqrt());
@@ -791,13 +761,12 @@ impl Engine {
                                 }
                             }
                         } else {
-                            status = GoalStatus::Failure; // No resources found
+                            status = GoalStatus::Failure;
                         }
 
                         status
                     }
                     Goal::ExpandInfluence => {
-                        // Drop a potential node to expand reality
                         if let Some(behavior) = &mut npc.behavior {
                             if behavior.energy > 50.0 {
                                 behavior.energy -= 30.0;
@@ -807,7 +776,7 @@ impl Engine {
                                     drop_pos,
                                     cgmath::Vector3::new(0.0, 2.0, 0.0),
                                     0.3,
-                                    [1.0, 0.5, 0.0, 1.0], // Orange node
+                                    [1.0, 0.5, 0.0, 1.0],
                                     3,
                                 );
                                 self.world_state.dropped_items.push(new_item);
@@ -822,89 +791,71 @@ impl Engine {
                 };
             }
 
-            // 4. Pop stack on Success/Failure
             if goal_status != GoalStatus::Continue {
                 if let Some(behavior) = &mut npc.behavior {
                     behavior.goal_stack.pop();
 
                     if goal_status == GoalStatus::Failure {
-                        // Clear stack on failure to cause re-evaluation next frame
                         behavior.goal_stack.clear();
                     }
                 }
             }
 
-            // Keep somewhat grounded if no voxel world for height check
             if vw_opt.is_none() {
                 npc.location.y = 1.0;
             } else if let Some(vw) = vw_opt.as_mut() {
-                // Apply a bit of gravity to NPCs too
                 let res = self.check_collision(npc.location, Vector3::new(0.0, -9.8, 0.0), dt, 0.5, vw);
                 npc.location = res.position;
             }
 
             npcs_to_update.push(npc.clone());
         }
-        // Put the modified npcs back
         self.world_state.npcs = npcs;
         voxel_world = vw_opt;
 
-        // Apply NPC influence
         for npc in npcs_to_update {
             self.world_state.apply_player_influence(&npc, dt);
         }
-        // ---------------------
 
-        // --- Dropped Item Physics ---
         let mut voxel_destroyed = false;
         for item in &mut self.world_state.dropped_items {
-            item.velocity.y -= 9.8 * dt; // Gravity
+            item.velocity.y -= 9.8 * dt;
             let next_pos = item.position + item.velocity * dt;
 
             let mut hit_ground = false;
 
-            // Voxel Collision (Starbase-inspired physics)
             if let Some(ref mut vw) = voxel_world {
                 let vx = next_pos.x.floor() as i32;
-                // Check foot/bottom of the item (approx radius 0.5)
                 let vy = (next_pos.y - 0.5).floor() as i32;
                 let vz = next_pos.z.floor() as i32;
 
                 if let Some(voxel) = vw.get_voxel_at(vx, vy, vz) {
                     if voxel.id != 0 {
-                        // Collision!
                         hit_ground = true;
 
-                        // Check for high-velocity impact (Destruction)
                         let speed_sq = item.velocity.magnitude2();
                         if speed_sq > 100.0 {
-                            // Speed > 10.0
                             vw.set_voxel_at(vx, vy, vz, crate::voxel::Voxel { id: 0 });
                             log::info!("Voxel at {}, {}, {} destroyed by impact!", vx, vy, vz);
                             voxel_destroyed = true;
 
-                            // Self-damage to the local item voxel grid (Fracturing)
                             if item.size[0] > 0 && !item.voxels.is_empty() {
-                                // Pseudo-random to avoid trait bound issues with different rand versions
                                 let local_idx = ((self.time * 1000.0) as usize
                                     + item.voxels.len() / 2)
                                     % item.voxels.len();
                                 if item.voxels[local_idx] != 0 {
-                                    item.voxels[local_idx] = 0; // Destroy a local piece
+                                    item.voxels[local_idx] = 0;
                                     log::info!("Dropped item {} fractured!", item.id);
                                 }
                             }
 
-                            // Reduce item velocity heavily after smashing through
                             item.velocity *= 0.5;
-                            // Continue falling instead of bouncing
                             hit_ground = false;
                         }
                     }
                 }
             }
 
-            // Fallback ground collision
             if !hit_ground && next_pos.y <= 0.5 {
                 hit_ground = true;
                 item.position.y = 0.5;
@@ -913,9 +864,8 @@ impl Engine {
             if hit_ground {
                 item.position.x = next_pos.x;
                 item.position.z = next_pos.z;
-                item.position.y = next_pos.y.max(0.5); // Ensure it doesn't sink below global floor
-                item.velocity.y = -item.velocity.y * 0.5; // Bounce with restitution
-                // Apply friction
+                item.position.y = next_pos.y.max(0.5);
+                item.velocity.y = -item.velocity.y * 0.5;
                 item.velocity.x *= 0.9;
                 item.velocity.z *= 0.9;
 
@@ -927,13 +877,6 @@ impl Engine {
             }
         }
 
-        if voxel_destroyed {
-            // Signal lib.rs to mark voxel dirty by returning true, or we can just mark it in lib.rs if we know
-            // Actually, we pass a mutable reference to voxel_world, so it gets updated.
-            // But we need a way to tell the caller that voxels were dirtied so it can trigger mesh updates.
-        }
-
-        // Apply Player Archetype Gameplay Effects
         let player_archetype = self
             .player_projector
             .reality_signature
@@ -941,31 +884,26 @@ impl Engine {
             .archetype;
         match player_archetype {
             RealityArchetype::SciFi => {
-                // SciFi is fast and agile
                 self.camera_controller.speed = 0.4;
             }
             RealityArchetype::Steampunk => {
-                // Steampunk is heavy and slow
                 self.camera_controller.speed = 0.15;
             }
             RealityArchetype::Fantasy => {
-                // Default / balanced
                 self.camera_controller.speed = 0.2;
             }
             _ => {
-                self.camera_controller.speed = 0.2; // Default
+                self.camera_controller.speed = 0.2;
             }
         }
 
         let has_gravity = self.physics_state == PhysicsState::Gravity;
 
-        // --- Player Movement & Collision ---
         let mut move_vel = self.camera_controller.get_movement_velocity(&self.camera);
         if has_gravity {
-            self.camera.velocity.y -= 9.8 * dt; // Gravity
+            self.camera.velocity.y -= 9.8 * dt;
         } else {
             self.camera.velocity.y = 0.0;
-            // Flying vertical movement
             if self.camera_controller.is_up_pressed() {
                 move_vel.y += self.camera_controller.speed;
             }
@@ -974,7 +912,6 @@ impl Engine {
             }
         }
 
-        // Handle Jump
         if has_gravity && self.camera_controller.is_up_pressed() && self.camera.is_grounded {
             self.camera.velocity.y = 5.0;
             self.camera.is_grounded = false;
@@ -989,7 +926,6 @@ impl Engine {
             self.camera.eye = res.position;
             self.camera.velocity = res.velocity;
 
-            // Simple grounding check
             if has_gravity {
                 let foot_pos = self.camera.eye - Vector3::unit_y() * 0.1;
                 let mut smashed_dummy = false;
@@ -1006,7 +942,6 @@ impl Engine {
             self.camera.eye += combined_vel * dt;
         }
 
-        // Global Floor Fallback
         let target_floor = if self.camera_controller.is_crouching { 0.5 } else { 1.0 };
         if self.camera.eye.y < target_floor {
             self.camera.eye.y = target_floor;
@@ -1018,19 +953,15 @@ impl Engine {
 
         self.camera_controller.update_camera_target(&mut self.camera);
 
-        // Update Reality Projector Position (Player follows camera)
         self.player_projector.location = self.camera.eye;
 
-        // Apply Player Influence to World State
         let player_proj = self.player_projector.clone();
         self.world_state.apply_player_influence(&player_proj, dt);
 
-        // Update Lambda System
         let forward = (self.camera.target - self.camera.eye).normalize();
         let anchor = self.camera.eye + forward * self.anchor_distance;
         self.lambda_system.set_anchor(anchor);
 
-        // Fixed timestep for lambda physics for now, could use dt
         let events = self.lambda_system.update(0.016);
         for event in events {
             match event {
@@ -1038,14 +969,11 @@ impl Engine {
             }
         }
 
-        // Update Spell Effects
         for effect in &mut self.spell_effects {
             effect.timer += dt;
         }
         self.spell_effects.retain(|e| e.timer < e.max_time);
 
-        // --- Background Potential Node Spawning ---
-        // We use 3D Simplex noise with fBm to determine if a node of raw potential should spawn.
         use noise::NoiseFn;
 
         let grid_size = 50.0;
@@ -1060,7 +988,6 @@ impl Engine {
         let grid_coord = [grid_x, grid_y, grid_z];
 
         if !self.world_state.spawned_nodes_grid.contains(&grid_coord) {
-            // Evaluate noise at the center of the grid cell
             let nx = (grid_x as f64) * 0.1;
             let ny = (grid_y as f64) * 0.1;
             let nz = (grid_z as f64) * 0.1;
@@ -1068,9 +995,8 @@ impl Engine {
             let noise_val = self.fbm_noise.get([nx, ny, nz]);
 
             if noise_val > 0.7 {
-                // High potential threshold
                 let spawn_x = (grid_x as f32) * grid_size + (grid_size / 2.0);
-                let spawn_y = py + 5.0; // Spawn slightly above player height
+                let spawn_y = py + 5.0;
                 let spawn_z = (grid_z as f32) * grid_size + (grid_size / 2.0);
 
                 let spawn_pos = cgmath::Point3::new(spawn_x, spawn_y, spawn_z);
@@ -1078,10 +1004,10 @@ impl Engine {
                 let new_node = crate::reality_types::DroppedItem::new_cube(
                     format!("potential_node_{}_{}_{}", grid_x, grid_y, grid_z),
                     spawn_pos,
-                    cgmath::Vector3::new(0.0, 0.0, 0.0), // Floating or drops down
-                    0.5,                                 // Larger scale
-                    [0.0, 1.0, 1.0, 1.0],                // Cyan glowing color
-                    5,                                   // 5x5x5 grid so it looks substantial
+                    cgmath::Vector3::new(0.0, 0.0, 0.0),
+                    0.5,
+                    [0.0, 1.0, 1.0, 1.0],
+                    5,
                 );
 
                 self.world_state.dropped_items.push(new_node);
@@ -1095,7 +1021,6 @@ impl Engine {
     }
 
     pub fn process_keyboard(&mut self, key_code: &str, pressed: bool) -> Option<Action> {
-        // Check for custom spell bindings first
         if let Some(spell_str) = self.input_config.custom_spell_bindings.get(key_code) {
             if pressed {
                 log::info!("Casting Custom Spell from Binding: {}", spell_str);
@@ -1103,10 +1028,6 @@ impl Engine {
                     self.audio.play_cast();
                     if let Some(anomaly) = self.compile_spell(term) {
                         self.world_state.add_anomaly(anomaly.clone());
-                        log::info!(
-                            "Custom Spell Cast Successfully: {:?}",
-                            anomaly.reality_signature.active_style.archetype
-                        );
 
                         let color = match anomaly.reality_signature.active_style.archetype {
                             crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
@@ -1172,9 +1093,25 @@ impl Engine {
             return None;
         }
 
-        // Map raw key to Action
         if let Some(action) = self.input_config.map_key(key_code) {
-            // Send engine actions via lambda evaluation for scriptability
+            if pressed {
+                let action_tok = match action {
+                    Action::MoveForward => Some(1u32),
+                    Action::MoveBackward => Some(2u32),
+                    Action::MoveLeft => Some(3u32),
+                    Action::MoveRight => Some(4u32),
+                    Action::Jump => Some(5u32),
+                    Action::CastSpell => Some(6u32),
+                    _ => None,
+                };
+                if let Some(act) = action_tok {
+                    self.active_action_buffer.push(act);
+                    if self.active_action_buffer.len() > 8 {
+                        self.active_action_buffer.remove(0);
+                    }
+                }
+            }
+
             let term = match action {
                 Action::Jump => Some(Term::prim(Primitive::Jump)),
                 Action::Descend => Some(Term::prim(Primitive::Descend)),
@@ -1211,18 +1148,12 @@ impl Engine {
             match action {
                 Action::CastSpell => {
                     if pressed {
-                        // Cast Spell
                         log::info!("Casting Lambda Spell!");
                         self.audio.play_cast();
                         if let Some(term) = self.lambda_system.root_term.clone() {
                             if let Some(anomaly) = self.compile_spell(term) {
                                 self.world_state.add_anomaly(anomaly.clone());
-                                log::info!(
-                                    "Spell Cast Successfully: {:?}",
-                                    anomaly.reality_signature.active_style.archetype
-                                );
 
-                                // Spawn visual effect
                                 let color = match anomaly.reality_signature.active_style.archetype {
                                     crate::reality_types::RealityArchetype::SciFi => {
                                         [0.0, 1.0, 1.0, 1.0]
@@ -1311,17 +1242,11 @@ impl Engine {
                                     timer: 0.0,
                                     max_time: 1.5,
                                 });
-                            } else {
-                                log::warn!(
-                                    "Spell Failed: Term did not compile to a valid anomaly."
-                                );
                             }
                         }
                     }
                 }
-                Action::Inscribe => {
-                    // Handled by GameClient (lib.rs) triggering window.prompt
-                }
+                Action::Inscribe => {}
                 Action::ToggleAutoReduce => {
                     if pressed {
                         self.lambda_system.auto_reduce = !self.lambda_system.auto_reduce;
@@ -1346,13 +1271,11 @@ impl Engine {
                                 self.camera.eye,
                                 cgmath::Vector3::new(0.0, 0.0, 0.0),
                                 0.2,
-                                [0.0, 0.5, 1.0, 1.0], // Blueish color for spells
+                                [0.0, 0.5, 1.0, 1.0],
                                 3,
                             );
                             self.world_state.player_inventory.push(new_item);
-                            log::info!("Stored spell into inventory: {}", term_string);
 
-                            // Clear visual plane
                             self.lambda_system.root_term = None;
                             self.lambda_system.nodes.clear();
                             self.lambda_system.edges.clear();
@@ -1364,30 +1287,22 @@ impl Engine {
                         let (sin_y, cos_y) = self.camera.yaw.sin_cos();
                         let forward_xz = cgmath::Vector3::new(sin_y, 0.0, cos_y);
 
-                        // If inventory has items, drop the last one
                         if let Some(mut item) = self.world_state.player_inventory.pop() {
                             item.position = self.camera.eye;
                             item.velocity = forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0;
                             self.world_state.dropped_items.push(item);
-                            log::info!("Dropped item from inventory at {:?}", self.camera.eye);
                         } else {
-                            // Security Enhancement: Prevent DoS by limiting maximum spawned items
-                            // An attacker could spam the DropItem action to spawn infinite items, exhausting memory and network bandwidth during sync.
                             const MAX_SPAWNED_ITEMS: usize = 100;
                             if self.world_state.dropped_items.len() < MAX_SPAWNED_ITEMS {
-                                // Otherwise, create a default gold cube to drop
                                 let new_item = crate::reality_types::DroppedItem::new_cube(
                                     uuid::Uuid::new_v4().to_string(),
                                     self.camera.eye,
                                     forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
                                     0.2,
-                                    [1.0, 0.8, 0.2, 1.0], // Goldish color
-                                    3,                    // 3x3x3 grid
+                                    [1.0, 0.8, 0.2, 1.0],
+                                    3,
                                 );
                                 self.world_state.dropped_items.push(new_item);
-                                log::info!("Dropped new spawned item at {:?}", self.camera.eye);
-                            } else {
-                                log::warn!("Security Warning: Maximum spawned items limit reached ({}). Cannot drop new item.", MAX_SPAWNED_ITEMS);
                             }
                         }
                     }
@@ -1416,17 +1331,11 @@ impl Engine {
                     if pressed {
                         self.camera_controller.orbit_mode = !self.camera_controller.orbit_mode;
                         if self.camera_controller.orbit_mode {
-                            log::info!("Switched to Orbit Camera Mode.");
-                            // Set a focal point somewhere in front of the current camera or at origin
                             self.camera_controller.orbit_focal_point = cgmath::Point3::new(0.0, 5.0, 0.0);
                             self.camera_controller.orbit_radius = 20.0;
-                            // Precalculate pitch and yaw towards focal point if we wanted seamless transition
-                        } else {
-                            log::info!("Switched to FPS Camera Mode.");
                         }
                     }
                 }
-                // Ignore Voxel Actions (Handled by lib.rs / wrapper)
                 _ => {}
             }
             return Some(action);
@@ -1439,7 +1348,6 @@ impl Engine {
         let (ray_origin, ray_dir) = self.get_ray(x, y);
 
         if button == 0 {
-            // Left
             if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
                 self.lambda_system.start_drag(idx, ray_origin, ray_dir);
             }
@@ -1488,51 +1396,38 @@ impl Engine {
     pub fn process_double_click(&mut self, x: f32, y: f32) {
         let (ray_origin, ray_dir) = self.get_ray(x, y);
         if let Some(_idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
-            log::info!("Double Clicked Lambda Node! Reducing...");
             self.lambda_system.reduce_root();
         }
     }
 
     pub fn process_mouse_wheel(&mut self, delta_y: f32) {
-        // Adjust anchor distance based on wheel scroll
         let scroll_speed = 0.01;
         self.anchor_distance += delta_y * scroll_speed;
-
-        // Clamp distance between reasonable min and max limits
         self.anchor_distance = self.anchor_distance.clamp(2.0, 25.0);
     }
 
-    // Returns true if state changed and requires save
     pub fn process_click(&mut self, x: f32, y: f32) -> bool {
         let (ray_origin, ray_dir) = self.get_ray(x, y);
 
-        // 1. Check Lambda Intersection (Pin)
         if let Some(idx) = self.lambda_system.intersect(ray_origin, ray_dir) {
-            log::info!("Clicked Lambda Node! Toggling pin...");
             self.lambda_system.toggle_pin(idx);
             return false;
         }
 
-        // 2. Plane Intersection (Terrain)
-        // P = O + tD, P.y = 0
         if ray_dir.y.abs() > 1e-6 {
             let t = -self.camera.eye.y / ray_dir.y;
             if t > 0.0 {
                 let hit_point = self.camera.eye + ray_dir * t;
-                log::info!("Injection at: {:?}", hit_point);
 
-                // Move Active Anomaly to click location
                 if let Some(ref mut anomaly) = self.active_anomaly {
                     anomaly.location = hit_point;
 
-                    // "Commit" the anomaly to the world state (Append it)
                     self.world_state.add_anomaly(RealityProjector::new(
                         anomaly.location,
                         anomaly.reality_signature.clone(),
                     ));
 
-                    log::info!("World Root Hash Updated: {}", self.world_state.root_hash);
-                    return true; // State changed, request save
+                    return true;
                 }
             }
         }
@@ -1543,11 +1438,9 @@ impl Engine {
         let view_proj = self.camera.build_view_projection_matrix();
         bytes.clear();
 
-        // We will write the count later, so we reserve 4 bytes
         bytes.extend_from_slice(&0u32.to_le_bytes());
         let mut count: u32 = 0;
 
-        // Status Label
         let status_text = if self.lambda_system.paused {
             "PAUSED"
         } else if self.lambda_system.auto_reduce {
@@ -1557,11 +1450,11 @@ impl Engine {
         };
 
         let (sr, sg, sb) = if self.lambda_system.paused {
-            (255u8, 255u8, 0u8) // Yellow
+            (255u8, 255u8, 0u8)
         } else if self.lambda_system.auto_reduce {
-            (0u8, 255u8, 0u8) // Green
+            (0u8, 255u8, 0u8)
         } else {
-            (0u8, 240u8, 255u8) // Cyan
+            (0u8, 240u8, 255u8)
         };
 
         let x: f32 = 0.05;
@@ -1572,7 +1465,7 @@ impl Engine {
         bytes.push(sr);
         bytes.push(sg);
         bytes.push(sb);
-        bytes.push(255); // a
+        bytes.push(255);
         let text_bytes = status_text.as_bytes();
         bytes.extend_from_slice(&(text_bytes.len() as u16).to_le_bytes());
         bytes.extend_from_slice(text_bytes);
@@ -1628,7 +1521,6 @@ impl Engine {
             }
         }
 
-        // Write actual count
         let count_bytes = count.to_le_bytes();
         bytes[0..4].copy_from_slice(&count_bytes);
     }
@@ -1646,10 +1538,8 @@ impl Engine {
     }
 
     fn compile_spell(&mut self, term: Rc<Term>) -> Option<RealityProjector> {
-        // 1. Fully reduce the term
         let mut current = term;
         for _ in 0..100 {
-            // Max reduction steps to prevent infinite loops
             let (next, changed) = current.reduce();
             if !changed {
                 current = next;
@@ -1658,12 +1548,10 @@ impl Engine {
             current = next;
         }
 
-        // 2. Interpret the result
         self.execute_side_effect(&current, true)
     }
 
     fn execute_side_effect(&mut self, term: &Term, pressed: bool) -> Option<RealityProjector> {
-        // Default spawn position
         let forward = (self.camera.target - self.camera.eye).normalize();
         let spawn_pos = self.camera.eye + forward * 10.0;
 
@@ -1688,10 +1576,6 @@ impl Engine {
                                 item.position = self.camera.eye;
                                 item.velocity = forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0;
                                 self.world_state.dropped_items.push(item);
-                                log::info!(
-                                    "Lambda dropped item from inventory at {:?}",
-                                    self.camera.eye
-                                );
                             } else {
                                 const MAX_SPAWNED_ITEMS: usize = 100;
                                 if self.world_state.dropped_items.len() < MAX_SPAWNED_ITEMS {
@@ -1700,16 +1584,10 @@ impl Engine {
                                         self.camera.eye,
                                         forward_xz * 5.0 + cgmath::Vector3::unit_y() * 2.0,
                                         0.2,
-                                        [1.0, 0.8, 0.2, 1.0], // Goldish color
-                                        3,                    // 3x3x3 grid
+                                        [1.0, 0.8, 0.2, 1.0],
+                                        3,
                                     );
                                     self.world_state.dropped_items.push(new_item);
-                                    log::info!(
-                                        "Lambda dropped new spawned item at {:?}",
-                                        self.camera.eye
-                                    );
-                                } else {
-                                    log::warn!("Security Warning: Maximum spawned items limit reached ({}). Cannot drop new item.", MAX_SPAWNED_ITEMS);
                                 }
                             }
                         }
@@ -1718,7 +1596,7 @@ impl Engine {
                     Primitive::Pickup => {
                         if pressed {
                             let mut closest_idx = None;
-                            let mut min_dist_sq = 25.0; // 5.0 units radius squared
+                            let mut min_dist_sq = 25.0;
                             let player_pos = self.camera.eye;
 
                             for (i, item) in self.world_state.dropped_items.iter().enumerate() {
@@ -1731,22 +1609,11 @@ impl Engine {
 
                             if let Some(idx) = closest_idx {
                                 let item = self.world_state.dropped_items.remove(idx);
-                                log::info!(
-                                    "Lambda picked up item {} from {:?}",
-                                    item.id,
-                                    item.position
-                                );
 
                                 if item.id.starts_with("potential_node_") {
-                                    // Absorb the raw potential to expand reality
                                     self.player_projector.reality_signature.influence_radius +=
                                         50.0;
-                                    log::info!(
-                                        "Absorbed raw potential! New influence radius: {}",
-                                        self.player_projector.reality_signature.influence_radius
-                                    );
 
-                                    // Trigger Gaussian Splat generation to anchor the landscape
                                     let prompt = format!(
                                         "{:?} landscape",
                                         self.player_projector
@@ -1754,15 +1621,12 @@ impl Engine {
                                             .active_style
                                             .archetype
                                     );
-                                    // Push a dream so GenieBridge will generate splats around this new anchor
                                     self.pending_dreams.push(prompt.clone());
-                                    // Also generate procedural voxel models
                                     self.pending_models.push((
                                         prompt,
                                         [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z],
                                     ));
                                 } else {
-                                    // Normal item pickup
                                     self.world_state.player_inventory.push(item);
                                 }
                             }
@@ -1771,11 +1635,6 @@ impl Engine {
                     }
                     Primitive::Health => {
                         if pressed {
-                            log::info!(
-                                "Player Health (fidelity): {}",
-                                self.player_projector.reality_signature.fidelity
-                            );
-
                             for npc in self.world_state.npcs.iter_mut() {
                                 let dist =
                                     cgmath::MetricSpace::distance(npc.location, self.camera.eye);
@@ -1783,7 +1642,6 @@ impl Engine {
                                     if let Some(behavior) = &npc.behavior {
                                         npc.chat_message = Some((
                                             format!("HP: {} | MP: {}", behavior.health, behavior.energy),
-
                                             crate::projector::get_current_timestamp(),
                                         ));
                                     }
@@ -1797,30 +1655,23 @@ impl Engine {
                             self.player_projector.reality_signature.fidelity =
                                 (self.player_projector.reality_signature.fidelity + 20.0)
                                     .min(100.0);
-                            log::info!(
-                                "Player healed. Current fidelity: {}",
-                                self.player_projector.reality_signature.fidelity
-                            );
                         }
                         None
                     }
                     Primitive::Gravity => {
                         if pressed {
                             self.physics_state = PhysicsState::Gravity;
-                            log::info!("Gravity enabled.");
                         }
                         None
                     }
                     Primitive::Levitate => {
                         if pressed {
                             self.physics_state = PhysicsState::Flying;
-                            log::info!("Levitate enabled (flying).");
                         }
                         None
                     }
                     Primitive::Extend => {
                         if pressed {
-                            log::info!("Extend primitive invoked! Queueing GCT extension.");
                             self.pending_extensions.push([self.camera.eye.x, self.camera.eye.y, self.camera.eye.z]);
                         }
                         None
@@ -1829,26 +1680,21 @@ impl Engine {
                         if pressed {
                             self.camera_controller.orbit_mode = !self.camera_controller.orbit_mode;
                             if self.camera_controller.orbit_mode {
-                                log::info!("Lambda invoked Orbit Camera Mode.");
                                 self.camera_controller.orbit_focal_point = cgmath::Point3::new(0.0, 5.0, 0.0);
                                 self.camera_controller.orbit_radius = 20.0;
-                            } else {
-                                log::info!("Lambda revoked Orbit Camera Mode.");
                             }
                         }
                         None
                     }
                     Primitive::Peek => {
                         if pressed {
-                            log::info!("Peek primitive invoked! Generating Peek zone.");
-                            // We spawn a dropped item that acts as the peek volume
                             let peek_pos = spawn_pos;
                             let new_item = crate::reality_types::DroppedItem::new_cube(
                                 format!("peek_zone_{}", uuid::Uuid::new_v4()),
                                 peek_pos,
                                 cgmath::Vector3::new(0.0, 0.0, 0.0),
-                                5.0,                                 // Size of peek volume
-                                [1.0, 0.2, 0.8, 1.0],                // Pinkish purple marker color
+                                5.0,
+                                [1.0, 0.2, 0.8, 1.0],
                                 1,
                             );
 
@@ -1858,14 +1704,12 @@ impl Engine {
                     }
                     Primitive::SetBoneRotation => {
                         if pressed {
-                            log::info!("SetBoneRotation primitive invoked! Animating arm bone for active 4D splats.");
                             for player in &mut self.active_4d_splats {
                                 if let Some(skeleton) = &mut player.skeleton {
                                     for bone in &mut skeleton.bones {
                                         if bone.name.contains("arm") {
                                             use cgmath::{Rotation3, Rad};
-                                            // Explicit rotation override triggered by Lambda spell
-                                            bone.local_rotation = cgmath::Quaternion::from_angle_z(Rad(1.57)); // 90 degree raise
+                                            bone.local_rotation = cgmath::Quaternion::from_angle_z(Rad(1.57));
                                         }
                                     }
                                 }
@@ -1906,13 +1750,8 @@ impl Engine {
                     if *op == Primitive::Dream {
                         if pressed {
                             if let Term::Var(prompt) = &**arg {
-                                log::info!("Triggering DREAM with prompt: {}", prompt);
                                 self.pending_dreams.push(prompt.clone());
                             } else if let Term::Prim(prim_prompt) = &**arg {
-                                log::info!(
-                                    "Triggering DREAM with primitive prompt: {}",
-                                    prim_prompt
-                                );
                                 self.pending_dreams.push(prim_prompt.to_string());
                             }
                         }
@@ -1973,18 +1812,11 @@ impl Engine {
                                     .reality_signature
                                     .active_style
                                     .archetype = a;
-                                log::info!("Player archetype set to {:?}", a);
-                            } else {
-                                log::warn!("Unknown archetype: {}", target);
                             }
                             return None;
                         }
                     }
                 }
-
-                // Fallback mechanism to ensure the grammar works like a context-free grammar,
-                // where every spell, even invalid ones, resolves into a functioning spell/anomaly.
-                log::info!("Term resulted in an invalid application: {:?}", term);
 
                 let mut base = self.primitive_to_anomaly(Primitive::Void, spawn_pos)?;
                 base.reality_signature.active_style.archetype =
@@ -1992,9 +1824,7 @@ impl Engine {
                 Some(base)
             }
 
-            // Fallback for unresolved terms like plain variables
             _ => {
-                log::info!("Term unresolved: {:?}", term);
                 let mut base = self.primitive_to_anomaly(Primitive::Void, spawn_pos)?;
                 base.reality_signature.active_style.archetype =
                     crate::reality_types::RealityArchetype::Glitch;
@@ -2012,12 +1842,12 @@ impl Engine {
 
         match p {
             Primitive::Fire => {
-                sig.active_style.archetype = RealityArchetype::Horror; // Use Horror for Fire visual
+                sig.active_style.archetype = RealityArchetype::Horror;
                 sig.active_style.roughness = 1.0;
                 sig.active_style.distortion = 0.8;
             }
             Primitive::Water => {
-                sig.active_style.archetype = RealityArchetype::HyperNature; // Watery?
+                sig.active_style.archetype = RealityArchetype::HyperNature;
                 sig.active_style.roughness = 0.2;
                 sig.active_style.distortion = 0.5;
             }
@@ -2076,11 +1906,10 @@ impl Engine {
                 base.reality_signature.active_style.distortion = 1.0;
             }
             Primitive::Energy => {
-                base.reality_signature.fidelity = 200.0; // Boost fidelity?
+                base.reality_signature.fidelity = 200.0;
                 base.reality_signature.active_style.roughness = 0.0;
             }
             Primitive::Fire => {
-                // Fire + Something = Burnt Something?
                 base.reality_signature.active_style.archetype = RealityArchetype::Horror;
             }
             _ => {}
@@ -2090,35 +1919,20 @@ impl Engine {
     }
 
     pub fn process_inscription(&mut self, text: &str) {
-        log::info!("Inscribing: {}", text);
-
-        // Security Enhancement: Prevent DoS by limiting input length
-        // Parsing extremely long lambda terms could cause excessive memory allocation
-        // and CPU usage during parsing or reduction.
         const MAX_INSCRIPTION_LEN: usize = 256;
         if text.len() > MAX_INSCRIPTION_LEN {
-            log::warn!(
-                "Security Warning: Inscription exceeded maximum length limit ({} bytes).",
-                MAX_INSCRIPTION_LEN
-            );
             return;
         }
 
-        // Clean up input (trim)
         let clean_text = text.trim();
         if let Some(term) = lambda::parse(clean_text) {
             self.lambda_system.set_term(term);
-            log::info!("Inscription successful. Term updated.");
-        } else {
-            log::warn!("Invalid inscription syntax.");
         }
     }
 
     pub fn reset(&mut self) {
-        // Reset World
         self.world_state = WorldState::default();
 
-        // Spawn initial NPCs
         let archetypes = vec![
             RealityArchetype::SciFi,
             RealityArchetype::Horror,
@@ -2158,7 +1972,6 @@ impl Engine {
             self.world_state.npcs.push(npc);
         }
 
-        // Reset Player
         let mut player_sig = RealitySignature::default();
         player_sig.active_style.archetype = RealityArchetype::Fantasy;
         player_sig.active_style.roughness = 0.3;
@@ -2168,7 +1981,6 @@ impl Engine {
         self.player_projector = RealityProjector::new(Point3::new(0.0, 1.0, 2.0), player_sig);
         self.camera.eye = self.player_projector.location;
 
-        // Reset Active Anomaly
         let mut anomaly_sig = RealitySignature::default();
         anomaly_sig.active_style.archetype = RealityArchetype::SciFi;
         anomaly_sig.active_style.roughness = 0.8;
@@ -2180,7 +1992,6 @@ impl Engine {
             anomaly_sig,
         ));
 
-        // Reset Lambda System
         self.lambda_system = LambdaSystem::new();
         let term = lambda::parse("FIRE").unwrap();
         self.lambda_system.set_term(term);
@@ -2189,6 +2000,7 @@ impl Engine {
         self.pending_dreams.clear();
         self.pending_models.clear();
         self.pending_extensions.clear();
+        self.active_action_buffer.clear();
 
         log::info!("World State Reset.");
     }

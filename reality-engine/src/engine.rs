@@ -386,6 +386,48 @@ impl Engine {
             if !self.active_action_buffer.is_empty() {
                 vw.genie.request_action_dit_rollout(self.active_action_buffer.clone(), 2);
             }
+
+            // Poll predicted spatiotemporal trajectory latents and decode into 4D splat playback
+            if let Ok(mut latents_lock) = vw.genie.latest_action_dit_latents.lock() {
+                if let Some(flat_latents) = latents_lock.take() {
+                    let splat_chunks = reality_genie::vqvae::LatentVoxelDecoder::decode_splat_floats_from_latents_vec(&flat_latents);
+                    let mut vertices = Vec::new();
+                    for s in splat_chunks {
+                        vertices.push(crate::splat::SplatVertex {
+                            position: [s[0], s[1], s[2]],
+                            rotation: [s[3], s[4], s[5], s[6]],
+                            scale: [s[7], s[8], s[9]],
+                            color: [s[10], s[11], s[12], s[13]],
+                            previous_position: [s[0], s[1], s[2]],
+                            archetype_id: 5,
+                            target_archetype_id: 5,
+                            morph_weight: 0.0,
+                            bone_index: -1,
+                        });
+                    }
+
+                    if !vertices.is_empty() {
+                        let mut anims = std::collections::HashMap::new();
+                        anims.insert(AnimationState::Idle, vec![vertices]);
+                        let player = Splat4DPlayer {
+                            animations: anims,
+                            current_state: AnimationState::Idle,
+                            next_state: None,
+                            current_frame: 0,
+                            timer: 0.0,
+                            blend_timer: 0.0,
+                            blend_duration: 0.2,
+                            frame_rate: 10.0,
+                            loop_playback: true,
+                            position: self.camera.eye + Vector3::unit_z() * 3.0,
+                            archetype_override: Some(5),
+                            skeleton: None,
+                            splat_bone_indices: Vec::new(),
+                        };
+                        self.active_4d_splats.push(player);
+                    }
+                }
+            }
         }
 
         // Process any queued EXTEND spells
@@ -1442,11 +1484,16 @@ impl Engine {
         let mut count: u32 = 0;
 
         let status_text = if self.lambda_system.paused {
-            "PAUSED"
+            "PAUSED".to_string()
         } else if self.lambda_system.auto_reduce {
-            "AUTO-RUN"
+            "AUTO-RUN".to_string()
         } else {
-            "STEP MODE"
+            let drift = if !self.active_action_buffer.is_empty() {
+                0.012f32 * (self.active_action_buffer.len() as f32)
+            } else {
+                0.0f32
+            };
+            format!("STEP MODE | DiT DRIFT: {:.4}", drift)
         };
 
         let (sr, sg, sb) = if self.lambda_system.paused {
@@ -1726,6 +1773,20 @@ impl Engine {
                         return self.execute_side_effect(arg, false);
                     }
 
+                    if *op == Primitive::GenieDit {
+                        if pressed {
+                            let prompt_str = match &**arg {
+                                Term::Var(s) => s.clone(),
+                                Term::Prim(p) => p.to_string(),
+                                _ => "spatiotemporal reality".to_string(),
+                            };
+                            log::info!("GENIE_DIT primitive invoked with prompt: {}", prompt_str);
+                            self.pending_dreams.push(prompt_str.clone());
+                            self.pending_models.push((prompt_str, [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z]));
+                        }
+                        return None;
+                    }
+
                     if *op == Primitive::Move {
                         if let Term::Prim(target) = &**arg {
                             match target {
@@ -1841,6 +1902,11 @@ impl Engine {
         sig.active_style.scale = 5.0;
 
         match p {
+            Primitive::GenieDit => {
+                sig.active_style.archetype = RealityArchetype::Genie;
+                sig.active_style.scale = 10.0;
+                sig.active_style.roughness = 0.9;
+            }
             Primitive::Fire => {
                 sig.active_style.archetype = RealityArchetype::Horror;
                 sig.active_style.roughness = 1.0;

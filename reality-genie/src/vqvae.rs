@@ -274,7 +274,7 @@ impl LatentVoxelDecoder {
     /// Decode continuous latents [B, T, S, C] into 3D Splat vertices float attributes
     pub fn decode_splats(&self, latents: &Tensor) -> Result<Vec<Vec<f32>>> {
         let flat_vec = latents.flatten_all()?.to_vec1::<f32>()?;
-        let chunk_len = 14; // SplatVertex field float count
+        let chunk_len = 14;
         let num_splats = flat_vec.len() / chunk_len;
         let mut splats = Vec::with_capacity(num_splats);
 
@@ -285,5 +285,23 @@ impl LatentVoxelDecoder {
         }
 
         Ok(splats)
+    }
+
+    pub fn decode_splat_floats_from_latents_vec(flat_latents: &[f32]) -> Vec<[f32; 14]> {
+        let chunk_len = 14;
+        let num_splats = flat_latents.len() / chunk_len;
+        let mut splats = Vec::with_capacity(num_splats);
+
+        for i in 0..num_splats {
+            let offset = i * chunk_len;
+            if offset + chunk_len <= flat_latents.len() {
+                let slice = &flat_latents[offset..offset + chunk_len];
+                let mut arr = [0.0f32; 14];
+                arr.copy_from_slice(slice);
+                splats.push(arr);
+            }
+        }
+
+        splats
     }
 }

@@ -48,6 +48,9 @@ fn test_frame_anchor_buffer() -> candle_core::Result<()> {
 
     assert_eq!(buffer.cached_anchors.len(), max_window_size);
 
+    let drift_var = buffer.compute_drift_variance()?;
+    assert_eq!(drift_var, 0.0f32);
+
     let anchor_ctx = buffer.get_anchor_context(&device, b, s, c, DType::F32)?;
     assert_eq!(anchor_ctx.dims(), &[b, max_window_size * s, c]);
 
@@ -149,6 +152,20 @@ fn test_multimodal_forward() -> candle_core::Result<()> {
     let output = dit.forward_multimodal(&x, &actions, Some(&text_tokens), &timesteps, &anchor_context)?;
 
     assert_eq!(output.dims(), &[b, t, s, c]);
+
+    Ok(())
+}
+
+#[test]
+fn test_cfg_sampler() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let dit = ActionConditionedDiT::default_cpu()?;
+    let sampler = ActionConditionedSampler::new(dit, 2);
+
+    let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
+    let sample = sampler.sample_next_frame_cfg(1, 1, None, &mut anchor_buffer, 0, 2.5, &device)?;
+
+    assert_eq!(sample.dims(), &[1, 1, 64, 256]);
 
     Ok(())
 }

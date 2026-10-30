@@ -92,6 +92,8 @@ pub struct Engine {
     pub physics_state: PhysicsState,
 
     pub active_action_buffer: Vec<u32>,
+    pub world_model_cfg_scale: f64,
+    pub world_model_steps: usize,
 }
 
 pub struct CollisionResult {
@@ -259,6 +261,8 @@ impl Engine {
             fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
             physics_state: PhysicsState::Flying,
             active_action_buffer: Vec::new(),
+            world_model_cfg_scale: 1.5,
+            world_model_steps: 2,
         }
     }
 
@@ -384,7 +388,12 @@ impl Engine {
         // Stream player gameplay input sequence to GenieBridge for action-conditioned trajectory rollout
         if let Some(ref mut vw) = voxel_world {
             if !self.active_action_buffer.is_empty() {
-                vw.genie.request_action_dit_rollout(self.active_action_buffer.clone(), 2);
+                let drained_actions = std::mem::take(&mut self.active_action_buffer);
+                vw.genie.request_action_dit_rollout_cfg(
+                    drained_actions,
+                    self.world_model_steps,
+                    self.world_model_cfg_scale,
+                );
             }
 
             // Poll predicted spatiotemporal trajectory latents and decode into 4D splat playback

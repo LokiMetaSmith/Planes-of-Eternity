@@ -307,8 +307,7 @@ impl SpatiotemporalDitBlock {
         anchor_context: &Tensor,
         mask: Option<&Tensor>,
     ) -> Result<Tensor> {
-        // Conditioning project produces (gamma1, beta1, gamma2, beta2)
-        let adaln_params = self.adaln_proj.forward(conditioning_emb)?; // [B, T_cond, 4 * d_model]
+        let adaln_params = self.adaln_proj.forward(conditioning_emb)?;
         let (b, seq_len, c) = x.dims3()?;
 
         let chunks = adaln_params.chunk(4, adaln_params.rank() - 1)?;
@@ -332,18 +331,15 @@ impl SpatiotemporalDitBlock {
         let gamma2 = expand_param(&chunks[2])?;
         let beta2 = expand_param(&chunks[3])?;
 
-        // 1. Normalized & modulated Causal Temporal Attention
         let norm_x = self.norm1.forward(x)?;
         let modulated_x = (norm_x.broadcast_mul(&(gamma1.affine(1.0, 1.0)?))? + &beta1)?;
         let attn_out = self.temporal_causal_attn.forward(&modulated_x, mask)?;
         let x = (x + attn_out)?;
 
-        // 2. Anchor Cross Attention
         let norm_x2 = self.norm_anchor.forward(&x)?;
         let anchor_out = self.anchor_cross_attn.forward(&norm_x2, anchor_context)?;
         let x = (&x + anchor_out)?;
 
-        // 3. Feed forward
         let norm_x3 = self.norm2.forward(&x)?;
         let modulated_ff = (norm_x3.broadcast_mul(&(gamma2.affine(1.0, 1.0)?))? + &beta2)?;
         let ff_out = self.ff1.forward(&modulated_ff)?.relu()?;
@@ -481,7 +477,6 @@ impl ActionConditionedDiT {
 
         let t_frames = seq_len / self.config.num_spatial_tokens;
 
-        // 1. Embed actions and timesteps
         let act_emb = if actions.rank() == 1 {
             let emb = self.action_embedder.forward(actions)?;
             emb.reshape((b, 1, self.config.d_model))?
@@ -500,10 +495,8 @@ impl ActionConditionedDiT {
             conditioning = (conditioning + txt_emb_bc)?;
         }
 
-        // 2. Linear projection of input latents
         let mut h = self.latent_proj.forward(&x_flat)?;
 
-        // 3. Build causal temporal mask
         let mask = CausalTemporalAttention::build_causal_temporal_mask(
             t_frames,
             self.config.num_spatial_tokens,
@@ -511,12 +504,10 @@ impl ActionConditionedDiT {
             x.dtype(),
         )?;
 
-        // 4. Pass through DiT blocks
         for block in &self.blocks {
             h = block.forward(&h, &conditioning, anchor_context, Some(&mask))?;
         }
 
-        // 5. Final norm and projection
         let h = self.final_norm.forward(&h)?;
         let out = self.out_proj.forward(&h)?;
 
@@ -628,16 +619,23 @@ impl ActionConditionedSampler {
         Tensor::cat(&frame_list, 1)
     }
 
-    pub fn rollout_from_actions_vec(&self, actions: &[u32]) -> Result<Vec<f32>> {
+    pub fn rollout_from_actions_vec(actions: &[u32]) -> Result<Vec<f32>> {
         let device = Device::Cpu;
         let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
         let t_len = actions.len();
         let actions_tensor = Tensor::from_vec(actions.to_vec(), (1, t_len), &device)?;
-        let rollout = self.rollout_trajectory(&actions_tensor, &mut anchor_buffer, &device)?;
+        let dit = ActionConditionedDiT::default_cpu()?;
+        let sampler = ActionConditionedSampler::new(dit, 2);
+        let rollout = sampler.rollout_trajectory(&actions_tensor, &mut anchor_buffer, &device)?;
         rollout.flatten_all()?.to_vec1::<f32>()
     }
 
-    pub fn rollout_from_actions_vec_with_weights(actions: &[u32], weights_path: Option<&str>) -> Result<Vec<f32>> {
+    pub fn rollout_from_actions_vec_with_weights(
+        actions: &[u32],
+        weights_path: Option<&str>,
+        denoising_steps: usize,
+        guidance_scale: f64,
+    ) -> Result<Vec<f32>> {
         let device = Device::Cpu;
         let cfg = DiTConfig::default();
         let model = if let Some(p) = weights_path {
@@ -650,7 +648,116 @@ impl ActionConditionedSampler {
             ActionConditionedDiT::default_cpu()?
         };
 
-        let sampler = ActionConditionedSampler::new(model, 2);
-        sampler.rollout_from_actions_vec(actions)
+        let steps = denoising_steps.max(1);
+        let sampler = ActionConditionedSampler::new(model, steps);
+        let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
+        let t_len = actions.len();
+
+        let mut frame_list = Vec::with_capacity(t_len);
+        for t_step in 0..t_len {
+            let act = actions[t_step];
+            let frame = sampler.sample_next_frame_cfg(1, act, None, &mut anchor_buffer, t_step, guidance_scale, &device)?;
+            frame_list.push(frame);
+        }
+
+        let rollout = Tensor::cat(&frame_list, 1)?;
+        rollout.flatten_all()?.to_vec1::<f32>()
+    }
+}
+
+/// Diffusion Forcing Rolling Latent Context for O(1) streaming inference
+#[derive(Debug, Clone)]
+pub struct RollingLatentContext {
+    pub max_frames: usize,
+    pub frames: Vec<Tensor>,
+}
+
+impl RollingLatentContext {
+    pub fn new(max_frames: usize) -> Self {
+        Self {
+            max_frames,
+            frames: Vec::new(),
+        }
+    }
+
+    pub fn push_frame(&mut self, frame: Tensor) -> Result<()> {
+        self.frames.push(frame);
+        if self.frames.len() > self.max_frames {
+            self.frames.remove(0);
+        }
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    pub fn get_context_tensor(&self, device: &Device, b: usize, s: usize, c: usize, dtype: DType) -> Result<Tensor> {
+        if self.frames.is_empty() {
+            Tensor::zeros((b, 1, s, c), dtype, device)
+        } else {
+            let mut reshaped = Vec::with_capacity(self.frames.len());
+            for f in &self.frames {
+                let f_res = if f.rank() == 3 {
+                    f.unsqueeze(1)?
+                } else {
+                    f.clone()
+                };
+                reshaped.push(f_res);
+            }
+            Tensor::cat(&reshaped, 1)
+        }
+    }
+
+    pub fn get_latest_frame(&self) -> Option<&Tensor> {
+        self.frames.last()
+    }
+
+    pub fn clear(&mut self) {
+        self.frames.clear();
+    }
+}
+
+/// Autonomous Trajectory Director for mitigating long-horizon drift
+#[derive(Debug, Clone)]
+pub struct TrajectoryDirector {
+    pub max_drift_threshold: f32,
+    pub stabilization_blend_factor: f32,
+}
+
+impl TrajectoryDirector {
+    pub fn new(max_drift_threshold: f32, stabilization_blend_factor: f32) -> Self {
+        Self {
+            max_drift_threshold,
+            stabilization_blend_factor,
+        }
+    }
+
+    /// Evaluates anchor buffer drift and stabilizes newly predicted frame latents
+    pub fn direct_frame(
+        &self,
+        predicted_frame: &Tensor,
+        anchor_buffer: &FrameAnchorBuffer,
+    ) -> Result<Tensor> {
+        let drift = anchor_buffer.compute_drift_variance()?;
+
+        if drift > self.max_drift_threshold && !anchor_buffer.cached_anchors.is_empty() {
+            let primary_anchor = &anchor_buffer.cached_anchors[0];
+            let anchor_reshaped = if primary_anchor.rank() == 3 && predicted_frame.rank() == 4 {
+                primary_anchor.unsqueeze(1)?
+            } else {
+                primary_anchor.clone()
+            };
+
+            let alpha = self.stabilization_blend_factor as f64;
+            let blended = ((predicted_frame * (1.0 - alpha))? + (&anchor_reshaped * alpha)?)?;
+            Ok(blended)
+        } else {
+            Ok(predicted_frame.clone())
+        }
     }
 }

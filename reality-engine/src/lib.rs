@@ -5108,6 +5108,30 @@ impl GameClient {
         }
         false
     }
+
+pub fn set_world_model_cfg_scale(&self, scale: f64) {
+    if let Ok(mut state) = self.state.try_borrow_mut() {
+        state.engine.world_model_cfg_scale = scale.clamp(1.0, 10.0);
+    }
+}
+
+pub fn set_world_model_steps(&self, steps: u32) {
+    if let Ok(mut state) = self.state.try_borrow_mut() {
+        state.engine.world_model_steps = (steps as usize).clamp(1, 10);
+    }
+}
+
+pub fn trigger_world_model_rollout(&self) -> bool {
+    if let Ok(state) = self.state.try_borrow_mut() {
+        let dummy_actions = vec![1, 1, 5, 2];
+        let steps = state.engine.world_model_steps;
+        let scale = state.engine.world_model_cfg_scale;
+        state.voxel_world.genie.request_action_dit_rollout_cfg(dummy_actions, steps, scale);
+        true
+    } else {
+        false
+    }
+}
 }
 
 #[cfg(target_arch = "wasm32")]

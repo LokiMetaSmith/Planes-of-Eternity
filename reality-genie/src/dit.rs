@@ -1,5 +1,5 @@
 use candle_core::{DType, Device, Module, Result, Tensor};
-use candle_nn::{layer_norm, linear, Embedding, LayerNorm, Linear, VarBuilder};
+use candle_nn::{layer_norm, linear, Embedding, LayerNorm, Linear, VarBuilder, VarMap};
 
 /// Configuration for ActionConditionedDiT
 #[derive(Debug, Clone)]
@@ -292,18 +292,33 @@ impl SpatiotemporalDitBlock {
         mask: Option<&Tensor>,
     ) -> Result<Tensor> {
         // Conditioning project produces (gamma1, beta1, gamma2, beta2)
-        let adaln_params = self.adaln_proj.forward(conditioning_emb)?; // [B, 4 * d_model] or [B, 1, 4 * d_model]
+        let adaln_params = self.adaln_proj.forward(conditioning_emb)?; // [B, T_cond, 4 * d_model]
         let (b, seq_len, c) = x.dims3()?;
 
         let chunks = adaln_params.chunk(4, adaln_params.rank() - 1)?;
-        let gamma1 = &chunks[0];
-        let beta1 = &chunks[1];
-        let gamma2 = &chunks[2];
-        let beta2 = &chunks[3];
+
+        let expand_param = |p: &Tensor| -> Result<Tensor> {
+            if p.rank() == 3 {
+                let (_, t_cond, _) = p.dims3()?;
+                if t_cond > 1 && seq_len % t_cond == 0 {
+                    let s_tokens = seq_len / t_cond;
+                    p.unsqueeze(2)?.broadcast_as((b, t_cond, s_tokens, c))?.reshape((b, seq_len, c))
+                } else {
+                    p.broadcast_as((b, seq_len, c))
+                }
+            } else {
+                p.broadcast_as((b, seq_len, c))
+            }
+        };
+
+        let gamma1 = expand_param(&chunks[0])?;
+        let beta1 = expand_param(&chunks[1])?;
+        let gamma2 = expand_param(&chunks[2])?;
+        let beta2 = expand_param(&chunks[3])?;
 
         // 1. Normalized & modulated Causal Temporal Attention
         let norm_x = self.norm1.forward(x)?;
-        let modulated_x = (norm_x.broadcast_mul(&(gamma1.affine(1.0, 1.0)?))? + beta1.broadcast_as((b, seq_len, c))?)?;
+        let modulated_x = (norm_x.broadcast_mul(&(gamma1.affine(1.0, 1.0)?))? + &beta1)?;
         let attn_out = self.temporal_causal_attn.forward(&modulated_x, mask)?;
         let x = (x + attn_out)?;
 
@@ -314,7 +329,7 @@ impl SpatiotemporalDitBlock {
 
         // 3. Feed forward
         let norm_x3 = self.norm2.forward(&x)?;
-        let modulated_ff = (norm_x3.broadcast_mul(&(gamma2.affine(1.0, 1.0)?))? + beta2.broadcast_as((b, seq_len, c))?)?;
+        let modulated_ff = (norm_x3.broadcast_mul(&(gamma2.affine(1.0, 1.0)?))? + &beta2)?;
         let ff_out = self.ff1.forward(&modulated_ff)?.relu()?;
         let ff_out = self.ff2.forward(&ff_out)?;
         let x = (&x + ff_out)?;
@@ -406,6 +421,14 @@ impl ActionConditionedDiT {
         })
     }
 
+    pub fn default_cpu() -> Result<Self> {
+        let device = Device::Cpu;
+        let cfg = DiTConfig::default();
+        let vars = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+        Self::new(cfg, vb)
+    }
+
     /// Forward pass:
     /// - `x`: Spatial-temporal latents tensor of shape [B, T, S, C] or [B, T * S, C]
     /// - `actions`: Action IDs tensor of shape [B] or [B, T]
@@ -438,11 +461,12 @@ impl ActionConditionedDiT {
             let emb = self.action_embedder.forward(actions)?; // [B, d_model]
             emb.reshape((b, 1, self.config.d_model))?
         } else {
-            self.action_embedder.forward(actions)? // [B, T, d_model] or similar
+            self.action_embedder.forward(actions)? // [B, T, d_model]
         };
 
         let time_emb = self.time_embedder.forward(timesteps)?.reshape((b, 1, self.config.d_model))?;
-        let conditioning = (act_emb + time_emb)?;
+        let time_emb_bc = time_emb.broadcast_as(act_emb.shape())?;
+        let conditioning = (act_emb + time_emb_bc)?;
 
         // 2. Linear projection of input latents
         let mut h = self.latent_proj.forward(&x_flat)?;
@@ -469,5 +493,86 @@ impl ActionConditionedDiT {
         } else {
             Ok(out)
         }
+    }
+}
+
+/// Real-time Action-Conditioned Trajectory Rollout Sampler
+#[derive(Debug)]
+pub struct ActionConditionedSampler {
+    pub model: ActionConditionedDiT,
+    pub num_denoising_steps: usize,
+}
+
+impl ActionConditionedSampler {
+    pub fn new(model: ActionConditionedDiT, num_denoising_steps: usize) -> Self {
+        Self {
+            model,
+            num_denoising_steps,
+        }
+    }
+
+    /// Sample/predict next frame latents [B, 1, S, C] given user action and current anchor context
+    pub fn sample_next_frame(
+        &self,
+        b: usize,
+        action: u32,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let s = self.model.config.num_spatial_tokens;
+        let c = self.model.config.d_model;
+        let dtype = DType::F32;
+
+        let actions_tensor = Tensor::from_vec(vec![action; b], (b,), device)?;
+        let anchor_ctx = anchor_buffer.get_anchor_context(device, b, s, c, dtype)?;
+
+        // Initialize with pure Gaussian noise latents for 1 frame: [B, 1, S, C]
+        let mut x_t = Tensor::randn(0.0f32, 1.0f32, (b, 1, s, c), device)?;
+
+        for step in (0..self.num_denoising_steps).rev() {
+            let timestep = (step * 1000 / self.num_denoising_steps) as u32;
+            let timesteps_tensor = Tensor::from_vec(vec![timestep; b], (b,), device)?;
+
+            let pred_noise = self.model.forward(&x_t, &actions_tensor, &timesteps_tensor, &anchor_ctx)?;
+
+            // Denoising step: x_{t-1} = x_t - alpha * pred_noise
+            let alpha = 1.0 / (self.num_denoising_steps as f32);
+            x_t = (&x_t - (&pred_noise * (alpha as f64))?)?;
+        }
+
+        // Cache newly predicted frame into sliding window buffer
+        anchor_buffer.push_frame(x_t.clone(), step_index)?;
+
+        Ok(x_t)
+    }
+
+    /// Autoregressively rollout a trajectory sequence of frame latents given an action sequence [B, T]
+    pub fn rollout_trajectory(
+        &self,
+        actions: &Tensor,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let (b, t_frames) = actions.dims2()?;
+        let mut frame_list = Vec::with_capacity(t_frames);
+
+        for t_step in 0..t_frames {
+            let action_val = actions.get(0)?.get(t_step)?.to_scalar::<u32>()?;
+            let frame = self.sample_next_frame(b, action_val, anchor_buffer, t_step, device)?;
+            frame_list.push(frame);
+        }
+
+        // Concatenate along temporal axis -> [B, T, S, C]
+        Tensor::cat(&frame_list, 1)
+    }
+
+    pub fn rollout_from_actions_vec(&self, actions: &[u32]) -> Result<Vec<f32>> {
+        let device = Device::Cpu;
+        let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
+        let t_len = actions.len();
+        let actions_tensor = Tensor::from_vec(actions.to_vec(), (1, t_len), &device)?;
+        let rollout = self.rollout_trajectory(&actions_tensor, &mut anchor_buffer, &device)?;
+        rollout.flatten_all()?.to_vec1::<f32>()
     }
 }

@@ -23,6 +23,7 @@ pub struct GenieBridge {
     pub terrain_sender: mpsc::Sender<TerrainRequest>,
     pub terrain_res_tx: mpsc::Sender<TerrainResponse>,
     pub terrain_receiver: Arc<Mutex<mpsc::Receiver<TerrainResponse>>>,
+    pub latest_action_dit_latents: Arc<Mutex<Option<Vec<f32>>>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -64,6 +65,37 @@ impl GenieBridge {
             terrain_sender: req_tx,
             terrain_res_tx: res_tx_clone,
             terrain_receiver: Arc::new(Mutex::new(res_rx)),
+            latest_action_dit_latents: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn request_action_dit_rollout(&self, actions: Vec<u32>, num_denoising_steps: usize) {
+        let latents_ref = Arc::clone(&self.latest_action_dit_latents);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            std::thread::spawn(move || {
+                if let Ok(model) = reality_genie::dit::ActionConditionedDiT::default_cpu() {
+                    let sampler = reality_genie::dit::ActionConditionedSampler::new(model, num_denoising_steps);
+                    if let Ok(flat) = sampler.rollout_from_actions_vec(&actions) {
+                        if let Ok(mut lock) = latents_ref.lock() {
+                            *lock = Some(flat);
+                        }
+                    }
+                }
+            });
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Ok(model) = reality_genie::dit::ActionConditionedDiT::default_cpu() {
+                let sampler = reality_genie::dit::ActionConditionedSampler::new(model, num_denoising_steps);
+                if let Ok(flat) = sampler.rollout_from_actions_vec(&actions) {
+                    if let Ok(mut lock) = latents_ref.lock() {
+                        *lock = Some(flat);
+                    }
+                }
+            }
         }
     }
 

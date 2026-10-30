@@ -1244,6 +1244,21 @@ impl State {
             multiview: None,
         });
 
+        let skeleton_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: skeleton_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some("camera_bind_group_clone"),
+        });
+
         Some(WgpuState {
             surface,
             device,
@@ -1283,20 +1298,7 @@ impl State {
             max_splat_capacity,
 
             skeleton_buffer,
-            skeleton_bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &camera_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: skeleton_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("camera_bind_group_clone"),
-            }),
+            skeleton_bind_group,
 
             voxel_atlas,
             voxel_bind_group,
@@ -3239,6 +3241,7 @@ impl GameClient {
             21 => reality_types::RealityArchetype::Fractal,
             22 => reality_types::RealityArchetype::Prehistoric,
             23 => reality_types::RealityArchetype::PostApocalyptic,
+            24 => reality_types::RealityArchetype::Underwater,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -3272,6 +3275,10 @@ impl GameClient {
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
             17 => reality_types::RealityArchetype::LiminalSpace,
+            18 => reality_types::RealityArchetype::Clockwork,
+            19 => reality_types::RealityArchetype::Cottagecore,
+            20 => reality_types::RealityArchetype::WildWest,
+            21 => reality_types::RealityArchetype::Fractal,
             22 => reality_types::RealityArchetype::Prehistoric,
             23 => reality_types::RealityArchetype::PostApocalyptic,
             24 => reality_types::RealityArchetype::Underwater,

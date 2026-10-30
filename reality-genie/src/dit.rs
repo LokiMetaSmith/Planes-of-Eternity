@@ -12,6 +12,7 @@ pub struct DiTConfig {
     pub num_spatial_tokens: usize,
     pub max_temporal_frames: usize,
     pub max_anchor_frames: usize,
+    pub vocab_size_text: usize,
     pub dropout: f64,
 }
 
@@ -26,6 +27,7 @@ impl Default for DiTConfig {
             num_spatial_tokens: 64,
             max_temporal_frames: 8,
             max_anchor_frames: 4,
+            vocab_size_text: 1000,
             dropout: 0.0,
         }
     }
@@ -384,6 +386,7 @@ impl TimestepEmbedder {
 pub struct ActionConditionedDiT {
     pub config: DiTConfig,
     action_embedder: ActionConditioningEmbedder,
+    text_embedder: Embedding,
     time_embedder: TimestepEmbedder,
     latent_proj: Linear,
     blocks: Vec<SpatiotemporalDitBlock>,
@@ -399,6 +402,7 @@ impl ActionConditionedDiT {
             cfg.d_model,
             vb.pp("action_embedder"),
         )?;
+        let text_embedder = candle_nn::embedding(cfg.vocab_size_text, cfg.d_model, vb.pp("text_embedder"))?;
         let time_embedder = TimestepEmbedder::new(cfg.d_model, vb.pp("time_embedder"))?;
         let latent_proj = linear(cfg.d_model, cfg.d_model, vb.pp("latent_proj"))?;
 
@@ -413,6 +417,7 @@ impl ActionConditionedDiT {
         Ok(Self {
             config: cfg,
             action_embedder,
+            text_embedder,
             time_embedder,
             latent_proj,
             blocks,
@@ -429,15 +434,21 @@ impl ActionConditionedDiT {
         Self::new(cfg, vb)
     }
 
-    /// Forward pass:
-    /// - `x`: Spatial-temporal latents tensor of shape [B, T, S, C] or [B, T * S, C]
-    /// - `actions`: Action IDs tensor of shape [B] or [B, T]
-    /// - `timesteps`: Timestep tensor of shape [B]
-    /// - `anchor_context`: Cached keyframe anchor context tensor of shape [B, AnchorTokens, C]
-    pub fn forward(
+    pub fn from_safetensors<P: AsRef<std::path::Path>>(path: P, cfg: DiTConfig, device: &Device) -> Result<Self> {
+        let mut varmap = VarMap::new();
+        if path.as_ref().exists() {
+            let _ = varmap.load(path);
+        }
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, device);
+        Self::new(cfg, vb)
+    }
+
+    /// Forward pass with optional multi-modal text token conditioning
+    pub fn forward_multimodal(
         &self,
         x: &Tensor,
         actions: &Tensor,
+        text_tokens: Option<&Tensor>,
         timesteps: &Tensor,
         anchor_context: &Tensor,
     ) -> Result<Tensor> {
@@ -458,15 +469,22 @@ impl ActionConditionedDiT {
 
         // 1. Embed actions and timesteps
         let act_emb = if actions.rank() == 1 {
-            let emb = self.action_embedder.forward(actions)?; // [B, d_model]
+            let emb = self.action_embedder.forward(actions)?;
             emb.reshape((b, 1, self.config.d_model))?
         } else {
-            self.action_embedder.forward(actions)? // [B, T, d_model]
+            self.action_embedder.forward(actions)?
         };
 
         let time_emb = self.time_embedder.forward(timesteps)?.reshape((b, 1, self.config.d_model))?;
         let time_emb_bc = time_emb.broadcast_as(act_emb.shape())?;
-        let conditioning = (act_emb + time_emb_bc)?;
+        let mut conditioning = (act_emb + time_emb_bc)?;
+
+        if let Some(txt) = text_tokens {
+            let txt_emb = self.text_embedder.forward(txt)?;
+            let txt_emb_mean = txt_emb.mean_keepdim(1)?;
+            let txt_emb_bc = txt_emb_mean.broadcast_as(conditioning.shape())?;
+            conditioning = (conditioning + txt_emb_bc)?;
+        }
 
         // 2. Linear projection of input latents
         let mut h = self.latent_proj.forward(&x_flat)?;
@@ -493,6 +511,17 @@ impl ActionConditionedDiT {
         } else {
             Ok(out)
         }
+    }
+
+    /// Forward pass (delegates to forward_multimodal without text)
+    pub fn forward(
+        &self,
+        x: &Tensor,
+        actions: &Tensor,
+        timesteps: &Tensor,
+        anchor_context: &Tensor,
+    ) -> Result<Tensor> {
+        self.forward_multimodal(x, actions, None, timesteps, anchor_context)
     }
 }
 
@@ -574,5 +603,22 @@ impl ActionConditionedSampler {
         let actions_tensor = Tensor::from_vec(actions.to_vec(), (1, t_len), &device)?;
         let rollout = self.rollout_trajectory(&actions_tensor, &mut anchor_buffer, &device)?;
         rollout.flatten_all()?.to_vec1::<f32>()
+    }
+
+    pub fn rollout_from_actions_vec_with_weights(actions: &[u32], weights_path: Option<&str>) -> Result<Vec<f32>> {
+        let device = Device::Cpu;
+        let cfg = DiTConfig::default();
+        let model = if let Some(p) = weights_path {
+            if std::path::Path::new(p).exists() {
+                ActionConditionedDiT::from_safetensors(p, cfg, &device)?
+            } else {
+                ActionConditionedDiT::default_cpu()?
+            }
+        } else {
+            ActionConditionedDiT::default_cpu()?
+        };
+
+        let sampler = ActionConditionedSampler::new(model, 2);
+        sampler.rollout_from_actions_vec(actions)
     }
 }

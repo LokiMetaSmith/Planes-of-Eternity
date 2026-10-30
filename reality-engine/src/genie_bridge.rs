@@ -69,18 +69,18 @@ impl GenieBridge {
         }
     }
 
-    pub fn request_action_dit_rollout(&self, actions: Vec<u32>, num_denoising_steps: usize) {
+    pub fn request_action_dit_rollout(&self, actions: Vec<u32>, _num_denoising_steps: usize) {
         let latents_ref = Arc::clone(&self.latest_action_dit_latents);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             std::thread::spawn(move || {
-                if let Ok(model) = reality_genie::dit::ActionConditionedDiT::default_cpu() {
-                    let sampler = reality_genie::dit::ActionConditionedSampler::new(model, num_denoising_steps);
-                    if let Ok(flat) = sampler.rollout_from_actions_vec(&actions) {
-                        if let Ok(mut lock) = latents_ref.lock() {
-                            *lock = Some(flat);
-                        }
+                if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_from_actions_vec_with_weights(
+                    &actions,
+                    Some("action_dit_model.safetensors"),
+                ) {
+                    if let Ok(mut lock) = latents_ref.lock() {
+                        *lock = Some(flat);
                     }
                 }
             });
@@ -88,12 +88,12 @@ impl GenieBridge {
 
         #[cfg(target_arch = "wasm32")]
         {
-            if let Ok(model) = reality_genie::dit::ActionConditionedDiT::default_cpu() {
-                let sampler = reality_genie::dit::ActionConditionedSampler::new(model, num_denoising_steps);
-                if let Ok(flat) = sampler.rollout_from_actions_vec(&actions) {
-                    if let Ok(mut lock) = latents_ref.lock() {
-                        *lock = Some(flat);
-                    }
+            if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_from_actions_vec_with_weights(
+                &actions,
+                None,
+            ) {
+                if let Ok(mut lock) = latents_ref.lock() {
+                    *lock = Some(flat);
                 }
             }
         }

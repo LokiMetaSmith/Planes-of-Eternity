@@ -66,10 +66,9 @@ impl Encoder {
         let mut downsamples = Vec::new();
         let curr_channels = cfg.hidden_channels;
         for i in 0..cfg.num_downsample_layers {
-            // Strided conv for downsampling
             let conv = candle_nn::conv2d(
                 curr_channels,
-                curr_channels, // keeping channels same for simplicity in this demo, or usually double
+                curr_channels,
                 4,
                 Conv2dConfig { stride: 2, padding: 1, ..Default::default() },
                 vb.pp(format!("down_{}", i))
@@ -108,7 +107,7 @@ impl Module for Encoder {
 
 #[derive(Debug)]
 pub struct VectorQuantizer {
-    embedding: Tensor, // [num_embeddings, embedding_dim]
+    embedding: Tensor,
     num_embeddings: usize,
     embedding_dim: usize,
 }
@@ -124,65 +123,33 @@ impl VectorQuantizer {
     }
 
     pub fn forward(&self, z: &Tensor) -> Result<(Tensor, Tensor)> {
-        // z: [B, C, H, W] -> permute to [B, H, W, C]
         let (b, c, h, w) = z.dims4()?;
         let z_permuted = z.permute((0, 2, 3, 1))?;
         let z_flat = z_permuted.reshape((b * h * w, c))?;
 
-        // Distances: (z - e)^2 = z^2 + e^2 - 2ze
-        // z_flat: [N, C]
-        // embedding: [K, C]
+        let z2 = z_flat.sqr()?.sum_keepdim(1)?;
+        let e2 = self.embedding.sqr()?.sum_keepdim(1)?;
+        let e2 = e2.reshape((1, self.num_embeddings))?;
 
-        let z2 = z_flat.sqr()?.sum_keepdim(1)?; // [N, 1]
-        let e2 = self.embedding.sqr()?.sum_keepdim(1)?; // [K, 1]
-        let e2 = e2.reshape((1, self.num_embeddings))?; // [1, K]
-
-        let ze = z_flat.matmul(&self.embedding.t()?)?; // [N, K]
-
-        // z2 [N, 1] broadcasts to [N, K]
-        // e2 [1, K] broadcasts to [N, K]
+        let ze = z_flat.matmul(&self.embedding.t()?)?;
 
         let e2_broadcast = e2.broadcast_as((b*h*w, self.num_embeddings))?;
         let z2_broadcast = z2.broadcast_as((b*h*w, self.num_embeddings))?;
 
         let dist = ((z2_broadcast + e2_broadcast)? - (ze * 2.0)?)?;
 
-        let encoding_indices = dist.argmin(1)?; // [N]
+        let encoding_indices = dist.argmin(1)?;
 
-        // Quantize
-        // embedding: [K, C]
-        // indices: [N]
-        // We want to gather embeddings.
-        let quantized_flat = self.embedding.index_select(&encoding_indices, 0)?; // [N, C]
-
-        let quantized = quantized_flat.reshape((b, h, w, c))?.permute((0, 3, 1, 2))?; // [B, C, H, W]
-
-        // Straight-through estimator:
-        // We want gradients to flow from Decoder to Encoder, bypassing the quantization step mathematically during backprop.
-        // In PyTorch: z_q = z + (z_q - z).detach()
-        // In Candle, we can use `detach()`
-
+        let quantized_flat = self.embedding.index_select(&encoding_indices, 0)?;
+        let quantized = quantized_flat.reshape((b, h, w, c))?.permute((0, 3, 1, 2))?;
         let quantized_final = ((z - z.detach())? + quantized.detach())?;
 
         Ok((quantized_final, encoding_indices.reshape((b, h, w))?))
     }
 
-    // Helper to decode indices directly
     pub fn decode_indices(&self, indices: &Tensor) -> Result<Tensor> {
-        // indices: [B, H, W] or [N]
-        // Flatten
-        let _shape = indices.dims();
         let indices_flat = indices.flatten_all()?;
         let quantized_flat = self.embedding.index_select(&indices_flat, 0)?;
-
-        // If input was [B, H, W], output should be [B, C, H, W] (needs permutation)
-        // Here we just return flat or guess based on original shape?
-        // Better to assume caller handles reshape or we pass dims.
-        // For simplicity, assuming [B, H, W] input -> return [B, C, H, W] logic needs C.
-
-        // Actually this function is usually used by decoder which takes quantized tensor.
-        // But the Transformer predicts indices. So we need this.
-
         Ok(quantized_flat)
     }
 }
@@ -258,31 +225,65 @@ impl VqVae {
     }
 
     pub fn forward(&self, xs: &Tensor) -> Result<(Tensor, Tensor, Tensor)> {
-        // Returns (reconstruction, quantization_loss_info_ignored_here, indices)
         let z = self.encoder.forward(xs)?;
         let (quantized, indices) = self.quantizer.forward(&z)?;
         let reconstruction = self.decoder.forward(&quantized)?;
         Ok((reconstruction, quantized, indices))
     }
 
-    // For inference from tokens
     pub fn decode_from_indices(&self, indices: &Tensor) -> Result<Tensor> {
-         // indices: [B, H, W]
          let (b, h, w) = indices.dims3()?;
          let indices_flat = indices.flatten_all()?;
-         let quantized_flat = self.quantizer.embedding.index_select(&indices_flat, 0)?; // [B*H*W, C]
+         let quantized_flat = self.quantizer.embedding.index_select(&indices_flat, 0)?;
          let c = self.quantizer.embedding_dim;
 
-         // Reshape back to [B, H, W, C] then permute to [B, C, H, W]
          let quantized = quantized_flat.reshape((b, h, w, c))?.permute((0, 3, 1, 2))?;
-
          self.decoder.forward(&quantized)
     }
 
-    // For encoding to tokens
     pub fn encode_to_indices(&self, xs: &Tensor) -> Result<Tensor> {
         let z = self.encoder.forward(xs)?;
         let (_, indices) = self.quantizer.forward(&z)?;
         Ok(indices)
+    }
+}
+
+/// Latent-to-Voxel & Splat Visual Decoder
+#[derive(Debug)]
+pub struct LatentVoxelDecoder {
+    linear_out: candle_nn::Linear,
+    pub vocab_size: usize,
+}
+
+impl LatentVoxelDecoder {
+    pub fn new(d_model: usize, vocab_size: usize, vb: VarBuilder) -> Result<Self> {
+        let linear_out = candle_nn::linear(d_model, vocab_size, vb.pp("linear_out"))?;
+        Ok(Self {
+            linear_out,
+            vocab_size,
+        })
+    }
+
+    /// Decode continuous latents [B, T, S, C] or [B, S, C] into discrete Voxel IDs
+    pub fn decode_voxels(&self, latents: &Tensor) -> Result<Tensor> {
+        let logits = self.linear_out.forward(latents)?;
+        let last_dim = logits.rank() - 1;
+        logits.argmax(last_dim)
+    }
+
+    /// Decode continuous latents [B, T, S, C] into 3D Splat vertices float attributes
+    pub fn decode_splats(&self, latents: &Tensor) -> Result<Vec<Vec<f32>>> {
+        let flat_vec = latents.flatten_all()?.to_vec1::<f32>()?;
+        let chunk_len = 14; // SplatVertex field float count
+        let num_splats = flat_vec.len() / chunk_len;
+        let mut splats = Vec::with_capacity(num_splats);
+
+        for i in 0..num_splats {
+            let offset = i * chunk_len;
+            let slice = &flat_vec[offset..offset + chunk_len];
+            splats.push(slice.to_vec());
+        }
+
+        Ok(splats)
     }
 }

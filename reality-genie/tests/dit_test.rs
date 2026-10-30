@@ -5,6 +5,7 @@ use reality_genie::dit::{
     ActionConditionedDiT, ActionConditionedSampler, ActionConditioningEmbedder,
     CausalTemporalAttention, DiTConfig, FrameAnchorBuffer,
 };
+use reality_genie::vqvae::LatentVoxelDecoder;
 
 #[test]
 fn test_action_conditioning_embedder() -> candle_core::Result<()> {
@@ -37,17 +38,14 @@ fn test_frame_anchor_buffer() -> candle_core::Result<()> {
     let s = 16;
     let c = 64;
 
-    // Test initial empty context
     let empty_ctx = buffer.get_anchor_context(&device, b, s, c, DType::F32)?;
     assert_eq!(empty_ctx.dims(), &[b, 1, c]);
 
-    // Push frames and check caching at interval steps
     for step in 0..10 {
         let frame = Tensor::zeros((b, s, c), DType::F32, &device)?;
         buffer.push_frame(frame, step)?;
     }
 
-    // Step 0, 2, 4, 6, 8 were pushed (5 total), max_window_size is 3
     assert_eq!(buffer.cached_anchors.len(), max_window_size);
 
     let anchor_ctx = buffer.get_anchor_context(&device, b, s, c, DType::F32)?;
@@ -90,6 +88,7 @@ fn test_action_conditioned_dit_forward() -> candle_core::Result<()> {
         num_spatial_tokens: 16,
         max_temporal_frames: 4,
         max_anchor_frames: 2,
+        vocab_size_text: 100,
         dropout: 0.0,
     };
 
@@ -111,6 +110,67 @@ fn test_action_conditioned_dit_forward() -> candle_core::Result<()> {
     let output = dit.forward(&x, &actions, &timesteps, &anchor_context)?;
 
     assert_eq!(output.dims(), &[b, t, s, c]);
+
+    Ok(())
+}
+
+#[test]
+fn test_multimodal_forward() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let cfg = DiTConfig {
+        num_actions: 8,
+        action_dim: 16,
+        d_model: 64,
+        n_head: 2,
+        num_layers: 2,
+        num_spatial_tokens: 16,
+        max_temporal_frames: 4,
+        max_anchor_frames: 2,
+        vocab_size_text: 100,
+        dropout: 0.0,
+    };
+
+    let vars = candle_nn::VarMap::new();
+    let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+
+    let dit = ActionConditionedDiT::new(cfg.clone(), vb)?;
+
+    let b = 2;
+    let t = 2;
+    let s = cfg.num_spatial_tokens;
+    let c = cfg.d_model;
+
+    let x = Tensor::zeros((b, t, s, c), DType::F32, &device)?;
+    let actions = Tensor::from_vec(vec![1u32, 3u32], (b,), &device)?;
+    let text_tokens = Tensor::from_vec(vec![5u32, 10u32, 15u32, 20u32], (b, 2), &device)?;
+    let timesteps = Tensor::from_vec(vec![100u32, 200u32], (b,), &device)?;
+    let anchor_context = Tensor::zeros((b, s, c), DType::F32, &device)?;
+
+    let output = dit.forward_multimodal(&x, &actions, Some(&text_tokens), &timesteps, &anchor_context)?;
+
+    assert_eq!(output.dims(), &[b, t, s, c]);
+
+    Ok(())
+}
+
+#[test]
+fn test_latent_voxel_decoder() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let d_model = 32;
+    let vocab_size = 10;
+
+    let vars = candle_nn::VarMap::new();
+    let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+
+    let decoder = LatentVoxelDecoder::new(d_model, vocab_size, vb)?;
+
+    let latents = Tensor::zeros((2, 4, 16, d_model), DType::F32, &device)?;
+    let voxels = decoder.decode_voxels(&latents)?;
+
+    assert_eq!(voxels.dims(), &[2, 4, 16]);
+
+    let splats = decoder.decode_splats(&latents)?;
+    assert!(!splats.is_empty());
 
     Ok(())
 }
@@ -138,7 +198,6 @@ fn test_action_conditioned_sampler_rollout() -> candle_core::Result<()> {
     let actions = vec![1u32, 2u32, 3u32];
     let latents_vec = sampler.rollout_from_actions_vec(&actions)?;
 
-    // Expected shape: [1, 3, 64, 256] -> 1 * 3 * 64 * 256 = 49152 floats
     assert_eq!(latents_vec.len(), 3 * 64 * 256);
 
     Ok(())

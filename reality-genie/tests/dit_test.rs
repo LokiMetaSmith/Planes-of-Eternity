@@ -1,0 +1,118 @@
+use candle_core::{DType, Device, Tensor};
+use candle_nn::VarBuilder;
+use reality_genie::dit::{
+    ActionConditionedDiT, ActionConditioningEmbedder, CausalTemporalAttention, DiTConfig,
+    FrameAnchorBuffer,
+};
+
+#[test]
+fn test_action_conditioning_embedder() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let num_actions = 10;
+    let action_dim = 32;
+    let d_model = 64;
+
+    let vars = candle_nn::VarMap::new();
+    let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+
+    let embedder = ActionConditioningEmbedder::new(num_actions, action_dim, d_model, vb)?;
+
+    let actions = Tensor::from_vec(vec![1u32, 5u32], (2,), &device)?;
+    let output = embedder.forward(&actions)?;
+
+    assert_eq!(output.dims(), &[2, d_model]);
+    Ok(())
+}
+
+#[test]
+fn test_frame_anchor_buffer() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let max_window_size = 3;
+    let anchor_interval = 2;
+
+    let mut buffer = FrameAnchorBuffer::new(max_window_size, anchor_interval);
+
+    let b = 2;
+    let s = 16;
+    let c = 64;
+
+    // Test initial empty context
+    let empty_ctx = buffer.get_anchor_context(&device, b, s, c, DType::F32)?;
+    assert_eq!(empty_ctx.dims(), &[b, 1, c]);
+
+    // Push frames and check caching at interval steps
+    for step in 0..10 {
+        let frame = Tensor::zeros((b, s, c), DType::F32, &device)?;
+        buffer.push_frame(frame, step)?;
+    }
+
+    // Step 0, 2, 4, 6, 8 were pushed (5 total), max_window_size is 3
+    assert_eq!(buffer.cached_anchors.len(), max_window_size);
+
+    let anchor_ctx = buffer.get_anchor_context(&device, b, s, c, DType::F32)?;
+    assert_eq!(anchor_ctx.dims(), &[b, max_window_size * s, c]);
+
+    buffer.clear();
+    assert_eq!(buffer.cached_anchors.len(), 0);
+
+    Ok(())
+}
+
+#[test]
+fn test_causal_temporal_mask() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let t = 3;
+    let s = 4;
+    let mask = CausalTemporalAttention::build_causal_temporal_mask(t, s, &device, DType::F32)?;
+
+    assert_eq!(mask.dims(), &[1, 1, t * s, t * s]);
+
+    let mask_vec = mask.flatten_all()?.to_vec1::<f32>()?;
+    // Verification: frame 0 spatial tokens should not attend to frame 1 spatial tokens (value should be -1e9)
+    // token 0 is frame 0, token 4 is frame 1
+    let idx_0_to_4 = 0 * (t * s) + 4;
+    assert_eq!(mask_vec[idx_0_to_4], -1e9f32);
+
+    // token 4 (frame 1) CAN attend to token 0 (frame 0) (value should be 0.0)
+    let idx_4_to_0 = 4 * (t * s) + 0;
+    assert_eq!(mask_vec[idx_4_to_0], 0.0f32);
+
+    Ok(())
+}
+
+#[test]
+fn test_action_conditioned_dit_forward() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let cfg = DiTConfig {
+        num_actions: 8,
+        action_dim: 16,
+        d_model: 64,
+        n_head: 2,
+        num_layers: 2,
+        num_spatial_tokens: 16,
+        max_temporal_frames: 4,
+        max_anchor_frames: 2,
+        dropout: 0.0,
+    };
+
+    let vars = candle_nn::VarMap::new();
+    let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+
+    let dit = ActionConditionedDiT::new(cfg.clone(), vb)?;
+
+    let b = 2;
+    let t = 2;
+    let s = cfg.num_spatial_tokens;
+    let c = cfg.d_model;
+
+    let x = Tensor::zeros((b, t, s, c), DType::F32, &device)?;
+    let actions = Tensor::from_vec(vec![1u32, 3u32], (b,), &device)?;
+    let timesteps = Tensor::from_vec(vec![100u32, 200u32], (b,), &device)?;
+    let anchor_context = Tensor::zeros((b, s, c), DType::F32, &device)?;
+
+    let output = dit.forward(&x, &actions, &timesteps, &anchor_context)?;
+
+    assert_eq!(output.dims(), &[b, t, s, c]);
+
+    Ok(())
+}

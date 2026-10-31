@@ -24,6 +24,8 @@ pub struct GenieBridge {
     pub terrain_res_tx: mpsc::Sender<TerrainResponse>,
     pub terrain_receiver: Arc<Mutex<mpsc::Receiver<TerrainResponse>>>,
     pub latest_action_dit_latents: Arc<Mutex<Option<Vec<f32>>>>,
+    pub rolling_context: Arc<Mutex<reality_genie::dit::RollingLatentContext>>,
+    pub anchor_buffer: Arc<Mutex<reality_genie::dit::FrameAnchorBuffer>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -66,7 +68,41 @@ impl GenieBridge {
             terrain_res_tx: res_tx_clone,
             terrain_receiver: Arc::new(Mutex::new(res_rx)),
             latest_action_dit_latents: Arc::new(Mutex::new(None)),
+            rolling_context: Arc::new(Mutex::new(reality_genie::dit::RollingLatentContext::new(8))),
+            anchor_buffer: Arc::new(Mutex::new(reality_genie::dit::FrameAnchorBuffer::new(6, 2))),
         }
+    }
+
+    /// Rewinds world model latent memory by `steps` frames
+    pub fn rewind_world_model(&self, steps: usize) -> usize {
+        let mut rewound = 0;
+        if let Ok(mut ctx) = self.rolling_context.lock() {
+            rewound = ctx.rewind(steps);
+        }
+        if let Ok(mut anchors) = self.anchor_buffer.lock() {
+            anchors.rewind(steps);
+        }
+        rewound
+    }
+
+    /// Creates a serializable checkpoint snapshot of current rolling latents
+    pub fn checkpoint_world_model(&self) -> Option<reality_genie::dit::LatentCheckpoint> {
+        if let Ok(ctx) = self.rolling_context.lock() {
+            ctx.to_checkpoint().ok()
+        } else {
+            None
+        }
+    }
+
+    /// Restores rolling latents from a saved checkpoint
+    pub fn restore_world_model(&self, ckpt: &reality_genie::dit::LatentCheckpoint) -> bool {
+        if let Ok(new_ctx) = reality_genie::dit::RollingLatentContext::from_checkpoint_cpu(ckpt, 8) {
+            if let Ok(mut lock) = self.rolling_context.lock() {
+                *lock = new_ctx;
+                return true;
+            }
+        }
+        false
     }
 
     pub fn request_action_dit_rollout(&self, actions: Vec<u32>, num_denoising_steps: usize) {

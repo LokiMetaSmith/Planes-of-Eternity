@@ -5132,6 +5132,26 @@ pub fn trigger_world_model_rollout(&self) -> bool {
         false
     }
 }
+
+pub fn rewind_world_model(&self, steps: u32) -> u32 {
+    if let Ok(state) = self.state.try_borrow() {
+        state.voxel_world.genie.rewind_world_model(steps as usize) as u32
+    } else {
+        0
+    }
+}
+
+pub fn get_world_model_drift_telemetry(&self) -> f32 {
+    if let Ok(state) = self.state.try_borrow() {
+        if let Ok(anchors) = state.voxel_world.genie.anchor_buffer.lock() {
+            anchors.compute_drift_variance().unwrap_or(0.0)
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    }
+}
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -304,4 +304,34 @@ impl LatentVoxelDecoder {
 
         splats
     }
+
+    /// Verifies dynamic object solidity against a decoded point cloud / voxel list.
+    /// Returns true if an entity AABB penetrates solid decoded voxels, alongside penetration depth.
+    pub fn check_solidity_collision(
+        decoded_points: &[[f32; 3]],
+        entity_pos: [f32; 3],
+        entity_radius: f32,
+    ) -> (bool, f32) {
+        let mut max_penetration = 0.0f32;
+        let mut collision = false;
+        let r_sq = entity_radius * entity_radius;
+
+        for pt in decoded_points {
+            let dx = pt[0] - entity_pos[0];
+            let dy = pt[1] - entity_pos[1];
+            let dz = pt[2] - entity_pos[2];
+            let dist_sq = dx * dx + dy * dy + dz * dz;
+
+            if dist_sq < r_sq {
+                collision = true;
+                let dist = dist_sq.sqrt();
+                let pen = entity_radius - dist;
+                if pen > max_penetration {
+                    max_penetration = pen;
+                }
+            }
+        }
+
+        (collision, max_penetration)
+    }
 }

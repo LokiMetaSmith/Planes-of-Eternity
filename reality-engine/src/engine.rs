@@ -401,18 +401,34 @@ impl Engine {
                 if let Some(flat_latents) = latents_lock.take() {
                     let splat_chunks = reality_genie::vqvae::LatentVoxelDecoder::decode_splat_floats_from_latents_vec(&flat_latents);
                     let mut vertices = Vec::new();
-                    for s in splat_chunks {
+                    let mut decoded_positions = Vec::with_capacity(splat_chunks.len());
+
+                    for s in &splat_chunks {
+                        let pos = [s[0], s[1], s[2]];
+                        decoded_positions.push(pos);
                         vertices.push(crate::splat::SplatVertex {
-                            position: [s[0], s[1], s[2]],
+                            position: pos,
                             rotation: [s[3], s[4], s[5], s[6]],
                             scale: [s[7], s[8], s[9]],
                             color: [s[10], s[11], s[12], s[13]],
-                            previous_position: [s[0], s[1], s[2]],
+                            previous_position: pos,
                             archetype_id: 5,
                             target_archetype_id: 5,
                             morph_weight: 0.0,
                             bone_index: -1,
                         });
+                    }
+
+                    // Enforce object solidity: test player camera position against newly materialized points
+                    let cam_pos = [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z];
+                    let (has_col, penetration) = reality_genie::vqvae::LatentVoxelDecoder::check_solidity_collision(
+                        &decoded_positions,
+                        cam_pos,
+                        0.8,
+                    );
+                    if has_col {
+                        // Nudge camera upwards out of hallucinated geometry to prevent phasing
+                        self.camera.eye.y += penetration + 0.1;
                     }
 
                     if !vertices.is_empty() {

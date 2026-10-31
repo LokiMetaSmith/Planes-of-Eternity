@@ -124,6 +124,15 @@ impl FrameAnchorBuffer {
     pub fn clear(&mut self) {
         self.cached_anchors.clear();
     }
+
+    /// Rewinds anchor history by removing recent anchor frames
+    pub fn rewind(&mut self, count: usize) -> usize {
+        let to_remove = count.min(self.cached_anchors.len());
+        for _ in 0..to_remove {
+            self.cached_anchors.pop();
+        }
+        to_remove
+    }
 }
 
 /// Causal Temporal Attention over [B, T*S, C] flattened sequence with explicit causal mask
@@ -720,6 +729,68 @@ impl RollingLatentContext {
     pub fn clear(&mut self) {
         self.frames.clear();
     }
+
+    /// Rewinds history by popping up to `count` frames from the context (Dream Rewind)
+    pub fn rewind(&mut self, count: usize) -> usize {
+        let to_remove = count.min(self.frames.len());
+        for _ in 0..to_remove {
+            self.frames.pop();
+        }
+        to_remove
+    }
+
+    /// Creates a checkpoint snapshot of all raw float buffers for persistence
+    pub fn to_checkpoint(&self) -> Result<LatentCheckpoint> {
+        let mut raw_frames = Vec::with_capacity(self.frames.len());
+        let mut dims = Vec::new();
+
+        for f in &self.frames {
+            let shape = f.dims().to_vec();
+            if dims.is_empty() {
+                dims = shape;
+            }
+            let data = f.flatten_all()?.to_vec1::<f32>()?;
+            raw_frames.push(data);
+        }
+
+        Ok(LatentCheckpoint {
+            frame_shape: dims,
+            frames: raw_frames,
+        })
+    }
+
+    /// Restores context from a checkpoint snapshot
+    pub fn from_checkpoint(ckpt: &LatentCheckpoint, max_frames: usize, device: &Device) -> Result<Self> {
+        let mut frames = Vec::with_capacity(ckpt.frames.len());
+        for f_data in &ckpt.frames {
+            let t = Tensor::from_vec(f_data.clone(), &ckpt.frame_shape[..], device)?;
+            frames.push(t);
+        }
+
+        let mut ctx = Self::new(max_frames);
+        ctx.frames = frames;
+        Ok(ctx)
+    }
+
+    pub fn from_checkpoint_cpu(ckpt: &LatentCheckpoint, max_frames: usize) -> Result<Self> {
+        Self::from_checkpoint(ckpt, max_frames, &Device::Cpu)
+    }
+
+    /// Clones context and branches into an alternative future timeline with a given initial frame
+    pub fn branch_timeline(&self, initial_branch_frame: Option<Tensor>) -> Result<Self> {
+        let mut branched = self.clone();
+        if let Some(frame) = initial_branch_frame {
+            branched.push_frame(frame)?;
+        }
+        Ok(branched)
+    }
+}
+
+/// Serializable representation of raw latent frames for disk/DB persistence
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LatentCheckpoint {
+    pub frame_shape: Vec<usize>,
+    pub frames: Vec<Vec<f32>>,
 }
 
 /// Autonomous Trajectory Director for mitigating long-horizon drift

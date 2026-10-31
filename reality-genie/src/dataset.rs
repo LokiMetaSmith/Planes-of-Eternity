@@ -100,3 +100,71 @@ impl TrajectoryDataset {
         Ok((batched_latents, batched_actions))
     }
 }
+
+/// Hierarchical Captioning & Intent Mapper for pairing semantic text prompts with action sequences.
+/// Maps global goals ("explore the dungeon", "retreat from enemy", "jump across chasm") into
+/// hierarchical local action tokens and synthetic prompt descriptions.
+#[derive(Debug, Clone)]
+pub struct HierarchicalCaptioner;
+
+impl HierarchicalCaptioner {
+    /// Maps a semantic intent string into an action sequence [T]
+    pub fn intent_to_actions(intent: &str, length: usize) -> Vec<u32> {
+        let lower = intent.to_lowercase();
+        let base_pattern: Vec<u32> = if lower.contains("jump") || lower.contains("leap") {
+            vec![1, 1, 5, 1] // Forward, Forward, Jump, Forward
+        } else if lower.contains("retreat") || lower.contains("back") {
+            vec![2, 2, 2, 2] // Backward...
+        } else if lower.contains("cast") || lower.contains("spell") || lower.contains("fire") {
+            vec![1, 6, 6, 1] // Forward, CastSpell, CastSpell, Forward
+        } else if lower.contains("left") {
+            vec![3, 3, 1, 3] // Left, Left, Forward, Left
+        } else if lower.contains("right") {
+            vec![4, 4, 1, 4] // Right, Right, Forward, Right
+        } else {
+            vec![1, 1, 1, 1] // Default Forward exploration
+        };
+
+        (0..length)
+            .map(|i| base_pattern[i % base_pattern.len()])
+            .collect()
+    }
+
+    /// Generates a hierarchical structured caption from an action sequence
+    pub fn actions_to_hierarchical_caption(actions: &[u32]) -> (String, String) {
+        let global_intent = if actions.contains(&5) {
+            "Locomotion with vertical obstacle navigation"
+        } else if actions.contains(&6) {
+            "Combat or environmental spell interaction"
+        } else if actions.iter().all(|&a| a == 2) {
+            "Defensive rearward retreat"
+        } else {
+            "Forward exploratory navigation"
+        };
+
+        let token_descriptions: Vec<&str> = actions
+            .iter()
+            .map(|&a| match a {
+                1 => "MoveForward",
+                2 => "MoveBackward",
+                3 => "MoveLeft",
+                4 => "MoveRight",
+                5 => "Jump",
+                6 => "CastSpell",
+                _ => "Idle",
+            })
+            .collect();
+
+        let fine_grained = token_descriptions.join(" -> ");
+        (global_intent.to_string(), fine_grained)
+    }
+
+    /// Synthesizes tokenized text IDs from an intent string for multimodal DiT conditioning
+    pub fn tokenize_intent(intent: &str, max_tokens: usize) -> Vec<u32> {
+        intent
+            .bytes()
+            .take(max_tokens)
+            .map(|b| (b % 100) as u32)
+            .collect()
+    }
+}

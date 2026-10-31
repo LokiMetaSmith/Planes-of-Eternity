@@ -55,6 +55,72 @@ fn test_rolling_latent_context() -> candle_core::Result<()> {
 }
 
 #[test]
+fn test_latent_checkpoint_and_rewind() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let mut context = RollingLatentContext::new(5);
+
+    for i in 0..4 {
+        let f = Tensor::full(i as f32, (1, 4, 16), &device)?;
+        context.push_frame(f)?;
+    }
+    assert_eq!(context.len(), 4);
+
+    // Test checkpoint export
+    let ckpt = context.to_checkpoint()?;
+    assert_eq!(ckpt.frames.len(), 4);
+    assert_eq!(ckpt.frame_shape, vec![1, 4, 16]);
+
+    // Test rewind
+    let rewound = context.rewind(2);
+    assert_eq!(rewound, 2);
+    assert_eq!(context.len(), 2);
+
+    // Test restore from checkpoint
+    let restored = RollingLatentContext::from_checkpoint(&ckpt, 5, &device)?;
+    assert_eq!(restored.len(), 4);
+
+    // Test timeline branching
+    let branch_initial = Tensor::full(99.0f32, (1, 4, 16), &device)?;
+    let branch = restored.branch_timeline(Some(branch_initial))?;
+    assert_eq!(branch.len(), 5);
+
+    Ok(())
+}
+
+#[test]
+fn test_hierarchical_captioner() {
+    use reality_genie::dataset::HierarchicalCaptioner;
+
+    let actions = HierarchicalCaptioner::intent_to_actions("leap over the ditch", 6);
+    assert_eq!(actions.len(), 6);
+    assert!(actions.contains(&5)); // Jump
+
+    let (global_intent, fine_grained) = HierarchicalCaptioner::actions_to_hierarchical_caption(&actions);
+    assert!(global_intent.contains("vertical obstacle navigation"));
+    assert!(fine_grained.contains("Jump"));
+
+    let tokens = HierarchicalCaptioner::tokenize_intent("explore", 4);
+    assert_eq!(tokens.len(), 4);
+}
+
+#[test]
+fn test_solidity_collision_query() {
+    let decoded_points = vec![
+        [0.0f32, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+    ];
+
+    // Colliding entity
+    let (hit, pen) = LatentVoxelDecoder::check_solidity_collision(&decoded_points, [0.1, 0.0, 0.0], 0.5);
+    assert!(hit);
+    assert!(pen > 0.0);
+
+    // Non-colliding entity
+    let (hit_far, _pen_far) = LatentVoxelDecoder::check_solidity_collision(&decoded_points, [10.0, 10.0, 10.0], 0.5);
+    assert!(!hit_far);
+}
+
+#[test]
 fn test_trajectory_director_drift_stabilization() -> candle_core::Result<()> {
     let device = Device::Cpu;
     let director = TrajectoryDirector::new(0.01, 0.2);

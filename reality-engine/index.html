@@ -772,7 +772,14 @@
                 <label for="wm-steps">Diffusion Steps <span id="val-wm-steps" class="value-display">2</span></label>
                 <input type="range" id="wm-steps" min="1" max="10" step="1" value="2">
             </div>
-            <button id="btn-wm-rollout" class="cyber-button" style="width: 100%;">TRIGGER DIT ROLLOUT</button>
+            <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+                <button id="btn-wm-rollout" class="cyber-button" style="flex: 2;">TRIGGER DIT ROLLOUT</button>
+                <button id="btn-wm-rewind" class="cyber-button" style="flex: 1; border-color: #ffd700; color: #ffd700;">REWIND</button>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.8rem; color: #888;">
+                <div>DRIFT VARIANCE: <span id="wm-drift-telemetry" style="color: var(--theme-primary); font-family: monospace;">0.0000</span></div>
+                <canvas id="wm-drift-canvas" width="220" height="40" style="width: 100%; height: 40px; background: rgba(0,0,0,0.5); border: 1px solid var(--theme-primary); margin-top: 5px; position: static;"></canvas>
+            </div>
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
@@ -1231,6 +1238,61 @@
                         }
                     });
                 }
+
+                const btnWmRewind = document.getElementById('btn-wm-rewind');
+                if (btnWmRewind) {
+                    btnWmRewind.addEventListener('click', () => {
+                        log("> DREAM REWIND TRIGGERED (-2 LATENT FRAMES)");
+                        if (gameClient.rewind_world_model) {
+                            const rewound = gameClient.rewind_world_model(2);
+                            btnWmRewind.innerText = `REWOUND (${rewound})`;
+                            setTimeout(() => {
+                                btnWmRewind.innerText = "REWIND";
+                            }, 1500);
+                        }
+                    });
+                }
+
+                // Drift Telemetry & Heatmap Sparkline
+                const driftHistory = [];
+                const maxDriftHistory = 40;
+                const driftTelemetryEl = document.getElementById('wm-drift-telemetry');
+                const driftCanvas = document.getElementById('wm-drift-canvas');
+                const driftCtx = driftCanvas ? driftCanvas.getContext('2d') : null;
+
+                setInterval(() => {
+                    if (gameClient && gameClient.get_world_model_drift_telemetry) {
+                        const drift = gameClient.get_world_model_drift_telemetry();
+                        if (driftTelemetryEl) {
+                            driftTelemetryEl.innerText = drift.toFixed(4);
+                        }
+
+                        driftHistory.push(drift);
+                        if (driftHistory.length > maxDriftHistory) {
+                            driftHistory.shift();
+                        }
+
+                        if (driftCtx && driftCanvas) {
+                            driftCtx.clearRect(0, 0, driftCanvas.width, driftCanvas.height);
+                            driftCtx.strokeStyle = "#00f0ff";
+                            driftCtx.lineWidth = 2;
+                            driftCtx.beginPath();
+
+                            const stepX = driftCanvas.width / (maxDriftHistory - 1);
+                            for (let i = 0; i < driftHistory.length; i++) {
+                                const x = i * stepX;
+                                const norm = Math.min(1.0, driftHistory[i] / 0.1);
+                                const y = driftCanvas.height - (norm * (driftCanvas.height - 4) + 2);
+                                if (i === 0) {
+                                    driftCtx.moveTo(x, y);
+                                } else {
+                                    driftCtx.lineTo(x, y);
+                                }
+                            }
+                            driftCtx.stroke();
+                        }
+                    }
+                }, 200);
 
                 // Safety Filters
                 const filterBlock = document.getElementById('filter-block');

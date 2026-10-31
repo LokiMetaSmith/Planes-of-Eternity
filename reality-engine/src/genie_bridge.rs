@@ -69,7 +69,11 @@ impl GenieBridge {
         }
     }
 
-    pub fn request_action_dit_rollout(&self, actions: Vec<u32>, _num_denoising_steps: usize) {
+    pub fn request_action_dit_rollout(&self, actions: Vec<u32>, num_denoising_steps: usize) {
+        self.request_action_dit_rollout_cfg(actions, num_denoising_steps, 1.0);
+    }
+
+    pub fn request_action_dit_rollout_cfg(&self, actions: Vec<u32>, num_denoising_steps: usize, guidance_scale: f64) {
         let latents_ref = Arc::clone(&self.latest_action_dit_latents);
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -78,6 +82,8 @@ impl GenieBridge {
                 if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_from_actions_vec_with_weights(
                     &actions,
                     Some("action_dit_model.safetensors"),
+                    num_denoising_steps,
+                    guidance_scale,
                 ) {
                     if let Ok(mut lock) = latents_ref.lock() {
                         *lock = Some(flat);
@@ -91,6 +97,8 @@ impl GenieBridge {
             if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_from_actions_vec_with_weights(
                 &actions,
                 None,
+                num_denoising_steps,
+                guidance_scale,
             ) {
                 if let Ok(mut lock) = latents_ref.lock() {
                     *lock = Some(flat);

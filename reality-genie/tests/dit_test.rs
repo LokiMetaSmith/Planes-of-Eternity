@@ -3,7 +3,7 @@ use candle_nn::VarBuilder;
 use reality_genie::dataset::TrajectoryDataset;
 use reality_genie::dit::{
     ActionConditionedDiT, ActionConditionedSampler, ActionConditioningEmbedder,
-    CausalTemporalAttention, DiTConfig, FrameAnchorBuffer,
+    CausalTemporalAttention, DiTConfig, FrameAnchorBuffer, RollingLatentContext, TrajectoryDirector,
 };
 use reality_genie::vqvae::LatentVoxelDecoder;
 
@@ -23,6 +23,71 @@ fn test_action_conditioning_embedder() -> candle_core::Result<()> {
     let output = embedder.forward(&actions)?;
 
     assert_eq!(output.dims(), &[2, d_model]);
+    Ok(())
+}
+
+#[test]
+fn test_rolling_latent_context() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let mut context = RollingLatentContext::new(3);
+
+    assert_eq!(context.len(), 0);
+    assert!(context.is_empty());
+
+    let empty_tensor = context.get_context_tensor(&device, 1, 4, 16, DType::F32)?;
+    assert_eq!(empty_tensor.dims(), &[1, 1, 4, 16]);
+
+    for i in 0..5 {
+        let frame = Tensor::full(i as f32, (1, 4, 16), &device)?;
+        context.push_frame(frame)?;
+    }
+
+    // Should be clamped to max_frames = 3
+    assert_eq!(context.len(), 3);
+
+    let ctx_tensor = context.get_context_tensor(&device, 1, 4, 16, DType::F32)?;
+    assert_eq!(ctx_tensor.dims(), &[1, 3, 4, 16]);
+
+    context.clear();
+    assert_eq!(context.len(), 0);
+
+    Ok(())
+}
+
+#[test]
+fn test_trajectory_director_drift_stabilization() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let director = TrajectoryDirector::new(0.01, 0.2);
+
+    let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
+    // Push two identical frames -> drift variance = 0.0
+    let f1 = Tensor::zeros((1, 8, 16), DType::F32, &device)?;
+    let f2 = Tensor::zeros((1, 8, 16), DType::F32, &device)?;
+    anchor_buffer.push_frame(f1, 0)?;
+    anchor_buffer.push_frame(f2, 2)?;
+
+    let candidate = Tensor::ones((1, 8, 16), DType::F32, &device)?;
+    let stabilized = director.direct_frame(&candidate, &anchor_buffer)?;
+
+    // Drift was 0 <= 0.01, so not drifted, unchanged
+    assert_eq!(stabilized.dims(), &[1, 8, 16]);
+    let val = stabilized.flatten_all()?.to_vec1::<f32>()?[0];
+    assert!((val - 1.0).abs() < 1e-4);
+
+    // Now test with high drift threshold trigger
+    let director_strict = TrajectoryDirector::new(0.0000001, 0.5);
+    let mut high_drift_buffer = FrameAnchorBuffer::new(4, 1);
+    let frame_a = Tensor::zeros((1, 8, 16), DType::F32, &device)?;
+    let frame_b = Tensor::full(10.0f32, (1, 8, 16), &device)?;
+    high_drift_buffer.push_frame(frame_a, 0)?;
+    high_drift_buffer.push_frame(frame_b, 1)?;
+
+    let stabilized_drift = director_strict.direct_frame(&candidate, &high_drift_buffer)?;
+    assert_eq!(stabilized_drift.dims(), &[1, 8, 16]);
+    // primary anchor is frame_a (zeros), candidate is ones, blended with alpha 0.5 -> 0.5
+    let val_drift = stabilized_drift.flatten_all()?.to_vec1::<f32>()?[0];
+    assert!((val_drift - 0.5).abs() < 1e-4);
+
     Ok(())
 }
 
@@ -209,11 +274,9 @@ fn test_trajectory_dataset() -> candle_core::Result<()> {
 
 #[test]
 fn test_action_conditioned_sampler_rollout() -> candle_core::Result<()> {
-    let dit = ActionConditionedDiT::default_cpu()?;
-    let sampler = ActionConditionedSampler::new(dit, 2);
-
+    let _dit = ActionConditionedDiT::default_cpu()?;
     let actions = vec![1u32, 2u32, 3u32];
-    let latents_vec = sampler.rollout_from_actions_vec(&actions)?;
+    let latents_vec = ActionConditionedSampler::rollout_from_actions_vec(&actions)?;
 
     assert_eq!(latents_vec.len(), 3 * 64 * 256);
 

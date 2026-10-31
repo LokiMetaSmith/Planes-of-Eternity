@@ -3,13 +3,25 @@ use candle_nn::{AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use reality_genie::dataset::TrajectoryDataset;
 use reality_genie::dit::{ActionConditionedDiT, DiTConfig, FrameAnchorBuffer};
 
+fn compute_collision_boundary_loss(latents: &Tensor) -> Result<Tensor> {
+    let s = latents.dim(2)?;
+    if s < 2 {
+        return Tensor::zeros((), DType::F32, latents.device());
+    }
+    let s_a = latents.narrow(2, 0, s - 1)?;
+    let s_b = latents.narrow(2, 1, s - 1)?;
+    let diff = (s_a - s_b)?;
+    let dist_sq = diff.sqr()?.sum_keepdim(3)?;
+    let penalty = (0.05 - dist_sq)?.relu()?;
+    penalty.mean_all()
+}
+
 fn main() -> Result<()> {
     let global_start = std::time::Instant::now();
-    println!("Starting Action-Conditioned DiT Training Loop...");
+    println!("Starting Action-Conditioned DiT Training Loop with Physics Boundary Penalty Loss...");
 
     let device = Device::Cpu;
 
-    // 1. Build synthetic trajectory dataset
     let num_trajectories = 8;
     let t_frames = 4;
     let num_spatial_tokens = 16;
@@ -26,7 +38,6 @@ fn main() -> Result<()> {
         &device,
     )?;
 
-    // 2. Build DiT model configuration
     let cfg = DiTConfig {
         num_actions,
         action_dim: 16,
@@ -44,18 +55,16 @@ fn main() -> Result<()> {
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
     let model = ActionConditionedDiT::new(cfg, vb)?;
 
-    // 3. Setup AdamW Optimizer
     let params = ParamsAdamW::default();
     let mut opt = AdamW::new(varmap.all_vars(), params)?;
 
     let epochs = 5;
     let batch_size = 2;
 
-    println!("Beginning Action-Conditioned DiT Training (Epochs: {})...", epochs);
+    println!("Beginning Training with Physics Collision Penalty (Epochs: {})...", epochs);
 
     let anchor_buffer = FrameAnchorBuffer::new(2, 2);
 
-    // 4. Training Loop
     for epoch in 1..=epochs {
         let epoch_start = std::time::Instant::now();
         let mut epoch_loss = 0.0;
@@ -63,29 +72,30 @@ fn main() -> Result<()> {
 
         for b_idx in 0..num_batches {
             let indices: Vec<usize> = (b_idx * batch_size..(b_idx + 1) * batch_size).collect();
-            let (latents, actions) = dataset.get_batch(&indices)?; // [B, T, S, C], [B, T]
+            let (latents, actions) = dataset.get_batch(&indices)?;
 
             let (b, t, s, c) = latents.dims4()?;
 
-            // Sample random noise and timesteps
             let noise = Tensor::randn(0.0f32, 1.0f32, (b, t, s, c), &device)?;
             let timesteps = Tensor::from_vec(vec![500u32; b], (b,), &device)?;
 
-            // Corrupt latents with noise
             let noisy_latents = (&latents + &noise)?;
-
-            // Get anchor context
             let anchor_ctx = anchor_buffer.get_anchor_context(&device, b, s, c, DType::F32)?;
 
-            // Forward pass
             let pred_noise = model.forward(&noisy_latents, &actions, &timesteps, &anchor_ctx)?;
 
-            // MSE Loss: (pred_noise - noise)^2
+            // 1. MSE Noise Prediction Loss
             let diff = (&pred_noise - &noise)?;
-            let loss = diff.sqr()?.mean_all()?;
+            let mse_loss = diff.sqr()?.mean_all()?;
 
-            opt.backward_step(&loss)?;
-            epoch_loss += loss.to_scalar::<f32>()?;
+            // 2. Physics Collision & Boundary Penalty Loss
+            let collision_loss = compute_collision_boundary_loss(&latents)?;
+
+            // Total Loss = MSE + 0.1 * Collision Penalty
+            let total_loss = (mse_loss + (&collision_loss * 0.1)?)?;
+
+            opt.backward_step(&total_loss)?;
+            epoch_loss += total_loss.to_scalar::<f32>()?;
         }
 
         let avg_loss = if num_batches > 0 {
@@ -102,7 +112,6 @@ fn main() -> Result<()> {
         );
     }
 
-    // 5. Save Model Weights
     let save_path = "action_dit_model.safetensors";
     println!("Saving Action-Conditioned DiT weights to {}...", save_path);
     varmap.save(save_path)?;

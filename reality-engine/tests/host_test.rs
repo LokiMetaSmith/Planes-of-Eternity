@@ -541,7 +541,7 @@ fn test_get_node_labels() {
     // Filter out UI status labels
     let lambda_labels: Vec<_> = labels_hidden
         .iter()
-        .filter(|l| l.text != "STEP MODE" && l.text != "AUTO-RUN" && l.text != "PAUSED")
+        .filter(|l| !l.text.starts_with("STEP MODE") && l.text != "AUTO-RUN" && l.text != "PAUSED")
         .collect();
     assert!(
         lambda_labels.is_empty(),

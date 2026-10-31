@@ -763,6 +763,19 @@
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">World Model (DiT)</div>
+            <div class="control-group">
+                <label for="wm-cfg-scale">CFG Guidance <span id="val-wm-cfg" class="value-display">1.5</span></label>
+                <input type="range" id="wm-cfg-scale" min="1.0" max="5.0" step="0.1" value="1.5">
+            </div>
+            <div class="control-group">
+                <label for="wm-steps">Diffusion Steps <span id="val-wm-steps" class="value-display">2</span></label>
+                <input type="range" id="wm-steps" min="1" max="10" step="1" value="2">
+            </div>
+            <button id="btn-wm-rollout" class="cyber-button" style="width: 100%;">TRIGGER DIT ROLLOUT</button>
+        </div>
+
+        <div class="cyber-card" style="margin-top: 10px;">
              <button id="btn-start-ar" class="cyber-button">INITIALIZE AR UPLINK</button>
         </div>
 
@@ -1178,6 +1191,46 @@
                  distSlider.addEventListener('change', () => {
                      log(`> PARAM_UPDATE: DISTORTION = ${distSlider.value}`);
                 });
+
+                // World Model Controls
+                const wmCfgScale = document.getElementById('wm-cfg-scale');
+                const wmSteps = document.getElementById('wm-steps');
+                const valWmCfg = document.getElementById('val-wm-cfg');
+                const valWmSteps = document.getElementById('val-wm-steps');
+                const btnWmRollout = document.getElementById('btn-wm-rollout');
+
+                if (wmCfgScale) {
+                    wmCfgScale.addEventListener('input', () => {
+                        const val = parseFloat(wmCfgScale.value);
+                        if (valWmCfg) valWmCfg.innerText = val.toFixed(1);
+                        if (gameClient.set_world_model_cfg_scale) {
+                            gameClient.set_world_model_cfg_scale(val);
+                        }
+                    });
+                }
+
+                if (wmSteps) {
+                    wmSteps.addEventListener('input', () => {
+                        const val = parseInt(wmSteps.value, 10);
+                        if (valWmSteps) valWmSteps.innerText = val.toString();
+                        if (gameClient.set_world_model_steps) {
+                            gameClient.set_world_model_steps(val);
+                        }
+                    });
+                }
+
+                if (btnWmRollout) {
+                    btnWmRollout.addEventListener('click', () => {
+                        log("> TRIGGERING DIT WORLD MODEL ROLLOUT...");
+                        if (gameClient.trigger_world_model_rollout) {
+                            gameClient.trigger_world_model_rollout();
+                            btnWmRollout.innerText = "ROLLOUT GENERATED";
+                            setTimeout(() => {
+                                btnWmRollout.innerText = "TRIGGER DIT ROLLOUT";
+                            }, 1500);
+                        }
+                    });
+                }
 
                 // Safety Filters
                 const filterBlock = document.getElementById('filter-block');

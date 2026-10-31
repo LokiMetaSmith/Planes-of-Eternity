@@ -772,14 +772,28 @@
                 <label for="wm-steps">Diffusion Steps <span id="val-wm-steps" class="value-display">2</span></label>
                 <input type="range" id="wm-steps" min="1" max="10" step="1" value="2">
             </div>
+            <div class="control-group">
+                <label for="wm-prompt-input">World Prompt</label>
+                <input type="text" id="wm-prompt-input" placeholder="e.g. glowing neon spires" style="font-size: 0.85rem;">
+            </div>
             <div style="display: flex; gap: 5px; margin-bottom: 8px;">
                 <button id="btn-wm-rollout" class="cyber-button" style="flex: 2;">TRIGGER DIT ROLLOUT</button>
                 <button id="btn-wm-rewind" class="cyber-button" style="flex: 1; border-color: #ffd700; color: #ffd700;">REWIND</button>
+            </div>
+            <div class="control-group" style="margin-top: 8px; margin-bottom: 8px;">
+                <label for="wm-timeline-select">Timeline (Branch)</label>
+                <div style="display: flex; gap: 5px;">
+                    <select id="wm-timeline-select" style="flex: 2;">
+                        <option value="main">Main Timeline</option>
+                    </select>
+                    <button id="btn-wm-branch" class="cyber-button" style="flex: 1; margin-top: 0; padding: 5px; font-size: 0.75rem;">BRANCH</button>
+                </div>
             </div>
             <div style="margin-top: 10px; font-size: 0.8rem; color: #888;">
                 <div>DRIFT VARIANCE: <span id="wm-drift-telemetry" style="color: var(--theme-primary); font-family: monospace;">0.0000</span></div>
                 <canvas id="wm-drift-canvas" width="220" height="40" style="width: 100%; height: 40px; background: rgba(0,0,0,0.5); border: 1px solid var(--theme-primary); margin-top: 5px; position: static;"></canvas>
             </div>
+            <button id="btn-wm-export" class="cyber-button" style="width: 100%; margin-top: 8px; font-size: 0.75rem;">EXPORT TRAJECTORY DATASET</button>
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
@@ -1216,6 +1230,64 @@
                     });
                 }
 
+                const btnWmExport = document.getElementById('btn-wm-export');
+                if (btnWmExport) {
+                    btnWmExport.addEventListener('click', () => {
+                        if (gameClient && gameClient.export_trajectory_dataset) {
+                            const ok = gameClient.export_trajectory_dataset();
+                            log(ok ? "> TRAJECTORY DATASET EXPORTED (.safetensors)" : "> EXPORT FAILED");
+                            btnWmExport.innerText = "DATASET EXPORTED";
+                            setTimeout(() => {
+                                btnWmExport.innerText = "EXPORT TRAJECTORY DATASET";
+                            }, 1500);
+                        }
+                    });
+                }
+
+                // Timeline Branching UI
+                const btnWmBranch = document.getElementById('btn-wm-branch');
+                const wmTimelineSelect = document.getElementById('wm-timeline-select');
+
+                function updateTimelineList() {
+                    if (!gameClient || !gameClient.list_timelines_json || !wmTimelineSelect) return;
+                    try {
+                        const list = JSON.parse(gameClient.list_timelines_json() || '[]');
+                        const currentVal = wmTimelineSelect.value;
+                        wmTimelineSelect.innerHTML = '<option value="main">Main Timeline</option>';
+                        list.forEach(t => {
+                            if (t !== "main") {
+                                const opt = document.createElement('option');
+                                opt.value = t;
+                                opt.innerText = t;
+                                wmTimelineSelect.appendChild(opt);
+                            }
+                        });
+                        wmTimelineSelect.value = currentVal;
+                    } catch (e) {}
+                }
+
+                if (btnWmBranch) {
+                    btnWmBranch.addEventListener('click', () => {
+                        const name = `Timeline ${Date.now().toString().slice(-4)}`;
+                        if (gameClient && gameClient.branch_timeline) {
+                            gameClient.branch_timeline(name);
+                            log(`> MULTIVERSE BRANCH CREATED: ${name}`);
+                            updateTimelineList();
+                            if (wmTimelineSelect) wmTimelineSelect.value = name;
+                        }
+                    });
+                }
+
+                if (wmTimelineSelect) {
+                    wmTimelineSelect.addEventListener('change', () => {
+                        const selected = wmTimelineSelect.value;
+                        if (gameClient && gameClient.switch_timeline) {
+                            gameClient.switch_timeline(selected);
+                            log(`> SWITCHED TO TIMELINE: ${selected}`);
+                        }
+                    });
+                }
+
                 if (wmSteps) {
                     wmSteps.addEventListener('input', () => {
                         const val = parseInt(wmSteps.value, 10);
@@ -1226,15 +1298,19 @@
                     });
                 }
 
+                const wmPromptInput = document.getElementById('wm-prompt-input');
                 if (btnWmRollout) {
                     btnWmRollout.addEventListener('click', () => {
-                        log("> TRIGGERING DIT WORLD MODEL ROLLOUT...");
-                        if (gameClient.trigger_world_model_rollout) {
-                            gameClient.trigger_world_model_rollout();
+                        const prompt = wmPromptInput ? wmPromptInput.value.trim() : "";
+                        log(`> TRIGGERING DIT WORLD MODEL ROLLOUT... Prompt: "${prompt}"`);
+                        if (gameClient.trigger_world_model_rollout_prompt) {
+                            gameClient.trigger_world_model_rollout_prompt(prompt);
                             btnWmRollout.innerText = "ROLLOUT GENERATED";
                             setTimeout(() => {
                                 btnWmRollout.innerText = "TRIGGER DIT ROLLOUT";
                             }, 1500);
+                        } else if (gameClient.trigger_world_model_rollout) {
+                            gameClient.trigger_world_model_rollout();
                         }
                     });
                 }

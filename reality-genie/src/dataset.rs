@@ -99,6 +99,44 @@ impl TrajectoryDataset {
 
         Ok((batched_latents, batched_actions))
     }
+
+    /// Exports the trajectory dataset to a `.safetensors` file containing aligned
+    /// `latents_{i}` and `actions_{i}` tensors.
+    pub fn save_to_safetensors<P: AsRef<std::path::Path>>(&self, path: P) -> Result<()> {
+        let mut map = std::collections::HashMap::new();
+
+        for (i, item) in self.items.iter().enumerate() {
+            let lat_key = format!("latents_{}", i);
+            let act_key = format!("actions_{}", i);
+            map.insert(lat_key, item.latents.clone());
+            map.insert(act_key, item.actions.clone());
+        }
+
+        candle_core::safetensors::save(&map, path)?;
+        Ok(())
+    }
+
+    /// Loads a trajectory dataset from an exported `.safetensors` file
+    pub fn load_from_safetensors<P: AsRef<std::path::Path>>(path: P, device: &Device) -> Result<Self> {
+        let tensors = candle_core::safetensors::load(path, device)?;
+        let mut items = Vec::new();
+        let mut i = 0;
+
+        loop {
+            let lat_key = format!("latents_{}", i);
+            let act_key = format!("actions_{}", i);
+
+            if let (Some(lat), Some(act)) = (tensors.get(&lat_key), tensors.get(&act_key)) {
+                let item = TrajectoryItem::new(lat.clone(), act.clone(), Some(format!("Trajectory {}", i)))?;
+                items.push(item);
+                i += 1;
+            } else {
+                break;
+            }
+        }
+
+        Ok(Self { items })
+    }
 }
 
 /// Hierarchical Captioning & Intent Mapper for pairing semantic text prompts with action sequences.

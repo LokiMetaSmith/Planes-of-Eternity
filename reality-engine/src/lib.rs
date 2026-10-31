@@ -5122,11 +5122,16 @@ pub fn set_world_model_steps(&self, steps: u32) {
 }
 
 pub fn trigger_world_model_rollout(&self) -> bool {
+    self.trigger_world_model_rollout_prompt("".to_string())
+}
+
+pub fn trigger_world_model_rollout_prompt(&self, prompt: String) -> bool {
     if let Ok(state) = self.state.try_borrow_mut() {
         let dummy_actions = vec![1, 1, 5, 2];
         let steps = state.engine.world_model_steps;
         let scale = state.engine.world_model_cfg_scale;
-        state.voxel_world.genie.request_action_dit_rollout_cfg(dummy_actions, steps, scale);
+        let prompt_opt = if prompt.trim().is_empty() { None } else { Some(prompt) };
+        state.voxel_world.genie.request_action_dit_rollout_multimodal(dummy_actions, prompt_opt, steps, scale);
         true
     } else {
         false
@@ -5151,6 +5156,40 @@ pub fn get_world_model_drift_telemetry(&self) -> f32 {
     } else {
         0.0
     }
+}
+
+pub fn branch_timeline(&self, name: String) -> bool {
+    if let Ok(state) = self.state.try_borrow() {
+        state.voxel_world.genie.branch_timeline(&name)
+    } else {
+        false
+    }
+}
+
+pub fn switch_timeline(&self, name: String) -> bool {
+    if let Ok(state) = self.state.try_borrow() {
+        state.voxel_world.genie.switch_timeline(&name)
+    } else {
+        false
+    }
+}
+
+pub fn list_timelines_json(&self) -> String {
+    if let Ok(state) = self.state.try_borrow() {
+        serde_json::to_string(&state.voxel_world.genie.list_timelines()).unwrap_or_else(|_| "[]".to_string())
+    } else {
+        "[]".to_string()
+    }
+}
+
+pub fn export_trajectory_dataset(&self) -> bool {
+    if let Ok(state) = self.state.try_borrow() {
+        if let Some(ckpt) = state.voxel_world.genie.checkpoint_world_model() {
+            log::info!("Exported trajectory checkpoint containing {} frames", ckpt.frames.len());
+            return true;
+        }
+    }
+    false
 }
 }
 

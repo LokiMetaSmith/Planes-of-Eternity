@@ -121,6 +121,38 @@ fn test_solidity_collision_query() {
 }
 
 #[test]
+fn test_trajectory_dataset_safetensors_roundtrip() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let dataset = TrajectoryDataset::generate_synthetic(2, 3, 4, 16, 4, &device)?;
+    let tmp_path = "/tmp/test_trajectory_dataset.safetensors";
+
+    dataset.save_to_safetensors(tmp_path)?;
+    assert!(std::path::Path::new(tmp_path).exists());
+
+    let loaded = TrajectoryDataset::load_from_safetensors(tmp_path, &device)?;
+    assert_eq!(loaded.len(), 2);
+
+    let (orig_l, orig_a) = dataset.get_batch(&[0])?;
+    let (load_l, load_a) = loaded.get_batch(&[0])?;
+
+    assert_eq!(orig_l.dims(), load_l.dims());
+    assert_eq!(orig_a.dims(), load_a.dims());
+
+    std::fs::remove_file(tmp_path).ok();
+    Ok(())
+}
+
+#[test]
+fn test_rollout_multimodal() -> candle_core::Result<()> {
+    let actions = vec![1u32, 5u32];
+    let prompt = "jump over crystal spikes";
+    let latents = ActionConditionedSampler::rollout_multimodal(&actions, Some(prompt), None, 1, 1.5)?;
+
+    assert_eq!(latents.len(), 2 * 64 * 256);
+    Ok(())
+}
+
+#[test]
 fn test_trajectory_director_drift_stabilization() -> candle_core::Result<()> {
     let device = Device::Cpu;
     let director = TrajectoryDirector::new(0.01, 0.2);

@@ -26,6 +26,7 @@ pub struct GenieBridge {
     pub latest_action_dit_latents: Arc<Mutex<Option<Vec<f32>>>>,
     pub rolling_context: Arc<Mutex<reality_genie::dit::RollingLatentContext>>,
     pub anchor_buffer: Arc<Mutex<reality_genie::dit::FrameAnchorBuffer>>,
+    pub timelines: Arc<Mutex<std::collections::HashMap<String, reality_genie::dit::RollingLatentContext>>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -70,6 +71,37 @@ impl GenieBridge {
             latest_action_dit_latents: Arc::new(Mutex::new(None)),
             rolling_context: Arc::new(Mutex::new(reality_genie::dit::RollingLatentContext::new(8))),
             anchor_buffer: Arc::new(Mutex::new(reality_genie::dit::FrameAnchorBuffer::new(6, 2))),
+            timelines: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    /// Branches current rolling context into a named timeline
+    pub fn branch_timeline(&self, name: &str) -> bool {
+        if let (Ok(ctx), Ok(mut map)) = (self.rolling_context.lock(), self.timelines.lock()) {
+            map.insert(name.to_string(), ctx.clone());
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Switches the active rolling context to a previously branched timeline
+    pub fn switch_timeline(&self, name: &str) -> bool {
+        if let (Ok(mut ctx), Ok(map)) = (self.rolling_context.lock(), self.timelines.lock()) {
+            if let Some(saved) = map.get(name) {
+                *ctx = saved.clone();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Returns a list of all active timeline names
+    pub fn list_timelines(&self) -> Vec<String> {
+        if let Ok(map) = self.timelines.lock() {
+            map.keys().cloned().collect()
+        } else {
+            Vec::new()
         }
     }
 
@@ -110,13 +142,24 @@ impl GenieBridge {
     }
 
     pub fn request_action_dit_rollout_cfg(&self, actions: Vec<u32>, num_denoising_steps: usize, guidance_scale: f64) {
+        self.request_action_dit_rollout_multimodal(actions, None, num_denoising_steps, guidance_scale);
+    }
+
+    pub fn request_action_dit_rollout_multimodal(
+        &self,
+        actions: Vec<u32>,
+        prompt: Option<String>,
+        num_denoising_steps: usize,
+        guidance_scale: f64,
+    ) {
         let latents_ref = Arc::clone(&self.latest_action_dit_latents);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             std::thread::spawn(move || {
-                if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_from_actions_vec_with_weights(
+                if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal(
                     &actions,
+                    prompt.as_deref(),
                     Some("action_dit_model.safetensors"),
                     num_denoising_steps,
                     guidance_scale,
@@ -130,8 +173,9 @@ impl GenieBridge {
 
         #[cfg(target_arch = "wasm32")]
         {
-            if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_from_actions_vec_with_weights(
+            if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal(
                 &actions,
+                prompt.as_deref(),
                 None,
                 num_denoising_steps,
                 guidance_scale,

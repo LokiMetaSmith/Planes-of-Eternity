@@ -645,6 +645,16 @@ impl ActionConditionedSampler {
         denoising_steps: usize,
         guidance_scale: f64,
     ) -> Result<Vec<f32>> {
+        Self::rollout_multimodal(actions, None, weights_path, denoising_steps, guidance_scale)
+    }
+
+    pub fn rollout_multimodal(
+        actions: &[u32],
+        prompt: Option<&str>,
+        weights_path: Option<&str>,
+        denoising_steps: usize,
+        guidance_scale: f64,
+    ) -> Result<Vec<f32>> {
         let device = Device::Cpu;
         let cfg = DiTConfig::default();
         let model = if let Some(p) = weights_path {
@@ -657,6 +667,17 @@ impl ActionConditionedSampler {
             ActionConditionedDiT::default_cpu()?
         };
 
+        let text_tensor = if let Some(text) = prompt {
+            if !text.trim().is_empty() {
+                let token_ids = crate::dataset::HierarchicalCaptioner::tokenize_intent(text, 16);
+                Some(Tensor::from_vec(token_ids, (1, 16), &device)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let steps = denoising_steps.max(1);
         let sampler = ActionConditionedSampler::new(model, steps);
         let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
@@ -665,7 +686,15 @@ impl ActionConditionedSampler {
         let mut frame_list = Vec::with_capacity(t_len);
         for t_step in 0..t_len {
             let act = actions[t_step];
-            let frame = sampler.sample_next_frame_cfg(1, act, None, &mut anchor_buffer, t_step, guidance_scale, &device)?;
+            let frame = sampler.sample_next_frame_cfg(
+                1,
+                act,
+                text_tensor.as_ref(),
+                &mut anchor_buffer,
+                t_step,
+                guidance_scale,
+                &device,
+            )?;
             frame_list.push(frame);
         }
 

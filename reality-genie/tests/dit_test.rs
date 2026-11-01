@@ -55,6 +55,61 @@ fn test_rolling_latent_context() -> candle_core::Result<()> {
 }
 
 #[test]
+fn test_action_confidence_entropy_diagnostics() -> candle_core::Result<()> {
+    // Test pure categorical distribution
+    let uniform_logits = vec![1.0, 1.0, 1.0, 1.0];
+    let (conf, entropy) = ActionConditioningEmbedder::compute_confidence_entropy(&uniform_logits);
+    assert!((conf - 0.25).abs() < 1e-4);
+    assert!((entropy - 1.0).abs() < 1e-3);
+
+    let confident_logits = vec![10.0, 0.0, 0.0, 0.0];
+    let (c2, e2) = ActionConditioningEmbedder::compute_confidence_entropy(&confident_logits);
+    assert!(c2 > 0.99);
+    assert!(e2 < 0.05);
+
+    let mut rolling = RollingLatentContext::new(8);
+    let (rc, re) = rolling.compute_action_confidence_entropy();
+    assert!(rc > 0.5 && re < 0.5);
+
+    let dummy_frame = Tensor::zeros((1, 4, 16), DType::F32, &Device::Cpu)?;
+    rolling.push_frame(dummy_frame)?;
+    let (rc2, re2) = rolling.compute_action_confidence_entropy();
+    assert!(rc2 > 0.0 && re2 > 0.0);
+    Ok(())
+}
+
+#[test]
+fn test_spatial_latent_inpainting() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let dit = ActionConditionedDiT::default_cpu()?;
+    let sampler = ActionConditionedSampler::new(dit, 2);
+
+    let mut anchor_buffer = FrameAnchorBuffer::new(4, 1);
+    let s = 64;
+    let c = 256;
+    let source_latent = Tensor::zeros((1, 1, s, c), DType::F32, &device)?;
+    // Mask: 1 for left half tokens (regenerate), 0 for right half tokens (keep source)
+    let half_len = (s * c) / 2;
+    let mask_data = vec![1.0f32; half_len].into_iter().chain(vec![0.0f32; half_len].into_iter()).collect::<Vec<f32>>();
+    let spatial_mask = Tensor::from_vec(mask_data, (1, 1, s, c), &device)?;
+
+    let infilled = sampler.sample_next_frame_inpainting(
+        1,
+        0,
+        &source_latent,
+        &spatial_mask,
+        None,
+        &mut anchor_buffer,
+        0,
+        1.0,
+        &device,
+    )?;
+
+    assert_eq!(infilled.dims(), &[1, 1, s, c]);
+    Ok(())
+}
+
+#[test]
 fn test_latent_checkpoint_and_rewind() -> candle_core::Result<()> {
     let device = Device::Cpu;
     let mut context = RollingLatentContext::new(5);

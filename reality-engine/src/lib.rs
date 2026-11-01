@@ -5191,6 +5191,23 @@ pub fn export_trajectory_dataset(&self) -> bool {
     }
     false
 }
+
+pub fn toggle_world_model_autopilot(&self) -> bool {
+    if let Ok(mut state) = self.state.try_borrow_mut() {
+        state.engine.toggle_world_model_autopilot()
+    } else {
+        false
+    }
+}
+
+pub fn get_action_confidence_entropy(&self) -> Vec<f32> {
+    if let Ok(state) = self.state.try_borrow() {
+        let (conf, entropy) = state.voxel_world.genie.get_action_confidence_metric();
+        vec![entropy, conf]
+    } else {
+        vec![0.15, 0.85]
+    }
+}
 }
 
 #[cfg(target_arch = "wasm32")]

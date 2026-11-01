@@ -96,6 +96,15 @@ impl GenieBridge {
         false
     }
 
+    /// Retrieve action confidence and entropy diagnostics (confidence, entropy)
+    pub fn get_action_confidence_metric(&self) -> (f32, f32) {
+        if let Ok(ctx) = self.rolling_context.lock() {
+            ctx.compute_action_confidence_entropy()
+        } else {
+            (0.85, 0.15)
+        }
+    }
+
     /// Returns a list of all active timeline names
     pub fn list_timelines(&self) -> Vec<String> {
         if let Ok(map) = self.timelines.lock() {

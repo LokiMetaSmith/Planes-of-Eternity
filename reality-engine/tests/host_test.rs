@@ -69,6 +69,26 @@ fn test_engine_update() {
 }
 
 #[test]
+fn test_world_model_autopilot_and_entropy_diagnostics() {
+    let mut engine = Engine::new(800, 600, None);
+    assert!(!engine.world_model_autopilot);
+
+    let active = engine.toggle_world_model_autopilot();
+    assert!(active);
+    assert!(engine.world_model_autopilot);
+
+    // Simulate several frames with autopilot active
+    for _ in 0..20 {
+        engine.update(0.02, None);
+    }
+    assert!(engine.time > 0.3);
+
+    let inactive = engine.toggle_world_model_autopilot();
+    assert!(!inactive);
+    assert!(!engine.world_model_autopilot);
+}
+
+#[test]
 fn test_click_places_anomaly() {
     let mut engine = Engine::new(800, 600, None);
 

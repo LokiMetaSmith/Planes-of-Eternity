@@ -33,6 +33,7 @@ pub struct GenieBridge {
     pub narrative_director: Arc<Mutex<NarrativeDirector>>,
     pub resolution_mode: Arc<Mutex<reality_genie::dit::ResolutionPyramidMode>>,
     pub sfx_genie: Arc<Mutex<reality_genie::dit::SfxGenie>>,
+    pub p2p_consensus: Arc<Mutex<P2PTrajectoryConsensus>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -84,6 +85,7 @@ impl GenieBridge {
             narrative_director: Arc::new(Mutex::new(NarrativeDirector::default())),
             resolution_mode: Arc::new(Mutex::new(reality_genie::dit::ResolutionPyramidMode::Full64)),
             sfx_genie: Arc::new(Mutex::new(reality_genie::dit::SfxGenie::new(44100))),
+            p2p_consensus: Arc::new(Mutex::new(P2PTrajectoryConsensus::default())),
         }
     }
 
@@ -712,6 +714,72 @@ impl NarrativeDirector {
             Some(self.last_narrative_prompt.clone())
         } else {
             None
+        }
+    }
+}
+
+/// Peer Latent Packet for P2P Trajectory Consensus Wire Protocol
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PeerLatentPacket {
+    pub frame_timestamp: f64,
+    pub peer_id: String,
+    pub player_position: [f32; 3],
+    pub player_orientation: [f32; 4],
+    pub anchor_latents: Vec<f32>,
+    pub predicted_latents: Vec<f32>,
+}
+
+/// P2P Trajectory Consensus Engine
+#[derive(Debug, Clone)]
+pub struct P2PTrajectoryConsensus {
+    pub alpha: f32,
+    pub beta: f32,
+    pub connected_peers_count: usize,
+    pub last_consensus_drift: f32,
+}
+
+impl Default for P2PTrajectoryConsensus {
+    fn default() -> Self {
+        Self {
+            alpha: 0.5,
+            beta: 0.05,
+            connected_peers_count: 0,
+            last_consensus_drift: 0.0,
+        }
+    }
+}
+
+impl P2PTrajectoryConsensus {
+    /// Distance-decayed consensus weighting w(d) = alpha / (1.0 + beta * d^2)
+    pub fn compute_consensus_weight(&self, local_pos: [f32; 3], remote_pos: [f32; 3]) -> f32 {
+        let dx = local_pos[0] - remote_pos[0];
+        let dy = local_pos[1] - remote_pos[1];
+        let dz = local_pos[2] - remote_pos[2];
+        let d_sq = dx * dx + dy * dy + dz * dz;
+        (self.alpha / (1.0 + self.beta * d_sq)).clamp(0.0, 0.95)
+    }
+
+    /// Fuses remote peer latents with local predicted latents using consensus weighting
+    pub fn fuse_latents(
+        &mut self,
+        local_latents: &mut [f32],
+        remote_latents: &[f32],
+        local_pos: [f32; 3],
+        remote_pos: [f32; 3],
+    ) {
+        let w = self.compute_consensus_weight(local_pos, remote_pos);
+        let n = local_latents.len().min(remote_latents.len());
+        let mut total_diff = 0.0f32;
+
+        for i in 0..n {
+            let l = local_latents[i];
+            let r = remote_latents[i];
+            total_diff += (l - r).abs();
+            local_latents[i] = (1.0 - w) * l + w * r;
+        }
+
+        if n > 0 {
+            self.last_consensus_drift = total_diff / (n as f32);
         }
     }
 }

@@ -831,3 +831,27 @@ fn test_time_echo_replay_and_narrative_director() {
     let prompt = evt.unwrap();
     assert!(prompt.starts_with('['));
 }
+
+#[test]
+fn test_p2p_latent_consensus_and_npc_neural_empathy() {
+    use reality_engine::genie_bridge::P2PTrajectoryConsensus;
+
+    let mut consensus = P2PTrajectoryConsensus::default();
+    let local_pos = [0.0, 0.0, 0.0];
+    let near_remote_pos = [1.0, 0.0, 0.0];
+    let far_remote_pos = [100.0, 0.0, 0.0];
+
+    let w_near = consensus.compute_consensus_weight(local_pos, near_remote_pos);
+    let w_far = consensus.compute_consensus_weight(local_pos, far_remote_pos);
+    assert!(w_near > w_far);
+    assert!(w_near > 0.4);
+    assert!(w_far < 0.01);
+
+    let mut local_latents = vec![1.0; 64];
+    let remote_latents = vec![0.0; 64];
+    consensus.fuse_latents(&mut local_latents, &remote_latents, local_pos, near_remote_pos);
+    // Values should have blended towards remote
+    assert!(local_latents[0] < 1.0);
+    assert!(local_latents[0] > 0.0);
+    assert!(consensus.last_consensus_drift > 0.0);
+}

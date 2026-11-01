@@ -545,3 +545,37 @@ fn test_pyramid_resolution_mode_and_sfx_genie() {
     let jump_sound = sfx.synthesize_action_sound(5, 0.0, 0.2, 0.2);
     assert_eq!(jump_sound.len(), (44100.0 * 0.2) as usize);
 }
+
+#[test]
+fn test_atmospheric_conditioning_and_tinygenie_quantization() {
+    use reality_genie::dit::{AtmosphericConditioningEmbedder, QuantizedLinearInt8, SfxGenie};
+    use candle_core::{Device, Tensor};
+    use candle_nn::{VarBuilder, VarMap};
+
+    let device = Device::Cpu;
+    let varmap = VarMap::new();
+    let vb = VarBuilder::from_varmap(&varmap, candle_core::DType::F32, &device);
+
+    let atmos_embedder = AtmosphericConditioningEmbedder::new(32, vb.pp("atmos")).unwrap();
+    // c_atmos = [sin(2pi * t), cos(2pi * t), weather_density]
+    let atmos_input = Tensor::from_slice(&[0.0f32, 1.0f32, 0.5f32], (1, 3), &device).unwrap();
+    let emb = atmos_embedder.forward(&atmos_input).unwrap();
+    assert_eq!(emb.dims(), &[1, 32]);
+
+    // Test TinyGenie QuantizedLinearInt8
+    let weights = vec![0.5f32, -0.25f32, 1.0f32, -0.75f32, 0.1f32, -0.9f32]; // [2 out, 3 in]
+    let qlinear = QuantizedLinearInt8::from_f32_weights(&weights, 2, 3, Some(vec![0.1f32, -0.1f32]));
+    assert_eq!(qlinear.qweights.len(), 6);
+    assert_eq!(qlinear.scales.len(), 2);
+
+    let input_vec = vec![1.0f32, 0.5f32, -0.5f32];
+    let mut output_vec = vec![0.0f32; 2];
+    qlinear.forward_dequantized(&input_vec, &mut output_vec);
+    assert!(output_vec[0].abs() > 0.0);
+    assert!(output_vec[1].abs() > 0.0);
+
+    // Test SfxGenie with atmospheric conditions
+    let sfx = SfxGenie::new(44100);
+    let rainy_step = sfx.synthesize_action_sound_atmos(1, 4.0, 0.1, 0.5, 0.25, 0.8);
+    assert_eq!(rainy_step.len(), (44100.0 * 0.1) as usize);
+}

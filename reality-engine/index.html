@@ -820,6 +820,25 @@
             </div>
             <button id="btn-wm-export" class="cyber-button" style="width: 100%; margin-top: 8px; font-size: 0.75rem;">EXPORT TRAJECTORY DATASET</button>
             <button id="btn-wm-autopilot" class="cyber-button" style="width: 100%; margin-top: 5px; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">ENABLE NEURAL AUTOPILOT</button>
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-resolution-mode">Diffusion Resolution</label>
+                <select id="wm-resolution-mode" style="width: 100%;">
+                    <option value="full">Full (64 Tokens / Standard)</option>
+                    <option value="coarse">Fast Coarse (16 Tokens)</option>
+                    <option value="pyramid">Pyramid (Coarse-to-Fine)</option>
+                </select>
+            </div>
+
+            <div style="margin-top: 8px; display: flex; gap: 5px;">
+                <button id="btn-wm-narrative" class="cyber-button" style="flex: 1; font-size: 0.75rem;">NARRATIVE DIRECTOR: OFF</button>
+            </div>
+            <div id="wm-narrative-log" style="font-size: 0.75rem; color: #ffd700; margin-top: 4px; font-family: monospace; min-height: 1.2em;"></div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-time-echo-scrub">Time-Echo Scrub <span id="val-echo-scrub" class="value-display">100%</span></label>
+                <input type="range" id="wm-time-echo-scrub" min="0" max="100" step="1" value="100">
+            </div>
+
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
@@ -1281,6 +1300,56 @@
                         }
                     });
                 }
+
+
+                // Resolution Mode
+                const wmResSelect = document.getElementById('wm-resolution-mode');
+                if (wmResSelect) {
+                    wmResSelect.addEventListener('change', (e) => {
+                        if (gameClient && gameClient.set_world_model_resolution_mode) {
+                            gameClient.set_world_model_resolution_mode(e.target.value);
+                        }
+                    });
+                }
+
+                // Narrative Director
+                const btnNarrative = document.getElementById('btn-wm-narrative');
+                const narrativeLog = document.getElementById('wm-narrative-log');
+                let narrativeEnabled = false;
+                if (btnNarrative) {
+                    btnNarrative.addEventListener('click', () => {
+                        narrativeEnabled = !narrativeEnabled;
+                        btnNarrative.textContent = narrativeEnabled ? 'NARRATIVE DIRECTOR: ON' : 'NARRATIVE DIRECTOR: OFF';
+                        btnNarrative.style.borderColor = narrativeEnabled ? '#05ffa1' : '';
+                        btnNarrative.style.color = narrativeEnabled ? '#05ffa1' : '';
+                        if (gameClient && gameClient.toggle_narrative_director) {
+                            gameClient.toggle_narrative_director(narrativeEnabled);
+                        }
+                    });
+                }
+
+                // Time-Echo Scrub
+                const echoScrub = document.getElementById('wm-time-echo-scrub');
+                const valEchoScrub = document.getElementById('val-echo-scrub');
+                if (echoScrub) {
+                    echoScrub.addEventListener('input', (e) => {
+                        const pct = parseFloat(e.target.value);
+                        if (valEchoScrub) valEchoScrub.textContent = pct + '%';
+                        if (gameClient && gameClient.set_time_echo_scrub) {
+                            gameClient.set_time_echo_scrub(pct / 100.0);
+                        }
+                    });
+                }
+
+                // Periodic narrative check
+                setInterval(() => {
+                    if (narrativeEnabled && gameClient && gameClient.get_active_narrative_prompt && narrativeLog) {
+                        const prompt = gameClient.get_active_narrative_prompt();
+                        if (prompt && prompt.length > 0) {
+                            narrativeLog.textContent = prompt;
+                        }
+                    }
+                }, 1000);
 
                 // Timeline Branching & Canvas Tree Visualizer UI
                 const btnWmBranch = document.getElementById('btn-wm-branch');

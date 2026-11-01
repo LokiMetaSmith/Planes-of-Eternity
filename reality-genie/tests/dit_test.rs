@@ -499,3 +499,49 @@ fn test_action_conditioned_sampler_rollout() -> candle_core::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_pyramid_resolution_mode_and_sfx_genie() {
+    use reality_genie::dit::{ActionConditionedDiT, ActionConditionedSampler, DiTConfig, FrameAnchorBuffer, ResolutionPyramidMode, SfxGenie};
+    use candle_core::Device;
+
+    let device = Device::Cpu;
+        let config = DiTConfig {
+        num_actions: 16,
+        action_dim: 16,
+        d_model: 32,
+        n_head: 4,
+        num_layers: 2,
+        num_spatial_tokens: 64,
+        max_temporal_frames: 8,
+        max_anchor_frames: 4,
+        vocab_size_text: 16,
+        dropout: 0.0,
+    };
+    let varmap = candle_nn::VarMap::new();
+    let vb = candle_nn::VarBuilder::from_varmap(&varmap, candle_core::DType::F32, &device);
+    let model = ActionConditionedDiT::new(config, vb).unwrap();
+    let sampler = ActionConditionedSampler::new(model, 1);
+    let mut anchor_buf = FrameAnchorBuffer::new(4, 2);
+
+    // Coarse 16
+    let out_coarse = sampler.sample_next_frame_pyramid(
+        1, 1, None, None, &mut anchor_buf, 0, 1.0, ResolutionPyramidMode::Coarse16, &device
+    ).unwrap();
+    assert_eq!(out_coarse.dims(), &[1, 1, 64, 32]);
+
+    // Full 64
+    let out_full = sampler.sample_next_frame_pyramid(
+        1, 1, None, None, &mut anchor_buf, 0, 1.0, ResolutionPyramidMode::Full64, &device
+    ).unwrap();
+    assert_eq!(out_full.dims(), &[1, 1, 64, 32]);
+
+    // SfxGenie parametric synthesis
+    let sfx = SfxGenie::new(44100);
+    let footstep = sfx.synthesize_action_sound(1, 4.0, 0.1, 0.5);
+    assert!(!footstep.is_empty());
+    assert_eq!(footstep.len(), (44100.0 * 0.1) as usize);
+
+    let jump_sound = sfx.synthesize_action_sound(5, 0.0, 0.2, 0.2);
+    assert_eq!(jump_sound.len(), (44100.0 * 0.2) as usize);
+}

@@ -41,7 +41,7 @@ features = [
     "XrViewerPose", "XrView", "XrViewport", "XrWebGlLayer", "XrWebGlLayerInit", "XrEye",
     "XrRigidTransform", "DomPoint", "DomPointReadOnly", "Response", "Request", "RequestInit",
     "RequestMode", "Headers", "Performance", "AudioContext", "AudioDestinationNode", "AudioNode",
-    "AudioParam", "GainNode", "OscillatorNode", "OscillatorType", "AudioContextState",
+    "AudioParam", "GainNode", "AudioBuffer", "AudioBufferSourceNode", "BaseAudioContext", "OscillatorNode", "OscillatorType", "AudioContextState",
     "WebGl2RenderingContext", "WheelEvent", "Worker", "WorkerOptions", "WorkerType", "XrInputSource",
     "XrInputSourceArray", "XrSpace", "Gamepad", "XrHand", "XrJointSpace", "XrJointPose", "GamepadButton", "GamepadMappingType",
     "IdbDatabase", "IdbFactory", "IdbOpenDbRequest", "IdbTransaction", "IdbObjectStore",

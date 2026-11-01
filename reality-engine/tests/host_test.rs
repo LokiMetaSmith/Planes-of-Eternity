@@ -805,3 +805,29 @@ fn test_spatial_landmark_registration_and_continuous_actions() {
     let anchors_lock = bridge.anchor_buffer.lock().unwrap();
     assert_eq!(anchors_lock.spatial_memory.anchors.len(), 1);
 }
+
+#[test]
+fn test_time_echo_replay_and_narrative_director() {
+    use reality_engine::genie_bridge::{NarrativeDirector, TimeEchoReplay};
+
+    let mut replay = TimeEchoReplay::new(10);
+    replay.record(1.0, [0.0, 1.0, 2.0], [0.0, 0.0, 0.0, 1.0], None, 1, [0.0; 5]);
+    replay.record(2.0, [1.0, 1.0, 2.0], [0.0, 0.0, 0.0, 1.0], None, 2, [0.0; 5]);
+    assert_eq!(replay.frames.len(), 2);
+    assert_eq!(replay.scrub_index, 1);
+
+    replay.set_scrub_percentage(0.0);
+    assert_eq!(replay.scrub_index, 0);
+    let frame = replay.get_current_scrub_frame().unwrap();
+    assert_eq!(frame.action, 1);
+
+    let mut director = NarrativeDirector::default();
+    assert!(!director.enabled);
+    assert!(director.update(1.0, 0.1, 0.0).is_none());
+
+    director.enabled = true;
+    let evt = director.update(15.0, 0.1, 1.0);
+    assert!(evt.is_some());
+    let prompt = evt.unwrap();
+    assert!(prompt.starts_with('['));
+}

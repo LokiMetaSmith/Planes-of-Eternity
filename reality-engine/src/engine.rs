@@ -94,6 +94,8 @@ pub struct Engine {
     pub active_action_buffer: Vec<u32>,
     pub world_model_cfg_scale: f64,
     pub world_model_steps: usize,
+    pub world_model_autopilot: bool,
+    pub autopilot_step_accumulator: f32,
 }
 
 pub struct CollisionResult {
@@ -263,7 +265,15 @@ impl Engine {
             active_action_buffer: Vec::new(),
             world_model_cfg_scale: 1.5,
             world_model_steps: 2,
+            world_model_autopilot: false,
+            autopilot_step_accumulator: 0.0,
         }
+    }
+
+    pub fn toggle_world_model_autopilot(&mut self) -> bool {
+        self.world_model_autopilot = !self.world_model_autopilot;
+        log::info!("World model neural autopilot toggled: {}", self.world_model_autopilot);
+        self.world_model_autopilot
     }
 
     pub fn set_global_offset(&mut self, x: f32, z: f32) {
@@ -961,6 +971,27 @@ impl Engine {
             }
             _ => {
                 self.camera_controller.speed = 0.2;
+            }
+        }
+
+        // Neural Autopilot Simulation Loop:
+        // When active, autonomously dispatches synthetic action trajectories to GenieBridge
+        // and updates camera exploration vectors
+        if self.world_model_autopilot {
+            self.autopilot_step_accumulator += dt;
+            if self.autopilot_step_accumulator >= 0.25 {
+                self.autopilot_step_accumulator = 0.0;
+                let auto_actions = vec![1u32, 1u32, 4u32, 1u32];
+                if let Some(vw) = voxel_world.as_ref() {
+                    vw.genie.request_action_dit_rollout_multimodal(
+                        auto_actions,
+                        None,
+                        self.world_model_steps,
+                        self.world_model_cfg_scale,
+                    );
+                }
+                // Gentle autonomous camera pan during neural autopilot
+                self.camera.rotate(0.01, 0.0);
             }
         }
 

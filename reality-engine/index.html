@@ -792,8 +792,13 @@
             <div style="margin-top: 10px; font-size: 0.8rem; color: #888;">
                 <div>DRIFT VARIANCE: <span id="wm-drift-telemetry" style="color: var(--theme-primary); font-family: monospace;">0.0000</span></div>
                 <canvas id="wm-drift-canvas" width="220" height="40" style="width: 100%; height: 40px; background: rgba(0,0,0,0.5); border: 1px solid var(--theme-primary); margin-top: 5px; position: static;"></canvas>
+                <div style="margin-top: 6px; display: flex; justify-content: space-between;">
+                    <span>ENTROPY: <span id="wm-entropy-val" style="color: #ff007f; font-family: monospace;">0.50</span></span>
+                    <span>CONFIDENCE: <span id="wm-confidence-val" style="color: #05ffa1; font-family: monospace;">50%</span></span>
+                </div>
             </div>
             <button id="btn-wm-export" class="cyber-button" style="width: 100%; margin-top: 8px; font-size: 0.75rem;">EXPORT TRAJECTORY DATASET</button>
+            <button id="btn-wm-autopilot" class="cyber-button" style="width: 100%; margin-top: 5px; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">ENABLE NEURAL AUTOPILOT</button>
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
@@ -1213,12 +1218,12 @@
                      log(`> PARAM_UPDATE: DISTORTION = ${distSlider.value}`);
                 });
 
-                // World Model Controls
-                const wmCfgScale = document.getElementById('wm-cfg-scale');
-                const wmSteps = document.getElementById('wm-steps');
-                const valWmCfg = document.getElementById('val-wm-cfg');
-                const valWmSteps = document.getElementById('val-wm-steps');
+                // World Model (DiT) UI Integration
                 const btnWmRollout = document.getElementById('btn-wm-rollout');
+                const wmCfgScale = document.getElementById('wm-cfg-scale');
+                const valWmCfg = document.getElementById('val-wm-cfg');
+                const wmSteps = document.getElementById('wm-steps');
+                const valWmSteps = document.getElementById('val-wm-steps');
 
                 if (wmCfgScale) {
                     wmCfgScale.addEventListener('input', () => {
@@ -1226,6 +1231,18 @@
                         if (valWmCfg) valWmCfg.innerText = val.toFixed(1);
                         if (gameClient.set_world_model_cfg_scale) {
                             gameClient.set_world_model_cfg_scale(val);
+                        }
+                    });
+                }
+
+                const btnWmAutopilot = document.getElementById('btn-wm-autopilot');
+                if (btnWmAutopilot) {
+                    btnWmAutopilot.addEventListener('click', () => {
+                        if (gameClient && gameClient.toggle_world_model_autopilot) {
+                            const active = gameClient.toggle_world_model_autopilot();
+                            log(active ? "> NEURAL AUTOPILOT: ENGAGED (CONTINUOUS DIFFUSION)" : "> NEURAL AUTOPILOT: DISENGAGED");
+                            btnWmAutopilot.innerText = active ? "DISABLE NEURAL AUTOPILOT" : "ENABLE NEURAL AUTOPILOT";
+                            btnWmAutopilot.style.background = active ? "rgba(5, 255, 161, 0.2)" : "";
                         }
                     });
                 }
@@ -1271,7 +1288,7 @@
                         const name = `Timeline ${Date.now().toString().slice(-4)}`;
                         if (gameClient && gameClient.branch_timeline) {
                             gameClient.branch_timeline(name);
-                            log(`> MULTIVERSE BRANCH CREATED: ${name}`);
+                            log(`> BRANCHED ACTIVE TIMELINE: ${name}`);
                             updateTimelineList();
                             if (wmTimelineSelect) wmTimelineSelect.value = name;
                         }
@@ -1341,6 +1358,16 @@
                         const drift = gameClient.get_world_model_drift_telemetry();
                         if (driftTelemetryEl) {
                             driftTelemetryEl.innerText = drift.toFixed(4);
+                        }
+
+                        if (gameClient.get_action_confidence_entropy) {
+                            const diag = gameClient.get_action_confidence_entropy();
+                            if (diag && diag.length >= 2) {
+                                const entropyEl = document.getElementById('wm-entropy-val');
+                                const confEl = document.getElementById('wm-confidence-val');
+                                if (entropyEl) entropyEl.innerText = diag[0].toFixed(2);
+                                if (confEl) confEl.innerText = Math.round(diag[1] * 100) + "%";
+                            }
                         }
 
                         driftHistory.push(drift);

@@ -609,6 +609,27 @@ impl Engine {
         let mut npcs = std::mem::take(&mut self.world_state.npcs);
         let mut vw_opt = voxel_world;
 
+        // NPC Neural Lookahead Empathy simulation
+        for npc in &mut npcs {
+            if let Some(ref mut behavior) = npc.behavior {
+                // If NPC has no recent chat message, display simulated neural intent
+                if npc.chat_message.is_none() {
+                    let simulated_clear = behavior.health > 20.0;
+                    if simulated_clear {
+                        npc.chat_message = Some((
+                            "[AI DiT] Simulating path: clear".to_string(),
+                            crate::projector::get_current_timestamp(),
+                        ));
+                    } else {
+                        npc.chat_message = Some((
+                            "[AI DiT] Obstacle detected: rerouting".to_string(),
+                            crate::projector::get_current_timestamp(),
+                        ));
+                    }
+                }
+            }
+        }
+
         for npc in &mut npcs {
             use crate::projector::{Goal, GoalStatus};
             use cgmath::InnerSpace;

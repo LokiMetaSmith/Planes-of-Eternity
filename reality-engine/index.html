@@ -583,6 +583,11 @@
 </style>
 </head>
 <body>
+
+    <div id="p2p-sync-badge" style="position: fixed; top: 10px; left: 10px; z-index: 9999; background: rgba(5, 10, 20, 0.75); backdrop-filter: blur(8px); border: 1px solid #05ffa1; color: #05ffa1; padding: 6px 12px; font-family: monospace; font-size: 0.75rem; border-radius: 4px; box-shadow: 0 0 10px rgba(5, 255, 161, 0.3); pointer-events: none;">
+        P2P SYNC: <span id="p2p-status-val">CONNECTED (1 peer)</span> | DRIFT: <span id="p2p-drift-val">0.0000</span>
+    </div>
+
     <div id="loading-overlay" role="status" aria-busy="true">
         <div class="loading-spinner" aria-hidden="true"></div>
         <div id="loading-text">INITIALIZING REALITY ENGINE...</div>
@@ -820,7 +825,30 @@
             </div>
             <button id="btn-wm-export" class="cyber-button" style="width: 100%; margin-top: 8px; font-size: 0.75rem;">EXPORT TRAJECTORY DATASET</button>
             <button id="btn-wm-autopilot" class="cyber-button" style="width: 100%; margin-top: 5px; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">ENABLE NEURAL AUTOPILOT</button>
+
             <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-celestial-slider">Celestial Time (Day/Night) <span id="val-wm-celestial" class="value-display">12:00</span></label>
+                <input type="range" id="wm-celestial-slider" min="0.0" max="1.0" step="0.01" value="0.5">
+            </div>
+
+            <div style="margin-top: 6px;">
+                <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 4px;">WEATHER PRESET</div>
+                <div style="display: flex; gap: 4px;">
+                    <button id="btn-weather-clear" class="cyber-button" style="flex: 1; font-size: 0.7rem; padding: 4px;">CLEAR</button>
+                    <button id="btn-weather-rain" class="cyber-button" style="flex: 1; font-size: 0.7rem; padding: 4px;">RAIN</button>
+                    <button id="btn-weather-tempest" class="cyber-button" style="flex: 1; font-size: 0.7rem; padding: 4px;">TEMPEST</button>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-quantization-mode">Quantization Engine (TinyGenie)</label>
+                <select id="wm-quantization-mode" style="width: 100%;">
+                    <option value="int8">INT8 (Fast / Symmetric Per-Channel)</option>
+                    <option value="fp32">FP32 (Precision / Full Float)</option>
+                </select>
+            </div>
+
+<div class="control-group" style="margin-top: 8px;">
                 <label for="wm-resolution-mode">Diffusion Resolution</label>
                 <select id="wm-resolution-mode" style="width: 100%;">
                     <option value="full">Full (64 Tokens / Standard)</option>
@@ -1350,6 +1378,46 @@
                         }
                     }
                 }, 1000);
+
+
+                // Celestial Time-of-Day Slider
+                const celestialSlider = document.getElementById('wm-celestial-slider');
+                const valCelestial = document.getElementById('val-wm-celestial');
+                if (celestialSlider) {
+                    celestialSlider.addEventListener('input', (e) => {
+                        const val = parseFloat(e.target.value);
+                        const hours = Math.floor(val * 24);
+                        const mins = Math.floor((val * 24 - hours) * 60);
+                        if (valCelestial) valCelestial.textContent = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                        if (gameClient && gameClient.set_celestial_time_of_day) {
+                            gameClient.set_celestial_time_of_day(val);
+                        }
+                    });
+                }
+
+                // Weather Presets
+                const btnClear = document.getElementById('btn-weather-clear');
+                const btnRain = document.getElementById('btn-weather-rain');
+                const btnTempest = document.getElementById('btn-weather-tempest');
+                function setWeather(name) {
+                    [btnClear, btnRain, btnTempest].forEach(b => { if (b) b.style.borderColor = ''; });
+                    if (gameClient && gameClient.set_weather_preset) {
+                        gameClient.set_weather_preset(name);
+                    }
+                }
+                if (btnClear) btnClear.addEventListener('click', () => { setWeather('clear'); btnClear.style.borderColor = '#05ffa1'; });
+                if (btnRain) btnRain.addEventListener('click', () => { setWeather('rain'); btnRain.style.borderColor = '#00f0ff'; });
+                if (btnTempest) btnTempest.addEventListener('click', () => { setWeather('tempest'); btnTempest.style.borderColor = '#ff007f'; });
+
+                // Quantization Engine
+                const quantSelect = document.getElementById('wm-quantization-mode');
+                if (quantSelect) {
+                    quantSelect.addEventListener('change', (e) => {
+                        if (gameClient && gameClient.set_quantization_mode) {
+                            gameClient.set_quantization_mode(e.target.value);
+                        }
+                    });
+                }
 
                 // Timeline Branching & Canvas Tree Visualizer UI
                 const btnWmBranch = document.getElementById('btn-wm-branch');

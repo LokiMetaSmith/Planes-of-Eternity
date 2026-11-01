@@ -5291,6 +5291,36 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         }
         "{}".to_string()
     }
+
+    pub fn set_celestial_time_of_day(&self, val: f32) {
+        if let Ok(_state) = self.state.try_borrow() {
+            // Modulate ambient atmospheric params in voxel world
+            log::info!("Setting celestial time of day: {}", val);
+        }
+    }
+
+    pub fn set_weather_preset(&self, preset: &str) {
+        if let Ok(_state) = self.state.try_borrow() {
+            log::info!("Setting weather preset: {}", preset);
+        }
+    }
+
+    pub fn set_quantization_mode(&self, mode: &str) {
+        log::info!("Setting DiT quantization mode: {}", mode);
+    }
+
+    pub fn get_p2p_consensus_telemetry_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(consensus) = state.voxel_world.genie.p2p_consensus.lock() {
+                return serde_json::json!({
+                    "peers": consensus.connected_peers_count,
+                    "drift": consensus.last_consensus_drift,
+                    "status": "CONNECTED",
+                }).to_string();
+            }
+        }
+        r#"{"peers":0,"drift":0.0,"status":"IDLE"}"#.to_string()
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

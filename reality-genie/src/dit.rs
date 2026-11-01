@@ -54,6 +54,28 @@ impl ContinuousActionEmbedder {
     }
 }
 
+
+/// Atmospheric Conditioning Embedder: maps continuous solar time and atmospheric density
+/// c_atmos = [sin(2*pi*t_day), cos(2*pi*t_day), rho_weather] in R^3 into the model's feature dimension.
+#[derive(Debug)]
+pub struct AtmosphericConditioningEmbedder {
+    linear1: Linear,
+    linear2: Linear,
+}
+
+impl AtmosphericConditioningEmbedder {
+    pub fn new(d_model: usize, vb: VarBuilder) -> Result<Self> {
+        let linear1 = linear(3, d_model, vb.pp("linear1"))?;
+        let linear2 = linear(d_model, d_model, vb.pp("linear2"))?;
+        Ok(Self { linear1, linear2 })
+    }
+
+    pub fn forward(&self, atmos_tensor: &Tensor) -> Result<Tensor> {
+        let h = self.linear1.forward(atmos_tensor)?.gelu_erf()?;
+        self.linear2.forward(&h)
+    }
+}
+
 /// 1. Action conditioning embedder: maps discrete action inputs and continuous 5D action vectors
 /// into unified token embeddings and projects them into the model's feature dimension.
 #[derive(Debug)]
@@ -1328,6 +1350,82 @@ impl SfxGenie {
 
     /// Synthesize an audio waveform buffer (mono PCM float32 samples in range [-1.0, 1.0])
     /// based on action, velocity magnitude, and latent state energy
+    /// Synthesize an audio waveform buffer conditioned on action, kinematics, latent energy,
+    /// and atmospheric/celestial conditions (time of day and weather density)
+    pub fn synthesize_action_sound_atmos(
+        &self,
+        action: u32,
+        velocity_mag: f32,
+        duration_seconds: f32,
+        latent_energy: f32,
+        time_of_day: f32,
+        weather_density: f32,
+    ) -> Vec<f32> {
+        let num_samples = (self.sample_rate as f32 * duration_seconds).max(64.0) as usize;
+        let mut buffer = Vec::with_capacity(num_samples);
+        let dt = 1.0 / self.sample_rate as f32;
+
+        // Celestial carrier frequency modulation: higher at noon (time=0.5), deeper at midnight (0.0/1.0)
+        let celestial_mod = (time_of_day * 2.0 * std::f32::consts::PI).sin() * 20.0;
+        let weather_gain = 1.0 + weather_density.clamp(0.0, 2.0) * 0.5;
+
+        match action {
+            // Footstep / Walk
+            1 | 2 | 3 | 4 => {
+                let base_freq = (80.0 + (velocity_mag * 15.0).clamp(0.0, 80.0) + celestial_mod).max(40.0);
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (-t * 22.0).exp();
+                    let sine = (2.0 * std::f32::consts::PI * base_freq * t).sin();
+                    let noise = (((i * 1103515245 + 12345) & 0x7fff) as f32 / 32768.0) * 2.0 - 1.0;
+                    // Rain splash crunch if weather density > 0.3
+                    let rain_splash = if weather_density > 0.3 { noise * weather_density * 0.4 } else { 0.0 };
+                    let sample = (sine * 0.7 + noise * 0.3 + rain_splash) * env * (0.4 + 0.3 * latent_energy.clamp(0.0, 1.0)) * weather_gain;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Jump
+            5 => {
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (-t * 8.0).exp();
+                    let freq = 120.0 + 240.0 * (t / duration_seconds.max(0.001)).min(1.0) + celestial_mod;
+                    let sine = (2.0 * std::f32::consts::PI * freq * t).sin();
+                    let sample = sine * env * 0.6;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Spell cast
+            6 => {
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (-(t - 0.05).abs() * 10.0).exp();
+                    let fm = (2.0 * std::f32::consts::PI * 8.0 * t).sin() * 20.0;
+                    let s1 = (2.0 * std::f32::consts::PI * (440.0 + fm + celestial_mod) * t).sin();
+                    let s2 = (2.0 * std::f32::consts::PI * (660.0 + fm) * t).sin();
+                    let sample = (s1 * 0.5 + s2 * 0.5) * env * 0.7;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Ambient drone
+            _ => {
+                let drone_freq = (55.0 + 30.0 * latent_energy.clamp(0.0, 2.0) + celestial_mod).max(30.0);
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (1.0 - (t / duration_seconds.max(0.001))).max(0.0);
+                    let s1 = (2.0 * std::f32::consts::PI * drone_freq * t).sin();
+                    let s2 = (2.0 * std::f32::consts::PI * (drone_freq * 1.5) * t).sin() * 0.3;
+                    // Wind / rain white noise
+                    let noise = (((i * 1103515245 + 12345) & 0x7fff) as f32 / 32768.0) * 2.0 - 1.0;
+                    let wind_noise = noise * weather_density * 0.15;
+                    let sample = ((s1 + s2) * env * 0.25 + wind_noise) * weather_gain;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+        }
+        buffer
+    }
+
     pub fn synthesize_action_sound(
         &self,
         action: u32,
@@ -1335,64 +1433,72 @@ impl SfxGenie {
         duration_seconds: f32,
         latent_energy: f32,
     ) -> Vec<f32> {
-        let num_samples = (self.sample_rate as f32 * duration_seconds).max(64.0) as usize;
-        let mut buffer = Vec::with_capacity(num_samples);
-        let dt = 1.0 / self.sample_rate as f32;
+        self.synthesize_action_sound_atmos(action, velocity_mag, duration_seconds, latent_energy, 0.5, 0.0)
+    }
+}
 
-        match action {
-            // Footstep / Walk (Action 1: Forward, 2: Backward, 3: Left, 4: Right)
-            1 | 2 | 3 | 4 => {
-                let base_freq = 80.0 + (velocity_mag * 15.0).clamp(0.0, 80.0);
-                for i in 0..num_samples {
-                    let t = i as f32 * dt;
-                    // Exponential decay envelope
-                    let env = (-t * 22.0).exp();
-                    // Low thud + micro noise crunch
-                    let sine = (2.0 * std::f32::consts::PI * base_freq * t).sin();
-                    let noise = (((i * 1103515245 + 12345) & 0x7fff) as f32 / 32768.0) * 2.0 - 1.0;
-                    let sample = (sine * 0.7 + noise * 0.3) * env * (0.4 + 0.3 * latent_energy.clamp(0.0, 1.0));
-                    buffer.push(sample.clamp(-1.0, 1.0));
-                }
-            }
-            // Jump (Action 5)
-            5 => {
-                for i in 0..num_samples {
-                    let t = i as f32 * dt;
-                    let env = (-t * 8.0).exp();
-                    // Pitch sweep up 120Hz -> 360Hz
-                    let freq = 120.0 + 240.0 * (t / duration_seconds.max(0.001)).min(1.0);
-                    let sine = (2.0 * std::f32::consts::PI * freq * t).sin();
-                    let sample = sine * env * 0.6;
-                    buffer.push(sample.clamp(-1.0, 1.0));
-                }
-            }
-            // Spell cast / Anomaly pulse (Action 6)
-            6 => {
-                for i in 0..num_samples {
-                    let t = i as f32 * dt;
-                    let env = (-(t - 0.05).abs() * 10.0).exp();
-                    // Shimmering chord: 440Hz + 660Hz with FM wobble
-                    let fm = (2.0 * std::f32::consts::PI * 8.0 * t).sin() * 20.0;
-                    let s1 = (2.0 * std::f32::consts::PI * (440.0 + fm) * t).sin();
-                    let s2 = (2.0 * std::f32::consts::PI * (660.0 + fm) * t).sin();
-                    let sample = (s1 * 0.5 + s2 * 0.5) * env * 0.7;
-                    buffer.push(sample.clamp(-1.0, 1.0));
-                }
-            }
-            // Ambient drone / Idle
-            _ => {
-                let drone_freq = 55.0 + 30.0 * latent_energy.clamp(0.0, 2.0);
-                for i in 0..num_samples {
-                    let t = i as f32 * dt;
-                    let env = (1.0 - (t / duration_seconds.max(0.001))).max(0.0);
-                    let s1 = (2.0 * std::f32::consts::PI * drone_freq * t).sin();
-                    let s2 = (2.0 * std::f32::consts::PI * (drone_freq * 1.5) * t).sin() * 0.3;
-                    let sample = (s1 + s2) * env * 0.25;
-                    buffer.push(sample.clamp(-1.0, 1.0));
-                }
+
+/// Symmetric per-channel INT8 Quantized Linear layer (TinyGenie)
+#[derive(Debug, Clone)]
+pub struct QuantizedLinearInt8 {
+    pub in_features: usize,
+    pub out_features: usize,
+    /// Quantized weights in int8 range [-128, 127]
+    pub qweights: Vec<i8>,
+    /// Per-channel FP32 scales: S_w = max(|W|)/127
+    pub scales: Vec<f32>,
+    pub bias: Option<Vec<f32>>,
+}
+
+impl QuantizedLinearInt8 {
+    /// Quantizes an FP32 weight matrix of shape [out_features, in_features]
+    pub fn from_f32_weights(weights: &[f32], out_features: usize, in_features: usize, bias: Option<Vec<f32>>) -> Self {
+        assert_eq!(weights.len(), out_features * in_features);
+        let mut qweights = Vec::with_capacity(weights.len());
+        let mut scales = Vec::with_capacity(out_features);
+
+        for ch in 0..out_features {
+            let row_start = ch * in_features;
+            let row = &weights[row_start..row_start + in_features];
+            let max_val = row.iter().fold(0.0f32, |acc, &x| acc.max(x.abs())).max(1e-8);
+            let scale = max_val / 127.0;
+            scales.push(scale);
+
+            for &val in row {
+                let q = (val / scale).round().clamp(-128.0, 127.0) as i8;
+                qweights.push(q);
             }
         }
 
-        buffer
+        Self {
+            in_features,
+            out_features,
+            qweights,
+            scales,
+            bias,
+        }
+    }
+
+    /// Fast quantized matrix-vector multiplication with dequantization into FP32 output
+    pub fn forward_dequantized(&self, input: &[f32], output: &mut [f32]) {
+        assert_eq!(input.len(), self.in_features);
+        assert_eq!(output.len(), self.out_features);
+
+        for ch in 0..self.out_features {
+            let row_offset = ch * self.in_features;
+            let scale = self.scales[ch];
+            let mut acc: f32 = 0.0;
+
+            for i in 0..self.in_features {
+                let qw = self.qweights[row_offset + i] as f32;
+                acc += qw * input[i];
+            }
+
+            let mut res = acc * scale;
+            if let Some(ref b) = self.bias {
+                res += b[ch];
+            }
+            output[ch] = res;
+        }
     }
 }

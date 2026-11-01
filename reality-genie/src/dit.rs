@@ -33,28 +33,67 @@ impl Default for DiTConfig {
     }
 }
 
-/// 1. Action conditioning embedder: maps discrete action inputs (e.g. keyboard keys/combos)
-/// into continuous token embeddings and projects them into the model's feature dimension.
+/// Continuous Action Embedder: projects 5D continuous vectors [d_theta_x, d_theta_y, v_x, v_y, v_z]
+/// via a 2-layer MLP with GELU activations to match the model feature dimension d_model.
+#[derive(Debug)]
+pub struct ContinuousActionEmbedder {
+    linear1: Linear,
+    linear2: Linear,
+}
+
+impl ContinuousActionEmbedder {
+    pub fn new(in_dim: usize, d_model: usize, vb: VarBuilder) -> Result<Self> {
+        let linear1 = linear(in_dim, d_model, vb.pp("linear1"))?;
+        let linear2 = linear(d_model, d_model, vb.pp("linear2"))?;
+        Ok(Self { linear1, linear2 })
+    }
+
+    pub fn forward(&self, cont_actions: &Tensor) -> Result<Tensor> {
+        let h = self.linear1.forward(cont_actions)?.gelu_erf()?;
+        self.linear2.forward(&h)
+    }
+}
+
+/// 1. Action conditioning embedder: maps discrete action inputs and continuous 5D action vectors
+/// into unified token embeddings and projects them into the model's feature dimension.
 #[derive(Debug)]
 pub struct ActionConditioningEmbedder {
     embedding: Embedding,
     linear_projection: Linear,
+    continuous_embedder: ContinuousActionEmbedder,
+    fusion_projection: Linear,
 }
 
 impl ActionConditioningEmbedder {
     pub fn new(num_actions: usize, action_dim: usize, d_model: usize, vb: VarBuilder) -> Result<Self> {
         let embedding = candle_nn::embedding(num_actions, action_dim, vb.pp("embedding"))?;
         let linear_projection = linear(action_dim, d_model, vb.pp("linear_projection"))?;
+        let continuous_embedder = ContinuousActionEmbedder::new(5, d_model, vb.pp("continuous_embedder"))?;
+        let fusion_projection = linear(d_model * 2, d_model, vb.pp("fusion_projection"))?;
         Ok(Self {
             embedding,
             linear_projection,
+            continuous_embedder,
+            fusion_projection,
         })
     }
 
     pub fn forward(&self, actions: &Tensor) -> Result<Tensor> {
+        self.forward_multimodal(actions, None)
+    }
+
+    /// Forward pass with both discrete action tokens and optional continuous 5D vectors [d_theta_x, d_theta_y, vx, vy, vz]
+    pub fn forward_multimodal(&self, actions: &Tensor, continuous_actions: Option<&Tensor>) -> Result<Tensor> {
         let emb = self.embedding.forward(actions)?;
-        let proj = self.linear_projection.forward(&emb)?;
-        Ok(proj)
+        let discrete_proj = self.linear_projection.forward(&emb)?;
+        if let Some(cont) = continuous_actions {
+            let cont_proj = self.continuous_embedder.forward(cont)?;
+            let last_dim = discrete_proj.rank() - 1;
+            let cat_tensor = Tensor::cat(&[&discrete_proj, &cont_proj], last_dim)?;
+            self.fusion_projection.forward(&cat_tensor)
+        } else {
+            Ok(discrete_proj)
+        }
     }
 
     /// Compute action confidence and Shannon entropy metrics given logits or action probabilities [B, num_actions]
@@ -81,6 +120,70 @@ impl ActionConditioningEmbedder {
     }
 }
 
+/// Spatial landmark entry for 3D loop-closure geometric re-identification
+#[derive(Debug, Clone)]
+pub struct SpatialAnchor {
+    pub position: [f32; 3],
+    pub orientation: [f32; 4], // Quaternion [x, y, z, w]
+    pub latent: Tensor,
+}
+
+/// Associative spatial memory indexing keyframe anchors by (position, orientation)
+/// Retrieves cached landmark latents when player/camera revisits previously explored coordinates.
+#[derive(Debug, Clone)]
+pub struct SpatialAnchorMemory {
+    pub anchors: Vec<SpatialAnchor>,
+    pub eps_pos: f32,
+    pub cos_thresh: f32,
+    pub sigma: f32,
+}
+
+impl SpatialAnchorMemory {
+    pub fn new(eps_pos: f32, cos_thresh: f32, sigma: f32) -> Self {
+        Self {
+            anchors: Vec::new(),
+            eps_pos,
+            cos_thresh,
+            sigma,
+        }
+    }
+
+    pub fn register_anchor(&mut self, position: [f32; 3], orientation: [f32; 4], latent: Tensor) {
+        self.anchors.push(SpatialAnchor {
+            position,
+            orientation,
+            latent,
+        });
+        if self.anchors.len() > 64 {
+            self.anchors.remove(0);
+        }
+    }
+
+    /// Retrieve matching cached landmark latent with RBF falloff weighting: exp(-||p - p_i||^2 / (2 * sigma^2))
+    pub fn retrieve_anchor(&self, pos: [f32; 3], orient: [f32; 4]) -> Option<(Tensor, f32)> {
+        for anchor in &self.anchors {
+            let dx = pos[0] - anchor.position[0];
+            let dy = pos[1] - anchor.position[1];
+            let dz = pos[2] - anchor.position[2];
+            let dist_sq = dx * dx + dy * dy + dz * dz;
+            let dist = dist_sq.sqrt();
+
+            if dist < self.eps_pos {
+                let dot = orient[0] * anchor.orientation[0]
+                    + orient[1] * anchor.orientation[1]
+                    + orient[2] * anchor.orientation[2]
+                    + orient[3] * anchor.orientation[3];
+
+                if dot.abs() >= self.cos_thresh {
+                    let rbf = (-dist_sq / (2.0 * self.sigma * self.sigma)).exp();
+                    return Some((anchor.latent.clone(), rbf));
+                }
+            }
+        }
+        None
+    }
+}
+
 /// 2. Frame anchor buffer: manages sliding-window historical keyframe latents
 /// to preserve landmark memory and bound long-horizon trajectory drift.
 #[derive(Debug, Clone)]
@@ -88,6 +191,7 @@ pub struct FrameAnchorBuffer {
     pub max_window_size: usize,
     pub anchor_interval: usize,
     pub cached_anchors: Vec<Tensor>,
+    pub spatial_memory: SpatialAnchorMemory,
 }
 
 impl FrameAnchorBuffer {
@@ -96,6 +200,7 @@ impl FrameAnchorBuffer {
             max_window_size,
             anchor_interval,
             cached_anchors: Vec::new(),
+            spatial_memory: SpatialAnchorMemory::new(5.0, 0.707, 2.5),
         }
     }
 
@@ -110,22 +215,64 @@ impl FrameAnchorBuffer {
         Ok(())
     }
 
-    /// Concatenate cached anchors into a tensor of shape [B, NumAnchors * S, C]
+    /// Register a 3D spatial anchor at a world coordinate and quaternion orientation
+    pub fn register_spatial_anchor(&mut self, pos: [f32; 3], orient: [f32; 4], latent: Tensor) {
+        self.spatial_memory.register_anchor(pos, orient, latent);
+    }
+
+    /// Register a 3D spatial anchor from flat floats
+    pub fn register_spatial_anchor_raw(&mut self, pos: [f32; 3], orient: [f32; 4], flat_latents: &[f32]) {
+        let s = 64;
+        let c = 256;
+        if flat_latents.len() >= s * c {
+            if let Ok(tensor) = Tensor::from_vec(flat_latents[..s * c].to_vec(), (1, s, c), &Device::Cpu) {
+                self.spatial_memory.register_anchor(pos, orient, tensor);
+            }
+        }
+    }
+
+    /// Concatenate cached anchors into a tensor of shape [B, NumAnchors * S, C],
+    /// injecting any spatially retrieved loop-closure landmark weighted by RBF falloff.
     pub fn get_anchor_context(&self, device: &Device, b: usize, _s: usize, c: usize, dtype: DType) -> Result<Tensor> {
-        if self.cached_anchors.is_empty() {
-            // Return dummy zero context [B, 1, C]
+        self.get_anchor_context_spatial(device, b, _s, c, dtype, None, None)
+    }
+
+    /// Concatenate cached anchors with optional loop-closure spatial query (position, orientation)
+    pub fn get_anchor_context_spatial(
+        &self,
+        device: &Device,
+        b: usize,
+        _s: usize,
+        c: usize,
+        dtype: DType,
+        pos_query: Option<[f32; 3]>,
+        orient_query: Option<[f32; 4]>,
+    ) -> Result<Tensor> {
+        let mut reshaped = Vec::new();
+        for anchor in &self.cached_anchors {
+            let a = if anchor.rank() == 4 {
+                anchor.squeeze(1)?
+            } else {
+                anchor.clone()
+            };
+            reshaped.push(a);
+        }
+
+        if let (Some(pos), Some(orient)) = (pos_query, orient_query) {
+            if let Some((landmark, rbf)) = self.spatial_memory.retrieve_anchor(pos, orient) {
+                let l = if landmark.rank() == 4 {
+                    landmark.squeeze(1)?
+                } else {
+                    landmark
+                };
+                let weighted_landmark = (l * (rbf as f64))?;
+                reshaped.push(weighted_landmark);
+            }
+        }
+
+        if reshaped.is_empty() {
             Tensor::zeros((b, 1, c), dtype, device)
         } else {
-            // Stack and reshape cached anchors: each [B, S, C] or [B, 1, S, C]
-            let mut reshaped = Vec::new();
-            for anchor in &self.cached_anchors {
-                let a = if anchor.rank() == 4 {
-                    anchor.squeeze(1)?
-                } else {
-                    anchor.clone()
-                };
-                reshaped.push(a);
-            }
             Tensor::cat(&reshaped, 1)
         }
     }
@@ -146,6 +293,7 @@ impl FrameAnchorBuffer {
 
     pub fn clear(&mut self) {
         self.cached_anchors.clear();
+        self.spatial_memory.anchors.clear();
     }
 
     /// Rewinds anchor history by removing recent anchor frames
@@ -485,11 +633,12 @@ impl ActionConditionedDiT {
         Self::new(cfg, vb)
     }
 
-    /// Forward pass with optional multi-modal text token conditioning
-    pub fn forward_multimodal(
+    /// Comprehensive forward pass with optional continuous action vectors [dx, dy, vx, vy, vz] and text prompt tokens
+    pub fn forward_full(
         &self,
         x: &Tensor,
         actions: &Tensor,
+        continuous_actions: Option<&Tensor>,
         text_tokens: Option<&Tensor>,
         timesteps: &Tensor,
         anchor_context: &Tensor,
@@ -510,10 +659,10 @@ impl ActionConditionedDiT {
         let t_frames = seq_len / self.config.num_spatial_tokens;
 
         let act_emb = if actions.rank() == 1 {
-            let emb = self.action_embedder.forward(actions)?;
+            let emb = self.action_embedder.forward_multimodal(actions, continuous_actions)?;
             emb.reshape((b, 1, self.config.d_model))?
         } else {
-            self.action_embedder.forward(actions)?
+            self.action_embedder.forward_multimodal(actions, continuous_actions)?
         };
 
         let time_emb = self.time_embedder.forward(timesteps)?.reshape((b, 1, self.config.d_model))?;
@@ -550,6 +699,18 @@ impl ActionConditionedDiT {
         }
     }
 
+    /// Forward pass with optional multi-modal text token conditioning
+    pub fn forward_multimodal(
+        &self,
+        x: &Tensor,
+        actions: &Tensor,
+        text_tokens: Option<&Tensor>,
+        timesteps: &Tensor,
+        anchor_context: &Tensor,
+    ) -> Result<Tensor> {
+        self.forward_full(x, actions, None, text_tokens, timesteps, anchor_context)
+    }
+
     /// Forward pass (delegates to forward_multimodal without text)
     pub fn forward(
         &self,
@@ -577,11 +738,12 @@ impl ActionConditionedSampler {
         }
     }
 
-    /// Sample/predict next frame latents with Classifier-Free Guidance (CFG)
-    pub fn sample_next_frame_cfg(
+    /// Sample/predict next frame latents with Classifier-Free Guidance (CFG) and optional continuous actions
+    pub fn sample_next_frame_full(
         &self,
         b: usize,
         action: u32,
+        continuous_action: Option<&[f32; 5]>,
         text_tokens: Option<&Tensor>,
         anchor_buffer: &mut FrameAnchorBuffer,
         step_index: usize,
@@ -594,6 +756,16 @@ impl ActionConditionedSampler {
 
         let actions_tensor = Tensor::from_vec(vec![action; b], (b,), device)?;
         let null_actions_tensor = Tensor::zeros_like(&actions_tensor)?;
+        let cont_tensor = if let Some(cont) = continuous_action {
+            let mut vec_b = Vec::with_capacity(b * 5);
+            for _ in 0..b {
+                vec_b.extend_from_slice(cont);
+            }
+            Some(Tensor::from_vec(vec_b, (b, 5), device)?)
+        } else {
+            None
+        };
+
         let anchor_ctx = anchor_buffer.get_anchor_context(device, b, s, c, dtype)?;
 
         let mut x_t = Tensor::randn(0.0f32, 1.0f32, (b, 1, s, c), device)?;
@@ -602,10 +774,24 @@ impl ActionConditionedSampler {
             let timestep = (step * 1000 / self.num_denoising_steps) as u32;
             let timesteps_tensor = Tensor::from_vec(vec![timestep; b], (b,), device)?;
 
-            let pred_cond = self.model.forward_multimodal(&x_t, &actions_tensor, text_tokens, &timesteps_tensor, &anchor_ctx)?;
+            let pred_cond = self.model.forward_full(
+                &x_t,
+                &actions_tensor,
+                cont_tensor.as_ref(),
+                text_tokens,
+                &timesteps_tensor,
+                &anchor_ctx,
+            )?;
 
             let pred_noise = if guidance_scale > 1.0 {
-                let pred_uncond = self.model.forward_multimodal(&x_t, &null_actions_tensor, None, &timesteps_tensor, &anchor_ctx)?;
+                let pred_uncond = self.model.forward_full(
+                    &x_t,
+                    &null_actions_tensor,
+                    None,
+                    None,
+                    &timesteps_tensor,
+                    &anchor_ctx,
+                )?;
                 let diff = (&pred_cond - &pred_uncond)?;
                 (&pred_uncond + (&diff * guidance_scale)?)?
             } else {
@@ -618,6 +804,29 @@ impl ActionConditionedSampler {
 
         anchor_buffer.push_frame(x_t.clone(), step_index)?;
         Ok(x_t)
+    }
+
+    /// Sample/predict next frame latents with Classifier-Free Guidance (CFG)
+    pub fn sample_next_frame_cfg(
+        &self,
+        b: usize,
+        action: u32,
+        text_tokens: Option<&Tensor>,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        guidance_scale: f64,
+        device: &Device,
+    ) -> Result<Tensor> {
+        self.sample_next_frame_full(
+            b,
+            action,
+            None,
+            text_tokens,
+            anchor_buffer,
+            step_index,
+            guidance_scale,
+            device,
+        )
     }
 
     /// Sample next frame latents conditioned on user action with spatial latent inpainting support.
@@ -653,6 +862,57 @@ impl ActionConditionedSampler {
         let preserved = (source_latent * &inv_mask)?;
         let infilled = (&unmasked + &preserved)?;
         Ok(infilled)
+    }
+
+    /// Creates a 2D spatial bounding box mask [1, 1, S, 1] for inpainting.
+    /// Coordinates are normalized [0.0..1.0] across the sqrt(S) x sqrt(S) latent grid.
+    pub fn create_box_mask(
+        num_spatial_tokens: usize,
+        x_min: f32,
+        y_min: f32,
+        x_max: f32,
+        y_max: f32,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let side = (num_spatial_tokens as f32).sqrt().round() as usize;
+        let mut mask = vec![0.0f32; num_spatial_tokens];
+
+        for row in 0..side {
+            let v = row as f32 / side as f32;
+            for col in 0..side {
+                let u = col as f32 / side as f32;
+                let idx = row * side + col;
+                if idx < num_spatial_tokens && u >= x_min && u <= x_max && v >= y_min && v <= y_max {
+                    mask[idx] = 1.0;
+                }
+            }
+        }
+        Tensor::from_vec(mask, (1, 1, num_spatial_tokens, 1), device)
+    }
+
+    /// Creates a 3D spherical projected mask centered around a target normalized coordinate [center_u, center_v]
+    pub fn create_sphere_mask(
+        num_spatial_tokens: usize,
+        center_u: f32,
+        center_v: f32,
+        radius: f32,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let side = (num_spatial_tokens as f32).sqrt().round() as usize;
+        let mut mask = vec![0.0f32; num_spatial_tokens];
+
+        for row in 0..side {
+            let v = (row as f32 + 0.5) / side as f32;
+            for col in 0..side {
+                let u = (col as f32 + 0.5) / side as f32;
+                let idx = row * side + col;
+                let dist = ((u - center_u).powi(2) + (v - center_v).powi(2)).sqrt();
+                if idx < num_spatial_tokens && dist <= radius {
+                    mask[idx] = 1.0;
+                }
+            }
+        }
+        Tensor::from_vec(mask, (1, 1, num_spatial_tokens, 1), device)
     }
 
     /// Sample/predict next frame latents [B, 1, S, C] given user action and current anchor context
@@ -747,6 +1007,64 @@ impl ActionConditionedSampler {
             let frame = sampler.sample_next_frame_cfg(
                 1,
                 act,
+                text_tensor.as_ref(),
+                &mut anchor_buffer,
+                t_step,
+                guidance_scale,
+                &device,
+            )?;
+            frame_list.push(frame);
+        }
+
+        let rollout = Tensor::cat(&frame_list, 1)?;
+        rollout.flatten_all()?.to_vec1::<f32>()
+    }
+
+    /// Full trajectory rollout supporting continuous action vectors [d_theta_x, d_theta_y, vx, vy, vz]
+    pub fn rollout_multimodal_full(
+        actions: &[u32],
+        continuous_actions: Option<&[[f32; 5]]>,
+        prompt: Option<&str>,
+        weights_path: Option<&str>,
+        denoising_steps: usize,
+        guidance_scale: f64,
+    ) -> Result<Vec<f32>> {
+        let device = Device::Cpu;
+        let cfg = DiTConfig::default();
+        let model = if let Some(p) = weights_path {
+            if std::path::Path::new(p).exists() {
+                ActionConditionedDiT::from_safetensors(p, cfg, &device)?
+            } else {
+                ActionConditionedDiT::default_cpu()?
+            }
+        } else {
+            ActionConditionedDiT::default_cpu()?
+        };
+
+        let text_tensor = if let Some(text) = prompt {
+            if !text.trim().is_empty() {
+                let token_ids = crate::dataset::HierarchicalCaptioner::tokenize_intent(text, 16);
+                Some(Tensor::from_vec(token_ids, (1, 16), &device)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let steps = denoising_steps.max(1);
+        let sampler = ActionConditionedSampler::new(model, steps);
+        let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
+        let t_len = actions.len();
+
+        let mut frame_list = Vec::with_capacity(t_len);
+        for t_step in 0..t_len {
+            let act = actions[t_step];
+            let cont_act = continuous_actions.and_then(|ca| ca.get(t_step));
+            let frame = sampler.sample_next_frame_full(
+                1,
+                act,
+                cont_act,
                 text_tensor.as_ref(),
                 &mut anchor_buffer,
                 t_step,

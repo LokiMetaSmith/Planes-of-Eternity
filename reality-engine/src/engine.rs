@@ -92,6 +92,7 @@ pub struct Engine {
     pub physics_state: PhysicsState,
 
     pub active_action_buffer: Vec<u32>,
+    pub pending_mouse_delta: [f32; 2],
     pub world_model_cfg_scale: f64,
     pub world_model_steps: usize,
     pub world_model_autopilot: bool,
@@ -263,6 +264,7 @@ impl Engine {
             fbm_noise: noise::Fbm::<noise::Simplex>::new(1337),
             physics_state: PhysicsState::Flying,
             active_action_buffer: Vec::new(),
+            pending_mouse_delta: [0.0, 0.0],
             world_model_cfg_scale: 1.5,
             world_model_steps: 2,
             world_model_autopilot: false,
@@ -399,8 +401,16 @@ impl Engine {
         if let Some(ref mut vw) = voxel_world {
             if !self.active_action_buffer.is_empty() {
                 let drained_actions = std::mem::take(&mut self.active_action_buffer);
-                vw.genie.request_action_dit_rollout_cfg(
+                let cam_delta = self.pending_mouse_delta;
+                self.pending_mouse_delta = [0.0, 0.0];
+                let vel = [self.camera.velocity.x, self.camera.velocity.y, self.camera.velocity.z];
+                let cont_vec = [cam_delta[0], cam_delta[1], vel[0], vel[1], vel[2]];
+                let cont_actions = vec![cont_vec; drained_actions.len()];
+
+                vw.genie.request_action_dit_rollout_full(
                     drained_actions,
+                    Some(cont_actions),
+                    None,
                     self.world_model_steps,
                     self.world_model_cfg_scale,
                 );
@@ -409,6 +419,13 @@ impl Engine {
             // Poll predicted spatiotemporal trajectory latents and decode into 4D splat playback
             if let Ok(mut latents_lock) = vw.genie.latest_action_dit_latents.lock() {
                 if let Some(flat_latents) = latents_lock.take() {
+                    // Register spatial landmark for 3D loop-closure consistency
+                    let cam_pos = [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z];
+                    let (sin_y, cos_y) = (self.camera.yaw * 0.5).sin_cos();
+                    let (sin_p, cos_p) = (self.camera.pitch * 0.5).sin_cos();
+                    let cam_orient = [sin_p * cos_y, cos_p * sin_y, -sin_p * sin_y, cos_p * cos_y];
+                    vw.genie.register_spatial_landmark(cam_pos, cam_orient, &flat_latents);
+
                     let splat_chunks = reality_genie::vqvae::LatentVoxelDecoder::decode_splat_floats_from_latents_vec(&flat_latents);
                     let mut vertices = Vec::new();
                     let mut decoded_positions = Vec::with_capacity(splat_chunks.len());
@@ -1482,6 +1499,8 @@ impl Engine {
     pub fn process_mouse_look(&mut self, dx: f32, dy: f32) {
         let sensitivity = 0.002;
         self.camera.rotate(-dx * sensitivity, -dy * sensitivity);
+        self.pending_mouse_delta[0] += dx * sensitivity;
+        self.pending_mouse_delta[1] += dy * sensitivity;
     }
 
     pub fn process_mouse_up(&mut self) {
@@ -1839,6 +1858,18 @@ impl Engine {
                             log::info!("GENIE_DIT primitive invoked with prompt: {}", prompt_str);
                             self.pending_dreams.push(prompt_str.clone());
                             self.pending_models.push((prompt_str, [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z]));
+                        }
+                        return None;
+                    }
+
+                    if *op == Primitive::InpaintRegion {
+                        if pressed {
+                            let radius = match &**arg {
+                                Term::Var(s) => s.parse::<f32>().unwrap_or(3.0),
+                                _ => 3.0,
+                            };
+                            log::info!("INPAINT_REGION primitive invoked with radius: {}", radius);
+                            self.active_action_buffer.push(8u32); // Action token 8 = Inpaint
                         }
                         return None;
                     }

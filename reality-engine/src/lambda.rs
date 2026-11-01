@@ -37,12 +37,14 @@ pub enum Primitive {
     Health,
     SetBoneRotation,
     GenieDit,
+    InpaintRegion,
 }
 
 impl fmt::Display for Primitive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Primitive::GenieDit => write!(f, "GENIE_DIT"),
+            Primitive::InpaintRegion => write!(f, "INPAINT_REGION"),
             Primitive::Extend => write!(f, "EXTEND"),
             Primitive::Fire => write!(f, "FIRE"),
             Primitive::Water => write!(f, "WATER"),
@@ -86,6 +88,7 @@ impl std::str::FromStr for Primitive {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "GENIE_DIT" | "GENIEDIT" => Ok(Primitive::GenieDit),
+            "INPAINT_REGION" | "INPAINTREGION" => Ok(Primitive::InpaintRegion),
             "FIRE" => Ok(Primitive::Fire),
             "WATER" => Ok(Primitive::Water),
             "EARTH" => Ok(Primitive::Earth),

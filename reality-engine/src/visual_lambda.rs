@@ -1447,6 +1447,7 @@ impl LambdaSystem {
     fn get_primitive_color(&self, p: Primitive) -> [f32; 4] {
         match p {
             Primitive::GenieDit => [1.0, 0.4, 0.9, 1.0],
+            Primitive::InpaintRegion => [0.9, 0.2, 0.6, 1.0],
             Primitive::Fire => [1.0, 0.0, 0.0, 1.0],
             Primitive::Water => [0.0, 0.0, 1.0, 1.0],
             Primitive::Earth => [0.6, 0.4, 0.2, 1.0],

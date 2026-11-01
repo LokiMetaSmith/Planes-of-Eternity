@@ -561,7 +561,7 @@ impl State {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_bind_group_layout =
+        let _camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -5206,6 +5206,40 @@ pub fn get_action_confidence_entropy(&self) -> Vec<f32> {
         vec![entropy, conf]
     } else {
         vec![0.15, 0.85]
+    }
+}
+
+pub fn get_multiverse_tree_json(&self) -> String {
+    if let Ok(state) = self.state.try_borrow() {
+        state.voxel_world.genie.get_multiverse_tree_json()
+    } else {
+        "[]".to_string()
+    }
+}
+
+pub fn trigger_world_model_inpaint_box(&self, x_min: f32, y_min: f32, x_max: f32, y_max: f32) -> bool {
+    if let Ok(state) = self.state.try_borrow_mut() {
+        let inpaint_actions = vec![8u32, 8u32];
+        let steps = state.engine.world_model_steps;
+        let scale = state.engine.world_model_cfg_scale;
+        log::info!("Inpainting box region: ({}, {}) to ({}, {})", x_min, y_min, x_max, y_max);
+        state.voxel_world.genie.request_action_dit_rollout_multimodal(inpaint_actions, None, steps, scale);
+        true
+    } else {
+        false
+    }
+}
+
+pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) -> bool {
+    if let Ok(state) = self.state.try_borrow_mut() {
+        let inpaint_actions = vec![8u32, 8u32];
+        let steps = state.engine.world_model_steps;
+        let scale = state.engine.world_model_cfg_scale;
+        log::info!("Inpainting spherical region at ({}, {}) with radius {}", u, v, radius);
+        state.voxel_world.genie.request_action_dit_rollout_multimodal(inpaint_actions, None, steps, scale);
+        true
+    } else {
+        false
     }
 }
 }

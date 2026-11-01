@@ -55,6 +55,70 @@ fn test_rolling_latent_context() -> candle_core::Result<()> {
 }
 
 #[test]
+fn test_continuous_action_conditioning() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let num_actions = 8;
+    let action_dim = 16;
+    let d_model = 64;
+
+    let vars = candle_nn::VarMap::new();
+    let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+
+    let embedder = ActionConditioningEmbedder::new(num_actions, action_dim, d_model, vb)?;
+
+    let discrete_actions = Tensor::from_vec(vec![2u32, 4u32], (2,), &device)?;
+    // Continuous 5D vector: [d_theta_x, d_theta_y, vx, vy, vz]
+    let cont_actions = Tensor::from_vec(vec![0.05f32, -0.02f32, 1.2f32, 0.0f32, -0.5f32, 0.0f32, 0.01f32, 0.0f32, 0.0f32, 0.0f32], (2, 5), &device)?;
+
+    let output = embedder.forward_multimodal(&discrete_actions, Some(&cont_actions))?;
+    assert_eq!(output.dims(), &[2, d_model]);
+
+    Ok(())
+}
+
+#[test]
+fn test_spatial_anchor_loop_closure() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let mut buffer = FrameAnchorBuffer::new(4, 2);
+
+    let landmark_pos = [10.0f32, 2.0f32, -5.0f32];
+    let landmark_orient = [0.0f32, 0.0f32, 0.0f32, 1.0f32]; // Identity quaternion
+    let landmark_latent = Tensor::ones((1, 8, 32), DType::F32, &device)?;
+
+    buffer.register_spatial_anchor(landmark_pos, landmark_orient, landmark_latent);
+
+    // Query 1: Close coordinates with similar orientation -> should hit and return weighted context
+    let query_pos_close = [10.2f32, 2.1f32, -5.1f32];
+    let ctx_hit = buffer.get_anchor_context_spatial(&device, 1, 8, 32, DType::F32, Some(query_pos_close), Some(landmark_orient))?;
+    assert_eq!(ctx_hit.dims(), &[1, 8, 32]);
+
+    // Query 2: Far coordinates -> should not hit, returns dummy zero context
+    let query_pos_far = [100.0f32, 20.0f32, -50.0f32];
+    let ctx_miss = buffer.get_anchor_context_spatial(&device, 1, 8, 32, DType::F32, Some(query_pos_far), Some(landmark_orient))?;
+    assert_eq!(ctx_miss.dims(), &[1, 1, 32]);
+
+    Ok(())
+}
+
+#[test]
+fn test_box_and_sphere_masks() -> candle_core::Result<()> {
+    let device = Device::Cpu;
+    let num_tokens = 64; // 8x8
+
+    let box_mask = ActionConditionedSampler::create_box_mask(num_tokens, 0.25, 0.25, 0.75, 0.75, &device)?;
+    assert_eq!(box_mask.dims(), &[1, 1, num_tokens, 1]);
+
+    let sphere_mask = ActionConditionedSampler::create_sphere_mask(num_tokens, 0.5, 0.5, 0.3, &device)?;
+    assert_eq!(sphere_mask.dims(), &[1, 1, num_tokens, 1]);
+
+    let mask_vec = sphere_mask.flatten_all()?.to_vec1::<f32>()?;
+    let active_count: f32 = mask_vec.iter().sum();
+    assert!(active_count > 0.0 && active_count < (num_tokens as f32));
+
+    Ok(())
+}
+
+#[test]
 fn test_action_confidence_entropy_diagnostics() -> candle_core::Result<()> {
     // Test pure categorical distribution
     let uniform_logits = vec![1.0, 1.0, 1.0, 1.0];

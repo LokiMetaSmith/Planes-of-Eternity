@@ -312,6 +312,16 @@
             flex-direction: column;
         }
 
+        .hover-3d-card {
+            transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s ease;
+            transform-style: preserve-3d;
+        }
+
+        .hover-3d-card:hover {
+            transform: perspective(800px) rotateX(1.5deg) rotateY(-1.5deg) translateZ(6px);
+            box-shadow: 0 10px 30px rgba(var(--theme-primary-rgb), 0.4);
+        }
+
         .cyber-header {
             cursor: grab;
             user-select: none;
@@ -762,7 +772,7 @@
             </div>
         </div>
 
-        <div class="cyber-card" style="margin-top: 10px;">
+        <div class="cyber-card hover-3d-card" style="margin-top: 10px;">
             <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">World Model (DiT)</div>
             <div class="control-group">
                 <label for="wm-cfg-scale">CFG Guidance <span id="val-wm-cfg" class="value-display">1.5</span></label>
@@ -780,8 +790,12 @@
                 <button id="btn-wm-rollout" class="cyber-button" style="flex: 2;">TRIGGER DIT ROLLOUT</button>
                 <button id="btn-wm-rewind" class="cyber-button" style="flex: 1; border-color: #ffd700; color: #ffd700;">REWIND</button>
             </div>
+            <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+                <button id="btn-wm-inpaint-box" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #ff007f; color: #ff007f;">INPAINT BOX</button>
+                <button id="btn-wm-inpaint-brush" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">INPAINT SPHERE</button>
+            </div>
             <div class="control-group" style="margin-top: 8px; margin-bottom: 8px;">
-                <label for="wm-timeline-select">Timeline (Branch)</label>
+                <label for="wm-timeline-select">Timeline (Multiverse)</label>
                 <div style="display: flex; gap: 5px;">
                     <select id="wm-timeline-select" style="flex: 2;">
                         <option value="main">Main Timeline</option>
@@ -789,6 +803,13 @@
                     <button id="btn-wm-branch" class="cyber-button" style="flex: 1; margin-top: 0; padding: 5px; font-size: 0.75rem;">BRANCH</button>
                 </div>
             </div>
+
+            <!-- Multiverse Timeline Interactive Canvas Tree Navigator -->
+            <div style="margin-top: 8px;">
+                <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 4px;">MULTIVERSE TIMELINE TREE</div>
+                <canvas id="wm-tree-canvas" width="220" height="90" style="width: 100%; height: 90px; background: rgba(5,5,10,0.85); border: 1px solid var(--theme-primary); position: static; cursor: pointer;"></canvas>
+            </div>
+
             <div style="margin-top: 10px; font-size: 0.8rem; color: #888;">
                 <div>DRIFT VARIANCE: <span id="wm-drift-telemetry" style="color: var(--theme-primary); font-family: monospace;">0.0000</span></div>
                 <canvas id="wm-drift-canvas" width="220" height="40" style="width: 100%; height: 40px; background: rgba(0,0,0,0.5); border: 1px solid var(--theme-primary); margin-top: 5px; position: static;"></canvas>
@@ -1261,9 +1282,103 @@
                     });
                 }
 
-                // Timeline Branching UI
+                // Timeline Branching & Canvas Tree Visualizer UI
                 const btnWmBranch = document.getElementById('btn-wm-branch');
                 const wmTimelineSelect = document.getElementById('wm-timeline-select');
+                const treeCanvas = document.getElementById('wm-tree-canvas');
+                const treeCtx = treeCanvas ? treeCanvas.getContext('2d') : null;
+                let treeNodesLayout = [];
+
+                function renderTimelineTree() {
+                    if (!treeCtx || !treeCanvas || !gameClient || !gameClient.get_multiverse_tree_json) return;
+                    try {
+                        const raw = gameClient.get_multiverse_tree_json();
+                        const nodes = JSON.parse(raw || '[]');
+                        treeCtx.clearRect(0, 0, treeCanvas.width, treeCanvas.height);
+
+                        // Draw subtle grid
+                        treeCtx.strokeStyle = "rgba(0, 240, 255, 0.1)";
+                        treeCtx.lineWidth = 1;
+                        for (let x = 0; x < treeCanvas.width; x += 20) {
+                            treeCtx.beginPath();
+                            treeCtx.moveTo(x, 0);
+                            treeCtx.lineTo(x, treeCanvas.height);
+                            treeCtx.stroke();
+                        }
+
+                        treeNodesLayout = [];
+                        const count = nodes.length;
+                        const spacing = Math.min(60, (treeCanvas.width - 40) / Math.max(1, count - 1));
+
+                        nodes.forEach((n, idx) => {
+                            const x = 25 + idx * spacing;
+                            const y = n.name === 'main' ? 45 : (idx % 2 === 0 ? 25 : 65);
+                            treeNodesLayout.push({ name: n.name, x, y, active: n.active, drift: n.drift });
+                        });
+
+                        // Draw branch connection lines
+                        treeCtx.lineWidth = 2;
+                        for (let i = 1; i < treeNodesLayout.length; i++) {
+                            const child = treeNodesLayout[i];
+                            const parent = treeNodesLayout[0]; // connected to main
+                            treeCtx.strokeStyle = child.active ? "#00f0ff" : "rgba(0, 240, 255, 0.4)";
+                            treeCtx.beginPath();
+                            treeCtx.moveTo(parent.x, parent.y);
+                            treeCtx.lineTo(child.x, child.y);
+                            treeCtx.stroke();
+                        }
+
+                        // Draw node circles
+                        treeNodesLayout.forEach(n => {
+                            treeCtx.beginPath();
+                            treeCtx.arc(n.x, n.y, n.active ? 8 : 6, 0, Math.PI * 2);
+                            treeCtx.fillStyle = n.active ? "#05ffa1" : (n.drift > 0.05 ? "#ff007f" : "#00f0ff");
+                            treeCtx.fill();
+                            treeCtx.strokeStyle = n.active ? "#ffffff" : "#000000";
+                            treeCtx.lineWidth = 2;
+                            treeCtx.stroke();
+
+                            // Node label
+                            treeCtx.fillStyle = n.active ? "#ffffff" : "#888888";
+                            treeCtx.font = "9px monospace";
+                            treeCtx.textAlign = "center";
+                            treeCtx.fillText(n.name.length > 8 ? n.name.slice(0, 8) : n.name, n.x, n.y + 16);
+                        });
+                    } catch (e) {}
+                }
+
+                if (treeCanvas) {
+                    treeCanvas.addEventListener('click', (e) => {
+                        const rect = treeCanvas.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        const clickY = e.clientY - rect.top;
+
+                        for (const n of treeNodesLayout) {
+                            const dist = Math.hypot(clickX - n.x, clickY - n.y);
+                            if (dist <= 12) {
+                                if (gameClient && gameClient.switch_timeline) {
+                                    gameClient.switch_timeline(n.name);
+                                    log(`> TREE NAVIGATOR: SWITCHED TO ${n.name}`);
+                                    if (wmTimelineSelect) wmTimelineSelect.value = n.name;
+                                    renderTimelineTree();
+                                }
+                                break;
+                            }
+                        }
+                    });
+
+                    treeCanvas.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        const name = `Timeline ${Date.now().toString().slice(-4)}`;
+                        if (gameClient && gameClient.branch_timeline) {
+                            gameClient.branch_timeline(name);
+                            log(`> TREE NAVIGATOR: BRANCHED NEW TIMELINE: ${name}`);
+                            updateTimelineList();
+                            if (wmTimelineSelect) wmTimelineSelect.value = name;
+                            renderTimelineTree();
+                        }
+                    });
+                }
 
                 function updateTimelineList() {
                     if (!gameClient || !gameClient.list_timelines_json || !wmTimelineSelect) return;
@@ -1280,6 +1395,7 @@
                             }
                         });
                         wmTimelineSelect.value = currentVal;
+                        renderTimelineTree();
                     } catch (e) {}
                 }
 
@@ -1291,6 +1407,29 @@
                             log(`> BRANCHED ACTIVE TIMELINE: ${name}`);
                             updateTimelineList();
                             if (wmTimelineSelect) wmTimelineSelect.value = name;
+                            renderTimelineTree();
+                        }
+                    });
+                }
+
+                // Interactive inpainting buttons
+                const btnInpaintBox = document.getElementById('btn-wm-inpaint-box');
+                const btnInpaintBrush = document.getElementById('btn-wm-inpaint-brush');
+
+                if (btnInpaintBox) {
+                    btnInpaintBox.addEventListener('click', () => {
+                        if (gameClient && gameClient.trigger_world_model_inpaint_box) {
+                            gameClient.trigger_world_model_inpaint_box(0.2, 0.2, 0.8, 0.8);
+                            log("> INPAINTING REGION: BOX [0.2, 0.2] to [0.8, 0.8] DISPATCHED");
+                        }
+                    });
+                }
+
+                if (btnInpaintBrush) {
+                    btnInpaintBrush.addEventListener('click', () => {
+                        if (gameClient && gameClient.trigger_world_model_inpaint_sphere) {
+                            gameClient.trigger_world_model_inpaint_sphere(0.5, 0.5, 0.25);
+                            log("> INPAINTING REGION: SPHERICAL RADIUS [0.25] AT CENTER DISPATCHED");
                         }
                     });
                 }
@@ -1373,6 +1512,10 @@
                         driftHistory.push(drift);
                         if (driftHistory.length > maxDriftHistory) {
                             driftHistory.shift();
+                        }
+
+                        if (typeof renderTimelineTree === 'function') {
+                            renderTimelineTree();
                         }
 
                         if (driftCtx && driftCanvas) {

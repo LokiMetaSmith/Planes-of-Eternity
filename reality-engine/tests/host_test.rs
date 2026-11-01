@@ -771,3 +771,37 @@ fn test_vr_input_processing() {
     assert!(engine.time > initial_time);
     assert!(engine.camera.eye.x != 0.0);
 }
+
+#[test]
+fn test_world_model_multiverse_branching_and_tree() {
+    let bridge = reality_engine::genie_bridge::GenieBridge::new();
+    assert_eq!(bridge.list_timelines().len(), 0);
+
+    // Branch into an alternate timeline
+    let branched = bridge.branch_timeline("Timeline Alpha");
+    assert!(branched);
+    assert_eq!(bridge.list_timelines().len(), 1);
+
+    // Switch timeline
+    let switched = bridge.switch_timeline("Timeline Alpha");
+    assert!(switched);
+
+    // Serialize timeline tree JSON
+    let tree_json = bridge.get_multiverse_tree_json();
+    assert!(tree_json.contains("main"));
+    assert!(tree_json.contains("Timeline Alpha"));
+}
+
+#[test]
+fn test_spatial_landmark_registration_and_continuous_actions() {
+    let bridge = reality_engine::genie_bridge::GenieBridge::new();
+    let pos = [5.0f32, 2.0f32, -3.0f32];
+    let orient = [0.0f32, 0.0f32, 0.0f32, 1.0f32];
+    let latents = vec![0.5f32; 64 * 256];
+
+    bridge.register_spatial_landmark(pos, orient, &latents);
+
+    // Verify anchor was saved
+    let anchors_lock = bridge.anchor_buffer.lock().unwrap();
+    assert_eq!(anchors_lock.spatial_memory.anchors.len(), 1);
+}

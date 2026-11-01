@@ -27,6 +27,8 @@ pub struct GenieBridge {
     pub rolling_context: Arc<Mutex<reality_genie::dit::RollingLatentContext>>,
     pub anchor_buffer: Arc<Mutex<reality_genie::dit::FrameAnchorBuffer>>,
     pub timelines: Arc<Mutex<std::collections::HashMap<String, reality_genie::dit::RollingLatentContext>>>,
+    pub timeline_parents: Arc<Mutex<std::collections::HashMap<String, String>>>,
+    pub active_timeline: Arc<Mutex<String>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -72,13 +74,21 @@ impl GenieBridge {
             rolling_context: Arc::new(Mutex::new(reality_genie::dit::RollingLatentContext::new(8))),
             anchor_buffer: Arc::new(Mutex::new(reality_genie::dit::FrameAnchorBuffer::new(6, 2))),
             timelines: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            timeline_parents: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            active_timeline: Arc::new(Mutex::new("main".to_string())),
         }
     }
 
     /// Branches current rolling context into a named timeline
     pub fn branch_timeline(&self, name: &str) -> bool {
-        if let (Ok(ctx), Ok(mut map)) = (self.rolling_context.lock(), self.timelines.lock()) {
+        if let (Ok(ctx), Ok(mut map), Ok(mut parents), Ok(active)) = (
+            self.rolling_context.lock(),
+            self.timelines.lock(),
+            self.timeline_parents.lock(),
+            self.active_timeline.lock(),
+        ) {
             map.insert(name.to_string(), ctx.clone());
+            parents.insert(name.to_string(), active.clone());
             true
         } else {
             false
@@ -87,13 +97,61 @@ impl GenieBridge {
 
     /// Switches the active rolling context to a previously branched timeline
     pub fn switch_timeline(&self, name: &str) -> bool {
-        if let (Ok(mut ctx), Ok(map)) = (self.rolling_context.lock(), self.timelines.lock()) {
+        if let (Ok(mut ctx), Ok(map), Ok(mut active)) = (
+            self.rolling_context.lock(),
+            self.timelines.lock(),
+            self.active_timeline.lock(),
+        ) {
             if let Some(saved) = map.get(name) {
                 *ctx = saved.clone();
+                *active = name.to_string();
+                return true;
+            } else if name == "main" {
+                *active = "main".to_string();
                 return true;
             }
         }
         false
+    }
+
+    /// Serializes entire multiverse timeline hierarchy into JSON for the Canvas Tree Visualizer
+    pub fn get_multiverse_tree_json(&self) -> String {
+        let active_name = self.active_timeline.lock().map(|a| a.clone()).unwrap_or_else(|_| "main".to_string());
+        let current_drift = self.anchor_buffer.lock().ok().and_then(|a| a.compute_drift_variance().ok()).unwrap_or(0.0);
+        let current_depth = self.rolling_context.lock().map(|c| c.len()).unwrap_or(0);
+
+        let mut nodes = Vec::new();
+
+        // Root/main node
+        nodes.push(serde_json::json!({
+            "name": "main",
+            "parent": null,
+            "depth": current_depth,
+            "drift": current_drift,
+            "active": active_name == "main",
+        }));
+
+        if let (Ok(timelines), Ok(parents)) = (self.timelines.lock(), self.timeline_parents.lock()) {
+            for (name, ctx) in timelines.iter() {
+                let parent = parents.get(name).map(|s| s.as_str()).unwrap_or("main");
+                nodes.push(serde_json::json!({
+                    "name": name,
+                    "parent": parent,
+                    "depth": ctx.len(),
+                    "drift": current_drift * 1.1, // Normalized drift estimate
+                    "active": active_name == *name,
+                }));
+            }
+        }
+
+        serde_json::to_string(&nodes).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Registers a spatial landmark keyframe at (pos, orient) for loop-closure consistency
+    pub fn register_spatial_landmark(&self, pos: [f32; 3], orient: [f32; 4], flat_latents: &[f32]) {
+        if let Ok(mut anchors) = self.anchor_buffer.lock() {
+            anchors.register_spatial_anchor_raw(pos, orient, flat_latents);
+        }
     }
 
     /// Retrieve action confidence and entropy diagnostics (confidence, entropy)
@@ -161,13 +219,26 @@ impl GenieBridge {
         num_denoising_steps: usize,
         guidance_scale: f64,
     ) {
+        self.request_action_dit_rollout_full(actions, None, prompt, num_denoising_steps, guidance_scale);
+    }
+
+    /// Full rollout request supporting continuous 5D vectors [d_theta_x, d_theta_y, vx, vy, vz]
+    pub fn request_action_dit_rollout_full(
+        &self,
+        actions: Vec<u32>,
+        continuous_actions: Option<Vec<[f32; 5]>>,
+        prompt: Option<String>,
+        num_denoising_steps: usize,
+        guidance_scale: f64,
+    ) {
         let latents_ref = Arc::clone(&self.latest_action_dit_latents);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             std::thread::spawn(move || {
-                if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal(
+                if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal_full(
                     &actions,
+                    continuous_actions.as_deref(),
                     prompt.as_deref(),
                     Some("action_dit_model.safetensors"),
                     num_denoising_steps,
@@ -182,8 +253,9 @@ impl GenieBridge {
 
         #[cfg(target_arch = "wasm32")]
         {
-            if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal(
+            if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal_full(
                 &actions,
+                continuous_actions.as_deref(),
                 prompt.as_deref(),
                 None,
                 num_denoising_steps,

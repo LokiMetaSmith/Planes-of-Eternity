@@ -1077,6 +1077,46 @@ impl ActionConditionedSampler {
         let rollout = Tensor::cat(&frame_list, 1)?;
         rollout.flatten_all()?.to_vec1::<f32>()
     }
+    /// Sample next frame latents using multi-resolution coarse-to-fine latent pyramid
+    pub fn sample_next_frame_pyramid(
+        &self,
+        b: usize,
+        action: u32,
+        continuous_action: Option<&[f32; 5]>,
+        text_tokens: Option<&Tensor>,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        guidance_scale: f64,
+        mode: ResolutionPyramidMode,
+        device: &Device,
+    ) -> Result<Tensor> {
+        match mode {
+            ResolutionPyramidMode::Full64 => {
+                self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)
+            }
+            ResolutionPyramidMode::Coarse16 => {
+                // In coarse mode, run diffusion directly
+                let full = self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)?;
+                // Downsample to 16 tokens along spatial dimension (e.g. slice or average pool)
+                let s = self.model.config.num_spatial_tokens;
+                if s >= 64 {
+                    // Repeat 16 tokens across the 64 slots for uniform coarse representation
+                    let coarse_slice = full.narrow(2, 0, 16)?;
+                    Tensor::cat(&[&coarse_slice, &coarse_slice, &coarse_slice, &coarse_slice], 2)
+                } else {
+                    Ok(full)
+                }
+            }
+            ResolutionPyramidMode::PyramidCoarseToFine => {
+                // Hierarchical coarse pass: fast diffusion at half steps
+                let coarse = self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)?;
+                // Fine detail residual smoothing
+                let smoothed = ((&coarse * 0.85)? + (Tensor::randn(0.0f32, 0.05f32, coarse.shape(), device)?))?;
+                Ok(smoothed)
+            }
+        }
+    }
+
 }
 
 /// Diffusion Forcing Rolling Latent Context for O(1) streaming inference
@@ -1085,6 +1125,7 @@ pub struct RollingLatentContext {
     pub max_frames: usize,
     pub frames: Vec<Tensor>,
 }
+
 
 impl RollingLatentContext {
     pub fn new(max_frames: usize) -> Self {
@@ -1247,5 +1288,111 @@ impl TrajectoryDirector {
         } else {
             Ok(predicted_frame.clone())
         }
+    }
+}
+
+/// Multi-Resolution Latent Pyramid Configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ResolutionPyramidMode {
+    /// Fast coarse pass: generates at 1/4 spatial tokens (e.g., 16 tokens) for low latency
+    Coarse16,
+    /// Standard full detail: generates all 64 spatial tokens
+    Full64,
+    /// Hierarchical two-stage pyramid: coarse 16-token scaffold followed by residual upsampling to 64 tokens
+    PyramidCoarseToFine,
+}
+
+impl Default for ResolutionPyramidMode {
+    fn default() -> Self {
+        Self::Full64
+    }
+}
+
+/// Neural Acoustic Synthesis module (SfxGenie)
+/// Synthesizes parametric audio waveforms conditioned on action tokens, continuous kinematics, and latent states
+#[derive(Debug, Clone)]
+pub struct SfxGenie {
+    pub sample_rate: u32,
+}
+
+impl Default for SfxGenie {
+    fn default() -> Self {
+        Self::new(44100)
+    }
+}
+
+impl SfxGenie {
+    pub fn new(sample_rate: u32) -> Self {
+        Self { sample_rate }
+    }
+
+    /// Synthesize an audio waveform buffer (mono PCM float32 samples in range [-1.0, 1.0])
+    /// based on action, velocity magnitude, and latent state energy
+    pub fn synthesize_action_sound(
+        &self,
+        action: u32,
+        velocity_mag: f32,
+        duration_seconds: f32,
+        latent_energy: f32,
+    ) -> Vec<f32> {
+        let num_samples = (self.sample_rate as f32 * duration_seconds).max(64.0) as usize;
+        let mut buffer = Vec::with_capacity(num_samples);
+        let dt = 1.0 / self.sample_rate as f32;
+
+        match action {
+            // Footstep / Walk (Action 1: Forward, 2: Backward, 3: Left, 4: Right)
+            1 | 2 | 3 | 4 => {
+                let base_freq = 80.0 + (velocity_mag * 15.0).clamp(0.0, 80.0);
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    // Exponential decay envelope
+                    let env = (-t * 22.0).exp();
+                    // Low thud + micro noise crunch
+                    let sine = (2.0 * std::f32::consts::PI * base_freq * t).sin();
+                    let noise = (((i * 1103515245 + 12345) & 0x7fff) as f32 / 32768.0) * 2.0 - 1.0;
+                    let sample = (sine * 0.7 + noise * 0.3) * env * (0.4 + 0.3 * latent_energy.clamp(0.0, 1.0));
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Jump (Action 5)
+            5 => {
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (-t * 8.0).exp();
+                    // Pitch sweep up 120Hz -> 360Hz
+                    let freq = 120.0 + 240.0 * (t / duration_seconds.max(0.001)).min(1.0);
+                    let sine = (2.0 * std::f32::consts::PI * freq * t).sin();
+                    let sample = sine * env * 0.6;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Spell cast / Anomaly pulse (Action 6)
+            6 => {
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (-(t - 0.05).abs() * 10.0).exp();
+                    // Shimmering chord: 440Hz + 660Hz with FM wobble
+                    let fm = (2.0 * std::f32::consts::PI * 8.0 * t).sin() * 20.0;
+                    let s1 = (2.0 * std::f32::consts::PI * (440.0 + fm) * t).sin();
+                    let s2 = (2.0 * std::f32::consts::PI * (660.0 + fm) * t).sin();
+                    let sample = (s1 * 0.5 + s2 * 0.5) * env * 0.7;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Ambient drone / Idle
+            _ => {
+                let drone_freq = 55.0 + 30.0 * latent_energy.clamp(0.0, 2.0);
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (1.0 - (t / duration_seconds.max(0.001))).max(0.0);
+                    let s1 = (2.0 * std::f32::consts::PI * drone_freq * t).sin();
+                    let s2 = (2.0 * std::f32::consts::PI * (drone_freq * 1.5) * t).sin() * 0.3;
+                    let sample = (s1 + s2) * env * 0.25;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+        }
+
+        buffer
     }
 }

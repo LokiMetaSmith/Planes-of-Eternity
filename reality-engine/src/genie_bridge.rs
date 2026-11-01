@@ -29,6 +29,10 @@ pub struct GenieBridge {
     pub timelines: Arc<Mutex<std::collections::HashMap<String, reality_genie::dit::RollingLatentContext>>>,
     pub timeline_parents: Arc<Mutex<std::collections::HashMap<String, String>>>,
     pub active_timeline: Arc<Mutex<String>>,
+    pub time_echo: Arc<Mutex<TimeEchoReplay>>,
+    pub narrative_director: Arc<Mutex<NarrativeDirector>>,
+    pub resolution_mode: Arc<Mutex<reality_genie::dit::ResolutionPyramidMode>>,
+    pub sfx_genie: Arc<Mutex<reality_genie::dit::SfxGenie>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -76,6 +80,10 @@ impl GenieBridge {
             timelines: Arc::new(Mutex::new(std::collections::HashMap::new())),
             timeline_parents: Arc::new(Mutex::new(std::collections::HashMap::new())),
             active_timeline: Arc::new(Mutex::new("main".to_string())),
+            time_echo: Arc::new(Mutex::new(TimeEchoReplay::new(120))),
+            narrative_director: Arc::new(Mutex::new(NarrativeDirector::default())),
+            resolution_mode: Arc::new(Mutex::new(reality_genie::dit::ResolutionPyramidMode::Full64)),
+            sfx_genie: Arc::new(Mutex::new(reality_genie::dit::SfxGenie::new(44100))),
         }
     }
 
@@ -584,4 +592,126 @@ pub struct NpcAction {
     pub target_y: Option<f32>,
     pub target_z: Option<f32>,
     pub chat_message: Option<String>,
+}
+
+/// Time-Echo Replay item recording actual player trajectory vs predicted world model trajectory
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TimeEchoFrame {
+    pub timestamp: f64,
+    pub player_position: [f32; 3],
+    pub player_orientation: [f32; 4],
+    pub predicted_latents: Option<Vec<f32>>,
+    pub action: u32,
+    pub continuous_action: [f32; 5],
+}
+
+/// Time-Echo Replay Buffer for recording, scrubbing, and visualizing neural divergence
+#[derive(Debug, Clone, Default)]
+pub struct TimeEchoReplay {
+    pub frames: Vec<TimeEchoFrame>,
+    pub max_capacity: usize,
+    pub scrub_index: usize,
+    pub is_replaying: bool,
+}
+
+impl TimeEchoReplay {
+    pub fn new(max_capacity: usize) -> Self {
+        Self {
+            frames: Vec::with_capacity(max_capacity),
+            max_capacity,
+            scrub_index: 0,
+            is_replaying: false,
+        }
+    }
+
+    pub fn record(
+        &mut self,
+        timestamp: f64,
+        player_position: [f32; 3],
+        player_orientation: [f32; 4],
+        predicted_latents: Option<Vec<f32>>,
+        action: u32,
+        continuous_action: [f32; 5],
+    ) {
+        if self.frames.len() >= self.max_capacity && self.max_capacity > 0 {
+            self.frames.remove(0);
+        }
+        self.frames.push(TimeEchoFrame {
+            timestamp,
+            player_position,
+            player_orientation,
+            predicted_latents,
+            action,
+            continuous_action,
+        });
+        self.scrub_index = self.frames.len().saturating_sub(1);
+    }
+
+    pub fn get_current_scrub_frame(&self) -> Option<&TimeEchoFrame> {
+        self.frames.get(self.scrub_index)
+    }
+
+    pub fn set_scrub_percentage(&mut self, pct: f32) {
+        if self.frames.is_empty() {
+            self.scrub_index = 0;
+            return;
+        }
+        let clamped = pct.clamp(0.0, 1.0);
+        self.scrub_index = ((self.frames.len() - 1) as f32 * clamped).round() as usize;
+    }
+}
+
+/// Hierarchical Narrative World Director for contextual prompt conditioning
+#[derive(Debug, Clone)]
+pub struct NarrativeDirector {
+    pub enabled: bool,
+    pub event_interval_seconds: f32,
+    pub timer: f32,
+    pub last_narrative_prompt: String,
+    pub candidate_events: Vec<(&'static str, &'static str)>,
+}
+
+impl Default for NarrativeDirector {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            event_interval_seconds: 12.0,
+            timer: 0.0,
+            last_narrative_prompt: String::new(),
+            candidate_events: vec![
+                ("Sudden Neon Aurora", "luminescent cyan ripples descending from crystalline ionosphere"),
+                ("Gravity Anomaly Inversion", "floating geometric monoliths with inverse gravitational pull"),
+                ("Volcanic Ember Storm", "smoldering obsidian spires shedding incandescent embers"),
+                ("Cybernetic Fog Surge", "dense volumetric scanline mist illuminating cyber data nodes"),
+                ("Temporal Distortion", "crystalline refraction warping spatial geometry into fractal mirrors"),
+            ],
+        }
+    }
+}
+
+impl NarrativeDirector {
+    pub fn update(&mut self, dt: f32, drift_variance: f32, player_velocity_mag: f32) -> Option<String> {
+        if !self.enabled {
+            return None;
+        }
+
+        self.timer += dt;
+        if self.timer >= self.event_interval_seconds || drift_variance > 1.2 {
+            self.timer = 0.0;
+            // Select event based on conditions
+            let idx = if drift_variance > 1.0 {
+                4 // Temporal Distortion to absorb drift
+            } else if player_velocity_mag > 6.0 {
+                3 // Cybernetic Fog Surge on high velocity
+            } else {
+                (self.timer as usize + (drift_variance * 100.0) as usize) % self.candidate_events.len()
+            };
+
+            let (title, prompt) = self.candidate_events[idx % self.candidate_events.len()];
+            self.last_narrative_prompt = format!("[{}] {}", title, prompt);
+            Some(self.last_narrative_prompt.clone())
+        } else {
+            None
+        }
+    }
 }

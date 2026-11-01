@@ -5242,6 +5242,55 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         false
     }
 }
+
+    pub fn set_world_model_resolution_mode(&self, mode: &str) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut res) = state.voxel_world.genie.resolution_mode.lock() {
+                *res = match mode {
+                    "coarse" => reality_genie::dit::ResolutionPyramidMode::Coarse16,
+                    "pyramid" => reality_genie::dit::ResolutionPyramidMode::PyramidCoarseToFine,
+                    _ => reality_genie::dit::ResolutionPyramidMode::Full64,
+                };
+            }
+        }
+    }
+
+    pub fn toggle_narrative_director(&self, enable: bool) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut director) = state.voxel_world.genie.narrative_director.lock() {
+                director.enabled = enable;
+            }
+        }
+    }
+
+    pub fn get_active_narrative_prompt(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.active_narrative_prompt.clone()
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn set_time_echo_scrub(&self, pct: f32) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut replay) = state.voxel_world.genie.time_echo.lock() {
+                replay.set_scrub_percentage(pct);
+            }
+        }
+    }
+
+    pub fn get_time_echo_replay_info_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(replay) = state.voxel_world.genie.time_echo.lock() {
+                return serde_json::json!({
+                    "count": replay.frames.len(),
+                    "scrub_index": replay.scrub_index,
+                    "is_replaying": replay.is_replaying,
+                }).to_string();
+            }
+        }
+        "{}".to_string()
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -5286,4 +5335,5 @@ pub async fn generate_splats_worker_entry(prompt: String) -> String {
     }
 
     serde_json::to_string(&direct_splats).unwrap_or_else(|_| String::from("[]"))
+
 }

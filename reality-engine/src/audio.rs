@@ -117,4 +117,24 @@ impl AudioManager {
             }
         }
     }
+
+    /// Plays synthesized parametric waveform buffer from SfxGenie
+    pub fn play_sfx_buffer(&self, buffer: &[f32], sample_rate: f32) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(ctx) = &self.ctx {
+            if let Ok(audio_buf) = ctx.create_buffer(1, buffer.len() as u32, sample_rate) {
+                let mut buf_copy = buffer.to_vec();
+                let _ = audio_buf.copy_to_channel(&mut buf_copy, 0);
+                if let Ok(source) = ctx.create_buffer_source() {
+                    source.set_buffer(Some(&audio_buf));
+                    let _ = source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
+                    let _ = source.start();
+                }
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (buffer, sample_rate);
+        }
+    }
 }

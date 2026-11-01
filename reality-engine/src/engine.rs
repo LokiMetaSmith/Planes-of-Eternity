@@ -96,7 +96,8 @@ pub struct Engine {
     pub world_model_cfg_scale: f64,
     pub world_model_steps: usize,
     pub world_model_autopilot: bool,
-    pub autopilot_step_accumulator: f32,
+    pub autopilot_step_accumulator: f32,    pub active_narrative_prompt: String,
+
 }
 
 pub struct CollisionResult {
@@ -267,6 +268,7 @@ impl Engine {
             pending_mouse_delta: [0.0, 0.0],
             world_model_cfg_scale: 1.5,
             world_model_steps: 2,
+            active_narrative_prompt: String::new(),
             world_model_autopilot: false,
             autopilot_step_accumulator: 0.0,
         }
@@ -414,6 +416,35 @@ impl Engine {
                     self.world_model_steps,
                     self.world_model_cfg_scale,
                 );
+            }
+
+            // Update Narrative Director
+            let drift_var = vw.genie.anchor_buffer.lock().ok().and_then(|a| a.compute_drift_variance().ok()).unwrap_or(0.0);
+            let p_vel_mag = self.camera.velocity.magnitude();
+            if let Ok(mut director) = vw.genie.narrative_director.lock() {
+                if let Some(narrative_prompt) = director.update(dt, drift_var, p_vel_mag) {
+                    self.active_narrative_prompt = narrative_prompt;
+                }
+            }
+
+            // Audio Synthesis (SfxGenie) for player actions
+            if !self.active_action_buffer.is_empty() {
+                let first_act = self.active_action_buffer[0];
+                if let Ok(sfx) = vw.genie.sfx_genie.lock() {
+                    let sfx_buf = sfx.synthesize_action_sound(first_act, p_vel_mag, 0.08, drift_var);
+                    self.audio.play_sfx_buffer(&sfx_buf, 44100.0);
+                }
+            }
+
+            // Record into TimeEchoReplay
+            if let Ok(mut replay) = vw.genie.time_echo.lock() {
+                let p_pos = [self.camera.eye.x, self.camera.eye.y, self.camera.eye.z];
+                let (sin_y, cos_y) = (self.camera.yaw * 0.5).sin_cos();
+                let (sin_p, cos_p) = (self.camera.pitch * 0.5).sin_cos();
+                let p_orient = [sin_p * cos_y, cos_p * sin_y, -sin_p * sin_y, cos_p * cos_y];
+                let act = self.active_action_buffer.last().copied().unwrap_or(0);
+                let cont = [self.pending_mouse_delta[0], self.pending_mouse_delta[1], self.camera.velocity.x, self.camera.velocity.y, self.camera.velocity.z];
+                replay.record(crate::projector::get_current_timestamp() as f64, p_pos, p_orient, None, act, cont);
             }
 
             // Poll predicted spatiotemporal trajectory latents and decode into 4D splat playback

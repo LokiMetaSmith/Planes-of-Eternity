@@ -34,6 +34,262 @@ impl Default for DiTConfig {
 }
 
 // ============================================================================
+// Episodic Memory Tree & Semantic Knowledge Graph
+// ============================================================================
+
+/// Episodic node in the world model knowledge graph
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EpisodicMemoryNode {
+    pub id: u64,
+    pub timestamp_ms: u64,
+    pub semantic_tag: String,
+    pub location: [f32; 3],
+    pub latent_embedding: Vec<f32>,
+    pub related_node_ids: Vec<u64>,
+}
+
+/// Episodic Memory Graph that indexes visited spatial landmarks and events for long-horizon recall
+#[derive(Debug, Clone)]
+pub struct EpisodicMemoryGraph {
+    pub nodes: Vec<EpisodicMemoryNode>,
+    pub next_node_id: u64,
+}
+
+impl Default for EpisodicMemoryGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EpisodicMemoryGraph {
+    pub fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            next_node_id: 1,
+        }
+    }
+
+    /// Stores a new episodic experience into the graph
+    pub fn record_episode(
+        &mut self,
+        tag: &str,
+        pos: [f32; 3],
+        latents: &[f32],
+        timestamp_ms: u64,
+    ) -> u64 {
+        let node_id = self.next_node_id;
+        self.next_node_id += 1;
+
+        // Find nearest spatial neighbor to form a semantic edge
+        let mut related_node_ids = Vec::new();
+        let mut min_d = 50.0f32;
+        let mut closest_id = None;
+
+        for node in &self.nodes {
+            let dx = pos[0] - node.location[0];
+            let dy = pos[1] - node.location[1];
+            let dz = pos[2] - node.location[2];
+            let d = (dx * dx + dy * dy + dz * dz).sqrt();
+            if d < min_d {
+                min_d = d;
+                closest_id = Some(node.id);
+            }
+        }
+        if let Some(c_id) = closest_id {
+            related_node_ids.push(c_id);
+        }
+
+        self.nodes.push(EpisodicMemoryNode {
+            id: node_id,
+            timestamp_ms,
+            semantic_tag: tag.to_string(),
+            location: pos,
+            latent_embedding: latents.to_vec(),
+            related_node_ids,
+        });
+
+        node_id
+    }
+
+    /// Queries memory graph for episodes matching a query latent embedding or tag
+    pub fn recall_episodes(&self, query_latents: &[f32], max_results: usize) -> Vec<&EpisodicMemoryNode> {
+        let mut scored: Vec<(&EpisodicMemoryNode, f32)> = self.nodes.iter().map(|node| {
+            let n = query_latents.len().min(node.latent_embedding.len());
+            let mut dot = 0.0f32;
+            for i in 0..n {
+                dot += query_latents[i] * node.latent_embedding[i];
+            }
+            (node, dot)
+        }).collect();
+
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.into_iter().take(max_results).map(|(node, _)| node).collect()
+    }
+}
+
+// ============================================================================
+// Neural-GI (Dynamic Day/Night Shadows & Global Illumination Latent Field)
+// ============================================================================
+
+/// Spherical Harmonics 9-coefficient color representation for global illumination
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SphericalHarmonicsL2 {
+    pub coeffs: [[f32; 3]; 9],
+}
+
+/// Global Illumination sample at a given 3D world coordinate
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NeuralGiSample {
+    pub irradiance_rgb: [f32; 3],
+    pub ambient_occlusion: f32,
+    pub directional_shadow_factor: f32,
+    pub sun_direction: [f32; 3],
+}
+
+/// Dynamic Neural Global Illumination grid conditioned on celestial time-of-day and latent tokens
+#[derive(Debug, Clone)]
+pub struct NeuralGiField {
+    pub grid_resolution: usize,
+    pub sh_coefficients: SphericalHarmonicsL2,
+    pub ambient_occlusion_grid: Vec<f32>,
+}
+
+impl NeuralGiField {
+    pub fn new(grid_resolution: usize) -> Self {
+        let total_cells = grid_resolution * grid_resolution * grid_resolution;
+        let mut base_sh = [[0.0f32; 3]; 9];
+        // Ambient base L00
+        base_sh[0] = [0.4, 0.45, 0.5];
+
+        Self {
+            grid_resolution,
+            sh_coefficients: SphericalHarmonicsL2 { coeffs: base_sh },
+            ambient_occlusion_grid: vec![1.0; total_cells],
+        }
+    }
+
+    /// Evaluates lighting parameters given celestial time [0.0 = midnight, 0.5 = noon]
+    pub fn evaluate_gi(&self, pos: [f32; 3], celestial_time: f32, latents: &[f32]) -> NeuralGiSample {
+        let angle = celestial_time * 2.0 * std::f32::consts::PI;
+        let sun_x = angle.cos();
+        let sun_y = angle.sin();
+        let sun_z = 0.3;
+        let sun_len = (sun_x * sun_x + sun_y * sun_y + sun_z * sun_z).sqrt().max(1e-6);
+        let sun_dir = [sun_x / sun_len, sun_y / sun_len, sun_z / sun_len];
+
+        let is_daytime = sun_y > 0.0;
+        let daylight_intensity = (sun_y).max(0.0);
+
+        // Derive subtle latent perturbation
+        let latent_occlusion_bias = latents.first().copied().unwrap_or(0.0) * 0.05;
+
+        let ao = (0.75 - (pos[1] * 0.02).clamp(0.0, 0.25) + latent_occlusion_bias).clamp(0.2, 1.0);
+        let shadow = if is_daytime {
+            (0.3 + daylight_intensity * 0.7).clamp(0.0, 1.0)
+        } else {
+            0.15 // Moonlight
+        };
+
+        let irradiance_rgb = if is_daytime {
+            [
+                (0.8 * daylight_intensity + 0.15 * ao).clamp(0.05, 1.2),
+                (0.75 * daylight_intensity + 0.18 * ao).clamp(0.05, 1.2),
+                (0.6 * daylight_intensity + 0.25 * ao).clamp(0.05, 1.2),
+            ]
+        } else {
+            [0.08 * ao, 0.12 * ao, 0.25 * ao]
+        };
+
+        NeuralGiSample {
+            irradiance_rgb,
+            ambient_occlusion: ao,
+            directional_shadow_factor: shadow,
+            sun_direction: sun_dir,
+        }
+    }
+}
+
+// ============================================================================
+// SuperGenie (Neural Latent Super-Resolution & Upscaling)
+// ============================================================================
+
+/// Neural Latent Super-Resolution model that upscales 64 coarse spatial tokens
+/// to 256 high-resolution tokens with cross-scale residual refinement
+#[derive(Debug, Clone)]
+pub struct SuperGenieUpscaler {
+    pub in_channels: usize,
+    pub out_channels: usize,
+    pub upsample_factor: usize,
+    pub weights: Vec<f32>,
+}
+
+impl SuperGenieUpscaler {
+    pub fn new(in_channels: usize, out_channels: usize, upsample_factor: usize) -> Self {
+        let mut rng_seed = 543216789u32;
+        let mut pseudo_rand = || -> f32 {
+            rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            ((rng_seed as f32 / 4294967296.0) - 0.5) * 0.1
+        };
+
+        let num_weights = in_channels * out_channels * upsample_factor;
+        let mut weights = Vec::with_capacity(num_weights);
+        for _ in 0..num_weights {
+            weights.push(pseudo_rand());
+        }
+
+        Self {
+            in_channels,
+            out_channels,
+            upsample_factor,
+            weights,
+        }
+    }
+
+    /// Upscales a coarse latent sequence of shape [T, S_in, C] to [T, S_in * upsample_factor, C]
+    pub fn upscale_latents(&self, coarse_latents: &[f32], num_coarse_tokens: usize) -> Vec<f32> {
+        let total_coarse = coarse_latents.len();
+        let channels = if num_coarse_tokens > 0 {
+            total_coarse / num_coarse_tokens
+        } else {
+            self.in_channels
+        };
+
+        let target_tokens = num_coarse_tokens * self.upsample_factor;
+        let mut upscaled = Vec::with_capacity(target_tokens * self.out_channels);
+
+        for t_idx in 0..target_tokens {
+            let coarse_idx = t_idx / self.upsample_factor;
+            let sub_idx = t_idx % self.upsample_factor;
+
+            let c_offset = coarse_idx * channels;
+            let c_slice = if c_offset + channels <= total_coarse {
+                &coarse_latents[c_offset..c_offset + channels]
+            } else {
+                &[]
+            };
+
+            for out_c in 0..self.out_channels {
+                let w_offset = (out_c * self.in_channels * self.upsample_factor) + (sub_idx * self.in_channels);
+                let mut sum = 0.0f32;
+                for in_c in 0..channels.min(self.in_channels) {
+                    let w = self.weights.get(w_offset + in_c).copied().unwrap_or(0.0);
+                    let val = c_slice.get(in_c).copied().unwrap_or(0.0);
+                    sum += w * val;
+                }
+                // Bilinear residual interpolation from adjacent token
+                let next_coarse_idx = (coarse_idx + 1).min(num_coarse_tokens.saturating_sub(1));
+                let next_val = coarse_latents.get(next_coarse_idx * channels + (out_c % channels)).copied().unwrap_or(0.0);
+                let alpha = (sub_idx as f32) / (self.upsample_factor as f32);
+                let interpolated = sum * 0.8 + next_val * alpha * 0.2;
+                upscaled.push(interpolated);
+            }
+        }
+
+        upscaled
+    }
+}
+
+// ============================================================================
 // Neural Fluid & Particle Latent Simulation (Navier-Stokes DiT)
 // ============================================================================
 
@@ -879,6 +1135,12 @@ pub struct SwarmAgentState {
     pub velocity: [f32; 3],
     pub intent_action: usize,
     pub influence_radius: f32,
+    /// Emotional valence [-1.0 (hostile/sad) to +1.0 (friendly/joyful)]
+    pub emotional_valence: f32,
+    /// Conversational intent token / dialogue state
+    pub dialogue_intent: u32,
+    /// Last diffused speech message
+    pub last_speech_utterance: Option<String>,
 }
 
 /// Multi-Agent Co-Diffusion Engine: evaluates N x N cross-agent attention to model collective flocking/swarm emergent dynamics in latent space
@@ -1019,11 +1281,46 @@ impl MultiAgentCoDiffusion {
             new_velocities.push(v);
         }
 
-        // Apply positions
+        // Update agent positions and diffuse social conversational interactions
         for (i, v) in new_velocities.into_iter().enumerate() {
             self.agents[i].velocity = v;
             for k in 0..3 {
                 self.agents[i].position[k] += v[k] * dt;
+            }
+
+            // Diffuse dialogue and emotion based on nearest neighbor in swarm
+            let mut nearest_j = None;
+            let mut min_d = 999.0f32;
+            for j in 0..n {
+                if i == j { continue; }
+                let dx = self.agents[i].position[0] - self.agents[j].position[0];
+                let dy = self.agents[i].position[1] - self.agents[j].position[1];
+                let dz = self.agents[i].position[2] - self.agents[j].position[2];
+                let d = (dx * dx + dy * dy + dz * dz).sqrt();
+                if d < min_d {
+                    min_d = d;
+                    nearest_j = Some(j);
+                }
+            }
+
+            if let Some(j) = nearest_j {
+                if min_d < 4.0 {
+                    // Social interaction zone: exchange emotional valence
+                    let neighbor_val = self.agents[j].emotional_valence;
+                    self.agents[i].emotional_valence = self.agents[i].emotional_valence * 0.9 + neighbor_val * 0.1;
+
+                    // Generate contextual conversational utterance
+                    if self.agents[i].last_speech_utterance.is_none() || (i + (dt * 100.0) as usize) % 30 == 0 {
+                        let utterance = if self.agents[i].emotional_valence > 0.3 {
+                            format!("[Swarm-AI #{}] Greetings, traveler. Collective consensus aligned.", self.agents[i].id)
+                        } else if self.agents[i].emotional_valence < -0.3 {
+                            format!("[Swarm-AI #{}] Threat detected! Scattering trajectory.", self.agents[i].id)
+                        } else {
+                            format!("[Swarm-AI #{}] Synchronizing neural vectors with Agent #{}.", self.agents[i].id, self.agents[j].id)
+                        };
+                        self.agents[i].last_speech_utterance = Some(utterance);
+                    }
+                }
             }
         }
 

@@ -857,6 +857,25 @@ fn test_p2p_latent_consensus_and_npc_neural_empathy() {
 }
 
 #[test]
+fn test_webrtc_latent_chunk_streamer() {
+    let mut streamer_a = reality_engine::genie_bridge::WebRtcLatentChunkStreamer::new();
+    let mut streamer_b = reality_engine::genie_bridge::WebRtcLatentChunkStreamer::new();
+
+    let chunk_key = [1, 0, -2];
+    let original_latents = vec![0.5f32, -0.2f32, 1.4f32, 0.0f32];
+
+    let delta_packet = streamer_a.encode_chunk_delta(chunk_key, &original_latents, 1000);
+    assert_eq!(delta_packet.chunk_key, chunk_key);
+    assert_eq!(delta_packet.quantized_deltas.len(), 4);
+
+    let decoded_latents = streamer_b.decode_and_merge_chunk_delta(&delta_packet);
+    assert_eq!(streamer_b.total_chunks_synchronized, 1);
+    for (orig, dec) in original_latents.iter().zip(decoded_latents.iter()) {
+        assert!((orig - dec).abs() < 0.05);
+    }
+}
+
+#[test]
 fn test_latent_rollback_netcode_reconciliation() {
     let mut netcode = reality_engine::genie_bridge::LatentRollbackNetcode::new(32);
     for frame in 1..=10 {

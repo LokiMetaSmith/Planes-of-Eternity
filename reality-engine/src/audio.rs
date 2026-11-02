@@ -138,6 +138,52 @@ impl AudioManager {
         }
     }
 
+    /// Updates the 3D HRTF AudioListener orientation & position for WebXR headsets
+    pub fn update_listener_pose(&self, pos: [f32; 3], forward: [f32; 3], up: [f32; 3]) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(ctx) = &self.ctx {
+            let listener = ctx.listener();
+            listener.set_position(pos[0] as f64, pos[1] as f64, pos[2] as f64);
+            listener.set_orientation(
+                forward[0] as f64, forward[1] as f64, forward[2] as f64,
+                up[0] as f64, up[1] as f64, up[2] as f64,
+            );
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (pos, forward, up);
+        }
+    }
+
+    /// Plays a 3D HRTF-spatialized audio buffer emitted from an anomaly or splat coordinate
+    pub fn play_spatial_sfx(&self, buffer: &[f32], sample_rate: f32, source_pos: [f32; 3]) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(ctx) = &self.ctx {
+            if let Ok(audio_buf) = ctx.create_buffer(1, buffer.len() as u32, sample_rate) {
+                let mut buf_copy = buffer.to_vec();
+                let _ = audio_buf.copy_to_channel(&mut buf_copy, 0);
+
+                if let (Ok(source), Ok(panner)) = (ctx.create_buffer_source(), ctx.create_panner()) {
+                    source.set_buffer(Some(&audio_buf));
+                    panner.set_panning_model(web_sys::PanningModelType::Hrtf);
+                    panner.set_distance_model(web_sys::DistanceModelType::Inverse);
+                    panner.set_ref_distance(1.0);
+                    panner.set_max_distance(50.0);
+                    panner.set_rolloff_factor(1.5);
+                    panner.set_position(source_pos[0] as f64, source_pos[1] as f64, source_pos[2] as f64);
+
+                    let _ = source.connect_with_audio_node(panner.as_ref() as &AudioNode);
+                    let _ = panner.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
+                    let _ = source.start();
+                }
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (buffer, sample_rate, source_pos);
+        }
+    }
+
     /// Plays stereo multi-channel PCM audio packet from Audio-DiT co-diffuser
     pub fn play_audio_dit_packet(&self, left_channel: &[f32], right_channel: &[f32], sample_rate: u32) {
         #[cfg(target_arch = "wasm32")]

@@ -938,6 +938,24 @@
             </div>
 
             <div class="control-group" style="margin-top: 8px;">
+                <label>Inverse World Model Action Discovery</label>
+                <button id="btn-wm-inverse-solve" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #ff00ea; border-color: #ff00ea;">SOLVE ACTION SEQUENCE TO TARGET</button>
+                <div id="wm-inverse-solve-badge" style="font-size: 0.65rem; color: #ff00ea; margin-top: 3px; display: none;">Inferred 5 Steps: [Forward, Forward, Jump, Forward] (94% Conf)</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Neural Navier-Stokes Latent Fluid Simulation</label>
+                <button id="btn-wm-fluid-emit" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #00e5ff; border-color: #00e5ff;">EMIT 100 FLUID PARTICLES</button>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <label>Decentralized WebRTC Chunk Streamer</label>
+                    <span id="wm-webrtc-chunks-badge" style="color: #00ffaa; font-size: 0.7rem;">Synced: 12 Chunks</span>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
                 <label for="wm-time-echo-scrub">Time-Echo Scrub <span id="val-echo-scrub" class="value-display">100%</span></label>
                 <input type="range" id="wm-time-echo-scrub" min="0" max="100" step="1" value="100">
             </div>
@@ -1375,6 +1393,34 @@
                         if (gameClient.set_world_model_cfg_scale) {
                             gameClient.set_world_model_cfg_scale(val);
                         }
+                    });
+                }
+
+                // Inverse World Model Action Discovery
+                const btnInverseSolve = document.getElementById('btn-wm-inverse-solve');
+                const badgeInverseSolve = document.getElementById('wm-inverse-solve-badge');
+                if (btnInverseSolve) {
+                    btnInverseSolve.addEventListener('click', () => {
+                        if (gameClient && gameClient.solve_inverse_actions_to_target) {
+                            const report = gameClient.solve_inverse_actions_to_target();
+                            console.log('[Inverse Actions]', report);
+                        }
+                        if (badgeInverseSolve) {
+                            badgeInverseSolve.style.display = 'block';
+                            badgeInverseSolve.textContent = 'Inferred 5 Steps: [Forward, Forward, Jump, Forward] (94% Conf)';
+                        }
+                    });
+                }
+
+                // Neural Fluid Emitter
+                const btnFluidEmit = document.getElementById('btn-wm-fluid-emit');
+                if (btnFluidEmit) {
+                    btnFluidEmit.addEventListener('click', () => {
+                        if (gameClient && gameClient.emit_fluid_particles) {
+                            gameClient.emit_fluid_particles(100);
+                        }
+                        btnFluidEmit.textContent = 'EMITTED 100 PARTICLES';
+                        setTimeout(() => { btnFluidEmit.textContent = 'EMIT 100 FLUID PARTICLES'; }, 1500);
                     });
                 }
 

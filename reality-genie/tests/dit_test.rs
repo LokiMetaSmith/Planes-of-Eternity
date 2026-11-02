@@ -501,6 +501,45 @@ fn test_action_conditioned_sampler_rollout() -> candle_core::Result<()> {
 }
 
 #[test]
+fn test_neural_fluid_particle_simulation() {
+    let mut fluid_sim = reality_genie::dit::NeuralFluidSimulator::new(8);
+    let latents = vec![0.5f32; 16];
+    fluid_sim.diffuse_velocity_field(&latents, 0.016);
+    fluid_sim.emit_particles([0.0, 2.0, 0.0], 10);
+    assert_eq!(fluid_sim.particles.len(), 10);
+
+    fluid_sim.step_advection(0.016, 0.0);
+    assert_eq!(fluid_sim.particles.len(), 10);
+    assert!(fluid_sim.particles[0].position[1] >= 0.0);
+}
+
+#[test]
+fn test_inverse_dynamics_prediction() {
+    let predictor = reality_genie::dit::InverseDynamicsPredictor::new(16);
+    let latents = vec![0.1f32; 16];
+    let current_pos = [0.0, 0.0, 0.0];
+    let target_pos = [0.0, 0.0, -5.0];
+
+    let steps = predictor.infer_action_sequence(&latents, current_pos, target_pos, 10);
+    assert!(!steps.is_empty());
+    // First action moving towards -Z should be Forward (1)
+    assert_eq!(steps[0].discrete_action, 1);
+    assert!(steps[0].confidence > 0.5);
+}
+
+#[test]
+fn test_texture_dit_pbr_synthesis() {
+    let synth = reality_genie::dit::TextureDitSynthesizer::new(16);
+    let latents = vec![0.3f32; 16];
+    let mat = synth.synthesize_material(&latents, 1);
+
+    assert!(mat.roughness >= 0.08 && mat.roughness <= 0.98);
+    assert!(mat.metallic >= 0.0 && mat.metallic <= 1.0);
+    assert!(mat.normal[2] > 0.0);
+    assert!(mat.albedo[0] > 0.0 && mat.albedo[1] > 0.0);
+}
+
+#[test]
 fn test_world_model_gym_environment() {
     let mut env = reality_genie::dit::WorldModelGymEnv::new(16, 50);
     let obs = env.reset();

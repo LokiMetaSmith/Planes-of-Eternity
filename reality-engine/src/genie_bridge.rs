@@ -42,6 +42,7 @@ pub struct GenieBridge {
     pub mcts_planner: Arc<Mutex<reality_genie::dit::WorldModelMcts>>,
     pub mcts_candidate_paths: Arc<Mutex<Vec<reality_genie::dit::CandidateTrajectoryPath>>>,
     pub rollback_netcode: Arc<Mutex<LatentRollbackNetcode>>,
+    pub webrtc_streamer: Arc<Mutex<WebRtcLatentChunkStreamer>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -102,6 +103,7 @@ impl GenieBridge {
             mcts_planner: Arc::new(Mutex::new(reality_genie::dit::WorldModelMcts::new(5, 30))),
             mcts_candidate_paths: Arc::new(Mutex::new(Vec::new())),
             rollback_netcode: Arc::new(Mutex::new(LatentRollbackNetcode::new(128))),
+            webrtc_streamer: Arc::new(Mutex::new(WebRtcLatentChunkStreamer::new())),
         }
     }
 
@@ -611,6 +613,108 @@ impl GenieBridge {
                 pending.push(direct_splats);
             }
         }
+    }
+}
+
+// ============================================================================
+// Decentralized Latent World Chunk Streaming (P2P WebRTC Wire Protocol)
+// ============================================================================
+
+/// Compressed latent chunk packet transmitted across WebRTC DataChannels
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WebRtcLatentChunkDelta {
+    pub chunk_key: [i32; 3],
+    pub version: u32,
+    pub quantized_deltas: Vec<i8>,
+    pub scale: f32,
+    pub timestamp_ms: u64,
+}
+
+/// Decentralized P2P WebRTC chunk streamer that compresses, transmits, and reconciles
+/// continuous latent world chunks across decentralized browser peers.
+#[derive(Debug, Clone)]
+pub struct WebRtcLatentChunkStreamer {
+    pub connected_peers: Vec<String>,
+    pub chunk_cache: std::collections::HashMap<[i32; 3], (u32, Vec<f32>)>,
+    pub total_chunks_synchronized: u64,
+    pub bytes_transferred: usize,
+}
+
+impl Default for WebRtcLatentChunkStreamer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WebRtcLatentChunkStreamer {
+    pub fn new() -> Self {
+        Self {
+            connected_peers: Vec::new(),
+            chunk_cache: std::collections::HashMap::new(),
+            total_chunks_synchronized: 0,
+            bytes_transferred: 0,
+        }
+    }
+
+    /// Compresses a latent float slice into an INT8 delta packet for WebRTC transmission
+    pub fn encode_chunk_delta(
+        &mut self,
+        chunk_key: [i32; 3],
+        current_latents: &[f32],
+        timestamp_ms: u64,
+    ) -> WebRtcLatentChunkDelta {
+        let entry = self.chunk_cache.entry(chunk_key).or_insert((0, vec![0.0f32; current_latents.len()]));
+        entry.0 += 1;
+        let version = entry.0;
+
+        let base = &mut entry.1;
+        let n = current_latents.len().min(base.len());
+        let mut diffs = Vec::with_capacity(n);
+        let mut max_abs_diff = 1e-6f32;
+
+        for i in 0..n {
+            let d = current_latents[i] - base[i];
+            diffs.push(d);
+            if d.abs() > max_abs_diff {
+                max_abs_diff = d.abs();
+            }
+        }
+
+        let scale = max_abs_diff / 127.0;
+        let mut quantized_deltas = Vec::with_capacity(n);
+        for d in &diffs {
+            let q = (d / scale).round().clamp(-128.0, 127.0) as i8;
+            quantized_deltas.push(q);
+        }
+
+        // Update local cache
+        base.copy_from_slice(&current_latents[..n]);
+        self.bytes_transferred += quantized_deltas.len();
+
+        WebRtcLatentChunkDelta {
+            chunk_key,
+            version,
+            quantized_deltas,
+            scale,
+            timestamp_ms,
+        }
+    }
+
+    /// Ingests and decodes a received WebRTC chunk delta packet from a remote peer
+    pub fn decode_and_merge_chunk_delta(&mut self, packet: &WebRtcLatentChunkDelta) -> Vec<f32> {
+        let entry = self.chunk_cache.entry(packet.chunk_key).or_insert((0, vec![0.0f32; packet.quantized_deltas.len()]));
+        entry.0 = packet.version;
+
+        let base = &mut entry.1;
+        let n = packet.quantized_deltas.len().min(base.len());
+        for i in 0..n {
+            let dq = packet.quantized_deltas[i] as f32 * packet.scale;
+            base[i] += dq;
+        }
+
+        self.total_chunks_synchronized += 1;
+        self.bytes_transferred += packet.quantized_deltas.len();
+        base.clone()
     }
 }
 

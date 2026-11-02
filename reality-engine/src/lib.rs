@@ -1828,6 +1828,16 @@ impl State {
             swarm.step_swarm(0.016);
         }
 
+        // Update 3D HRTF AudioListener pose from camera/headset
+        let cam_eye = [self.engine.camera.eye.x, self.engine.camera.eye.y, self.engine.camera.eye.z];
+        let cam_forward = [
+            self.engine.camera.target.x - self.engine.camera.eye.x,
+            self.engine.camera.target.y - self.engine.camera.eye.y,
+            self.engine.camera.target.z - self.engine.camera.eye.z,
+        ];
+        let cam_up = [self.engine.camera.up.x, self.engine.camera.up.y, self.engine.camera.up.z];
+        self.engine.audio.update_listener_pose(cam_eye, cam_forward, cam_up);
+
         // Drain any synthesized Audio-DiT co-diffused audio packets
         let maybe_audio_packet = if let Ok(mut lock) = self.voxel_world.genie.latest_audio_packet.lock() {
             lock.take()
@@ -5514,6 +5524,40 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         if let Ok(state) = self.state.try_borrow() {
             if let Ok(mut netcode) = state.voxel_world.genie.rollback_netcode.lock() {
                 netcode.simulated_jitter_ms = jitter_ms;
+            }
+        }
+    }
+
+    pub fn solve_inverse_actions_to_target(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            let predictor = reality_genie::dit::InverseDynamicsPredictor::new(16);
+            let current_latents = vec![0.1f32; 16];
+            let current_pos = [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z];
+            let target_pos = [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z - 8.0];
+            let steps = predictor.infer_action_sequence(&current_latents, current_pos, target_pos, 8);
+            return serde_json::to_string(&steps).unwrap_or_else(|_| "[]".to_string());
+        }
+        "[]".to_string()
+    }
+
+    pub fn emit_fluid_particles(&self, count: usize) {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let cam_pos = state.engine.camera.eye;
+            for i in 0..count {
+                let off_x = ((i as f32 * 0.7).sin()) * 1.5;
+                let off_y = ((i as f32 * 0.9).cos()) * 0.5 + 0.5;
+                let off_z = ((i as f32 * 1.3).sin()) * 1.5;
+                state.npc_splats.push(crate::splat::SplatVertex {
+                    position: [cam_pos.x + off_x, cam_pos.y + off_y, cam_pos.z - 2.0 + off_z],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    scale: [0.15, 0.15, 0.15],
+                    color: [0.0, 0.8, 1.0, 0.8],
+                    previous_position: [cam_pos.x, cam_pos.y, cam_pos.z],
+                    archetype_id: 1,
+                    target_archetype_id: 1,
+                    morph_weight: 0.0,
+                    bone_index: -1,
+                });
             }
         }
     }

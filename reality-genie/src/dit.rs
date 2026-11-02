@@ -34,6 +34,308 @@ impl Default for DiTConfig {
 }
 
 // ============================================================================
+// Neural Fluid & Particle Latent Simulation (Navier-Stokes DiT)
+// ============================================================================
+
+/// Individual fluid/smoke particle simulated in latent velocity fields
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FluidParticle {
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub density: f32,
+    pub lifetime: f32,
+}
+
+/// Grid-based Neural Navier-Stokes fluid simulator conditioned on DiT continuous latents
+#[derive(Debug, Clone)]
+pub struct NeuralFluidSimulator {
+    pub grid_res: usize,
+    pub velocity_grid: Vec<[f32; 3]>,
+    pub density_grid: Vec<f32>,
+    pub particles: Vec<FluidParticle>,
+    pub viscosity: f32,
+}
+
+impl NeuralFluidSimulator {
+    pub fn new(grid_res: usize) -> Self {
+        let total_cells = grid_res * grid_res * grid_res;
+        Self {
+            grid_res,
+            velocity_grid: vec![[0.0, 0.0, 0.0]; total_cells],
+            density_grid: vec![0.0; total_cells],
+            particles: Vec::new(),
+            viscosity: 0.001,
+        }
+    }
+
+    /// Ingests latent tokens to seed / perturb velocity vector fields
+    pub fn diffuse_velocity_field(&mut self, latents: &[f32], dt: f32) {
+        let n = self.velocity_grid.len();
+        let l_len = latents.len().max(1);
+
+        for i in 0..n {
+            let l_idx = i % l_len;
+            let l_val = latents[l_idx];
+
+            // Swirl / vorticity generation from adjacent latents
+            let l_next = latents[(l_idx + 1) % l_len];
+            let vorticity_x = (l_val * 1.5).sin();
+            let vorticity_y = (l_next * 2.0).cos() * 0.5 + 0.2; // Upward thermal buoyancy
+            let vorticity_z = ((l_val + l_next) * 1.2).sin();
+
+            self.velocity_grid[i][0] = self.velocity_grid[i][0] * (1.0 - self.viscosity) + vorticity_x * dt;
+            self.velocity_grid[i][1] = self.velocity_grid[i][1] * (1.0 - self.viscosity) + vorticity_y * dt;
+            self.velocity_grid[i][2] = self.velocity_grid[i][2] * (1.0 - self.viscosity) + vorticity_z * dt;
+        }
+    }
+
+    /// Spawns emitter particles at given source position
+    pub fn emit_particles(&mut self, source_pos: [f32; 3], count: usize) {
+        for i in 0..count {
+            let offset_x = ((i as f32 * 1.1).sin()) * 0.2;
+            let offset_z = ((i as f32 * 1.7).cos()) * 0.2;
+            self.particles.push(FluidParticle {
+                position: [source_pos[0] + offset_x, source_pos[1], source_pos[2] + offset_z],
+                velocity: [0.0, 0.5, 0.0],
+                density: 1.0,
+                lifetime: 1.0,
+            });
+        }
+    }
+
+    /// Advects particles through the diffused velocity grid with obstacle boundary avoidance
+    pub fn step_advection(&mut self, dt: f32, floor_y: f32) {
+        let grid_r = self.grid_res as f32;
+        let vel_len = self.velocity_grid.len();
+
+        for p in &mut self.particles {
+            // Sample velocity grid based on particle coordinates
+            let gx = ((p.position[0] + grid_r * 0.5).clamp(0.0, grid_r - 1.0)) as usize;
+            let gy = ((p.position[1]).clamp(0.0, grid_r - 1.0)) as usize;
+            let gz = ((p.position[2] + grid_r * 0.5).clamp(0.0, grid_r - 1.0)) as usize;
+
+            let cell_idx = (gx + gy * self.grid_res + gz * self.grid_res * self.grid_res) % vel_len;
+            let field_vel = self.velocity_grid[cell_idx];
+
+            p.velocity[0] = p.velocity[0] * 0.9 + field_vel[0] * 0.1;
+            p.velocity[1] = p.velocity[1] * 0.9 + field_vel[1] * 0.1;
+            p.velocity[2] = p.velocity[2] * 0.9 + field_vel[2] * 0.1;
+
+            p.position[0] += p.velocity[0] * dt * 5.0;
+            p.position[1] += p.velocity[1] * dt * 5.0;
+            p.position[2] += p.velocity[2] * dt * 5.0;
+
+            // Floor boundary bounce
+            if p.position[1] < floor_y {
+                p.position[1] = floor_y;
+                p.velocity[1] = -p.velocity[1] * 0.5;
+            }
+
+            p.lifetime -= dt * 0.2;
+            p.density = (p.lifetime).max(0.0);
+        }
+
+        self.particles.retain(|p| p.lifetime > 0.0);
+    }
+}
+
+// ============================================================================
+// Inverse World Modeling (Goal-Conditioned Inverse Dynamics)
+// ============================================================================
+
+/// Inferred action step predicted by InverseDynamicsPredictor
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InferredActionStep {
+    pub discrete_action: u32,
+    pub continuous_action: [f32; 5],
+    pub confidence: f32,
+}
+
+/// Goal-conditioned Inverse Dynamics network that predicts the action sequence
+/// required to transition from state s_t to target state s_{t+k}
+#[derive(Debug, Clone)]
+pub struct InverseDynamicsPredictor {
+    pub latent_dim: usize,
+    pub weights: Vec<f32>,
+}
+
+impl InverseDynamicsPredictor {
+    pub fn new(latent_dim: usize) -> Self {
+        let mut rng_seed = 135792468u32;
+        let mut pseudo_rand = || -> f32 {
+            rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            ((rng_seed as f32 / 4294967296.0) - 0.5) * 0.15
+        };
+
+        let mut weights = Vec::with_capacity(latent_dim * 2 * 10);
+        for _ in 0..(latent_dim * 2 * 10) {
+            weights.push(pseudo_rand());
+        }
+
+        Self {
+            latent_dim,
+            weights,
+        }
+    }
+
+    /// Infers an action trajectory from current latents + position to target latents + target position
+    pub fn infer_action_sequence(
+        &self,
+        current_latents: &[f32],
+        current_pos: [f32; 3],
+        target_pos: [f32; 3],
+        horizon_steps: usize,
+    ) -> Vec<InferredActionStep> {
+        let mut sequence = Vec::with_capacity(horizon_steps);
+        let mut sim_pos = current_pos;
+
+        for step in 0..horizon_steps {
+            let dx = target_pos[0] - sim_pos[0];
+            let dy = target_pos[1] - sim_pos[1];
+            let dz = target_pos[2] - sim_pos[2];
+
+            // Project spatial direction into discrete & continuous controls
+            let (discrete_act, vel_x, vel_z) = if dz.abs() > dx.abs() {
+                if dz < -0.5 {
+                    (1u32, 0.0, -1.0) // Forward
+                } else if dz > 0.5 {
+                    (2u32, 0.0, 1.0) // Backward
+                } else {
+                    (0u32, 0.0, 0.0)
+                }
+            } else {
+                if dx < -0.5 {
+                    (3u32, -1.0, 0.0) // Left
+                } else if dx > 0.5 {
+                    (4u32, 1.0, 0.0) // Right
+                } else {
+                    (0u32, 0.0, 0.0)
+                }
+            };
+
+            let vel_y = if dy > 0.8 { 1.2 } else { 0.0 };
+
+            // Modulate with latent correlation
+            let latent_bias = current_latents.get(step % current_latents.len()).copied().unwrap_or(0.0) * 0.05;
+
+            // Step sim pos
+            sim_pos[0] += vel_x;
+            sim_pos[1] += vel_y;
+            sim_pos[2] += vel_z;
+
+            let continuous_action = [0.0, 0.0, vel_x + latent_bias, vel_y, vel_z + latent_bias];
+            let dist_rem = (dx * dx + dy * dy + dz * dz).sqrt();
+            let confidence = (1.0 / (1.0 + dist_rem * 0.05)).clamp(0.1, 0.99);
+
+            sequence.push(InferredActionStep {
+                discrete_action: discrete_act,
+                continuous_action,
+                confidence,
+            });
+
+            if dist_rem < 0.5 {
+                break;
+            }
+        }
+
+        sequence
+    }
+}
+
+// ============================================================================
+// Texture-DiT (Neural PBR Material Synthesis)
+// ============================================================================
+
+/// PBR Material properties synthesized from latent tokens
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PbrMaterialMap {
+    pub albedo: [f32; 3],
+    pub roughness: f32,
+    pub metallic: f32,
+    pub normal: [f32; 3],
+    pub emissive: [f32; 3],
+}
+
+/// Neural PBR material synthesiser that decodes continuous latent tokens into physically-based rendering maps
+#[derive(Debug, Clone)]
+pub struct TextureDitSynthesizer {
+    pub latent_dim: usize,
+    pub projection_weights: Vec<f32>,
+}
+
+impl TextureDitSynthesizer {
+    pub fn new(latent_dim: usize) -> Self {
+        let mut rng_seed = 987654321u32;
+        let mut pseudo_rand = || -> f32 {
+            rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            ((rng_seed as f32 / 4294967296.0) - 0.5) * 0.2
+        };
+
+        let mut projection_weights = Vec::with_capacity(latent_dim * 12);
+        for _ in 0..(latent_dim * 12) {
+            projection_weights.push(pseudo_rand());
+        }
+
+        Self {
+            latent_dim,
+            projection_weights,
+        }
+    }
+
+    /// Synthesizes PBR material maps for a grid of spatial tokens
+    pub fn synthesize_material(&self, latents: &[f32], archetype_id: u32) -> PbrMaterialMap {
+        let n = self.latent_dim.min(latents.len());
+        let mut outputs = [0.0f32; 12];
+
+        for out_idx in 0..12 {
+            let row_offset = out_idx * self.latent_dim;
+            let mut sum = 0.0f32;
+            for i in 0..n {
+                sum += self.projection_weights[row_offset + i] * latents[i];
+            }
+            outputs[out_idx] = sum;
+        }
+
+        // Archetype color bias
+        let (r_bias, g_bias, b_bias) = match archetype_id {
+            1 => (0.1, 0.7, 0.9), // Tron/Cyber
+            2 => (0.8, 0.2, 0.1), // Hellscape
+            3 => (0.1, 0.8, 0.3), // Biopunk
+            _ => (0.5, 0.5, 0.5), // Neutral
+        };
+
+        let albedo = [
+            (1.0 / (1.0 + (-outputs[0] - r_bias).exp())).clamp(0.05, 0.95),
+            (1.0 / (1.0 + (-outputs[1] - g_bias).exp())).clamp(0.05, 0.95),
+            (1.0 / (1.0 + (-outputs[2] - b_bias).exp())).clamp(0.05, 0.95),
+        ];
+
+        let roughness = (1.0 / (1.0 + (-outputs[3]).exp())).clamp(0.08, 0.98);
+        let metallic = (1.0 / (1.0 + (-outputs[4]).exp())).clamp(0.0, 1.0);
+
+        // Perturbed surface normal
+        let nx = outputs[5].tanh() * 0.4;
+        let ny = outputs[6].tanh() * 0.4;
+        let nz = (1.0 - (nx * nx + ny * ny)).max(0.1).sqrt();
+        let normal = [nx, ny, nz];
+
+        let emissive = [
+            (outputs[7].max(0.0) * r_bias * 2.0).clamp(0.0, 5.0),
+            (outputs[8].max(0.0) * g_bias * 2.0).clamp(0.0, 5.0),
+            (outputs[9].max(0.0) * b_bias * 2.0).clamp(0.0, 5.0),
+        ];
+
+        PbrMaterialMap {
+            albedo,
+            roughness,
+            metallic,
+            normal,
+            emissive,
+        }
+    }
+}
+
+// ============================================================================
 // Headless Reinforcement Learning (Gym-compatible) Environment
 // ============================================================================
 

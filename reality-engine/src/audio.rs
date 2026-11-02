@@ -137,4 +137,31 @@ impl AudioManager {
             let _ = (buffer, sample_rate);
         }
     }
+
+    /// Plays stereo multi-channel PCM audio packet from Audio-DiT co-diffuser
+    pub fn play_audio_dit_packet(&self, left_channel: &[f32], right_channel: &[f32], sample_rate: u32) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(ctx) = &self.ctx {
+            let num_frames = left_channel.len().min(right_channel.len()) as u32;
+            if num_frames == 0 {
+                return;
+            }
+            if let Ok(audio_buf) = ctx.create_buffer(2, num_frames, sample_rate as f32) {
+                let mut left_copy = left_channel[..num_frames as usize].to_vec();
+                let mut right_copy = right_channel[..num_frames as usize].to_vec();
+                let _ = audio_buf.copy_to_channel(&mut left_copy, 0);
+                let _ = audio_buf.copy_to_channel(&mut right_copy, 1);
+
+                if let Ok(source) = ctx.create_buffer_source() {
+                    source.set_buffer(Some(&audio_buf));
+                    let _ = source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
+                    let _ = source.start();
+                }
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (left_channel, right_channel, sample_rate);
+        }
+    }
 }

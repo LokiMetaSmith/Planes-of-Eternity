@@ -305,6 +305,55 @@ impl LatentVoxelDecoder {
         splats
     }
 
+    /// End-to-end direct latent-to-3DGS primitive decoder.
+    /// Projects continuous frame latent features directly into 3D Gaussian Splats:
+    /// - Position [x, y, z]
+    /// - Scale ellipsoid [sx, sy, sz]
+    /// - Orientation quaternion [qx, qy, qz, qw]
+    /// - Spherical Harmonics color & opacity [r, g, b, alpha]
+    pub fn decode_direct_3dgs(flat_latents: &[f32], base_position: [f32; 3]) -> Vec<[f32; 14]> {
+        let splat_dim = 14;
+        let num_primitives = flat_latents.len() / splat_dim;
+        let mut gs_primitives = Vec::with_capacity(num_primitives);
+
+        for i in 0..num_primitives {
+            let offset = i * splat_dim;
+            let slice = &flat_latents[offset..offset + splat_dim];
+
+            // 1. Position projection centered around base_position
+            let px = base_position[0] + slice[0] * 4.0;
+            let py = base_position[1] + slice[1] * 4.0;
+            let pz = base_position[2] + slice[2] * 4.0;
+
+            // 2. Quaternion orientation normalization
+            let qx = slice[3];
+            let qy = slice[4];
+            let qz = slice[5];
+            let qw = slice[6].max(0.001);
+            let q_norm = (qx * qx + qy * qy + qz * qz + qw * qw).sqrt().max(1e-6);
+
+            // 3. Ellipsoid scale (strictly positive via exp)
+            let sx = (slice[7] * 0.5).exp().clamp(0.05, 2.5);
+            let sy = (slice[8] * 0.5).exp().clamp(0.05, 2.5);
+            let sz = (slice[9] * 0.5).exp().clamp(0.05, 2.5);
+
+            // 4. Color & Opacity (sigmoid into [0, 1])
+            let r = 1.0 / (1.0 + (-slice[10]).exp());
+            let g = 1.0 / (1.0 + (-slice[11]).exp());
+            let b = 1.0 / (1.0 + (-slice[12]).exp());
+            let alpha = (1.0 / (1.0 + (-slice[13]).exp())).clamp(0.1, 1.0);
+
+            gs_primitives.push([
+                px, py, pz,
+                qx / q_norm, qy / q_norm, qz / q_norm, qw / q_norm,
+                sx, sy, sz,
+                r, g, b, alpha,
+            ]);
+        }
+
+        gs_primitives
+    }
+
     /// Verifies dynamic object solidity against a decoded point cloud / voxel list.
     /// Returns true if an entity AABB penetrates solid decoded voxels, alongside penetration depth.
     pub fn check_solidity_collision(

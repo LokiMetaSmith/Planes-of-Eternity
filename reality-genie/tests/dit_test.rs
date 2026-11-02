@@ -501,6 +501,49 @@ fn test_action_conditioned_sampler_rollout() -> candle_core::Result<()> {
 }
 
 #[test]
+fn test_world_model_gym_environment() {
+    let mut env = reality_genie::dit::WorldModelGymEnv::new(16, 50);
+    let obs = env.reset();
+    assert_eq!(obs.latent_tokens.len(), 16);
+    assert_eq!(obs.step_count, 0);
+
+    let step_res = env.step(1); // Move forward towards target
+    assert_eq!(step_res.observation.step_count, 1);
+    assert!(step_res.reward > -1.0);
+    assert!(!step_res.truncated);
+}
+
+#[test]
+fn test_world_model_mcts_planning() {
+    let mut mcts = reality_genie::dit::WorldModelMcts::new(4, 20);
+    mcts.goal_objective = reality_genie::dit::MctsGoalObjective::TargetSeek;
+    mcts.target_coords = [0.0, 0.0, -10.0];
+
+    let root_latents = vec![0.1f32; 64];
+    let root_pos = [0.0, 0.0, 0.0];
+    let candidate_paths = mcts.plan_paths(&root_latents, root_pos);
+
+    assert!(!candidate_paths.is_empty());
+    assert!(candidate_paths[0].waypoint_positions.len() <= 4);
+    assert!(candidate_paths.iter().any(|p| p.is_optimal));
+}
+
+#[test]
+fn test_audio_dit_acoustic_co_diffusion() {
+    let diffuser = reality_genie::dit::AudioDitCoDiffuser::new(16, 64);
+    let visual_latents = vec![0.5f32; 64];
+    let acoustic_latents = diffuser.diffuse_acoustic_latent(&visual_latents, 1, 0.4);
+    assert_eq!(acoustic_latents.len(), 16);
+
+    let packet = diffuser.decode_to_pcm(&acoustic_latents, 1, 0.4, 1024);
+    assert_eq!(packet.left_channel.len(), 1024);
+    assert_eq!(packet.right_channel.len(), 1024);
+    assert_eq!(packet.sample_rate, 44100);
+    assert!(packet.reverb_tail_factor > 0.0);
+    assert!(packet.dominant_freq_hz > 50.0);
+}
+
+#[test]
 fn test_pyramid_resolution_mode_and_sfx_genie() {
     use reality_genie::dit::{ActionConditionedDiT, ActionConditionedSampler, DiTConfig, FrameAnchorBuffer, ResolutionPyramidMode, SfxGenie};
     use candle_core::Device;

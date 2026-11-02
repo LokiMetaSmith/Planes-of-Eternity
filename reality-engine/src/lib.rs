@@ -1828,6 +1828,49 @@ impl State {
             swarm.step_swarm(0.016);
         }
 
+        // Drain any synthesized Audio-DiT co-diffused audio packets
+        let maybe_audio_packet = if let Ok(mut lock) = self.voxel_world.genie.latest_audio_packet.lock() {
+            lock.take()
+        } else {
+            None
+        };
+        if let Some(packet) = maybe_audio_packet {
+            self.engine.audio.play_audio_dit_packet(
+                &packet.left_channel,
+                &packet.right_channel,
+                packet.sample_rate,
+            );
+        }
+
+        // Direct Latent-to-3DGS projection stream: convert latest action-DiT latents directly into Gaussian Splats
+        if let Ok(maybe_latents) = self.voxel_world.genie.latest_action_dit_latents.lock() {
+            if let Some(ref latents) = *maybe_latents {
+                let player_pos = [
+                    self.engine.camera.eye.x,
+                    self.engine.camera.eye.y - 1.0,
+                    self.engine.camera.eye.z - 3.0,
+                ];
+                let gs_primitives = reality_genie::vqvae::LatentVoxelDecoder::decode_direct_3dgs(latents, player_pos);
+                for prim in gs_primitives {
+                    self.npc_splats.push(crate::splat::SplatVertex {
+                        position: [prim[0], prim[1], prim[2]],
+                        rotation: [prim[3], prim[4], prim[5], prim[6]],
+                        scale: [prim[7], prim[8], prim[9]],
+                        color: [prim[10], prim[11], prim[12], prim[13]],
+                        previous_position: [prim[0], prim[1], prim[2]],
+                        archetype_id: 1,
+                        target_archetype_id: 1,
+                        morph_weight: 0.0,
+                        bone_index: -1,
+                    });
+                }
+                // Cap npc_splats to prevent unbounded memory growth
+                if self.npc_splats.len() > 4096 {
+                    self.npc_splats.drain(0..self.npc_splats.len() - 4096);
+                }
+            }
+        }
+
 
         if self.engine.is_recording_splats {
             let mut current_frame = Vec::new();
@@ -5439,6 +5482,64 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
 
     pub fn set_webgpu_compute_acceleration(&self, enabled: bool) {
         log::info!("Setting WebGPU WGSL compute acceleration for DiT: {}", enabled);
+    }
+
+    pub fn trigger_mcts_planning(&self, objective: &str) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            let obj = match objective {
+                "obstacle_avoid" => reality_genie::dit::MctsGoalObjective::ObstacleAvoidance,
+                "novelty_explore" => reality_genie::dit::MctsGoalObjective::NoveltyExploration,
+                _ => reality_genie::dit::MctsGoalObjective::TargetSeek,
+            };
+
+            if let Ok(mut planner) = state.voxel_world.genie.mcts_planner.lock() {
+                planner.goal_objective = obj;
+                let root_pos = [
+                    state.engine.camera.eye.x,
+                    state.engine.camera.eye.y,
+                    state.engine.camera.eye.z,
+                ];
+                let dummy_latents = vec![0.1f32; 64];
+                let paths = planner.plan_paths(&dummy_latents, root_pos);
+                if let Ok(mut store) = state.voxel_world.genie.mcts_candidate_paths.lock() {
+                    *store = paths.clone();
+                }
+                return serde_json::to_string(&paths).unwrap_or_else(|_| "[]".to_string());
+            }
+        }
+        "[]".to_string()
+    }
+
+    pub fn set_network_jitter_sim(&self, jitter_ms: f32) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut netcode) = state.voxel_world.genie.rollback_netcode.lock() {
+                netcode.simulated_jitter_ms = jitter_ms;
+            }
+        }
+    }
+
+    pub fn run_rl_gym_benchmark(&self, num_steps: u32) -> String {
+        let mut env = reality_genie::dit::WorldModelGymEnv::new(16, num_steps + 10);
+        let start_ms = crate::projector::get_current_timestamp();
+        let mut cumulative_reward = 0.0f32;
+        for i in 0..num_steps {
+            let act = (i % 5) + 1;
+            let res = env.step(act);
+            cumulative_reward += res.reward;
+            if res.terminated || res.truncated {
+                env.reset();
+            }
+        }
+        let end_ms = crate::projector::get_current_timestamp();
+        let elapsed_sec = ((end_ms.saturating_sub(start_ms)) as f64 / 1000.0).max(0.0001);
+        let fps = num_steps as f64 / elapsed_sec;
+
+        serde_json::json!({
+            "steps": num_steps,
+            "elapsed_sec": elapsed_sec,
+            "fps": fps,
+            "cumulative_reward": cumulative_reward,
+        }).to_string()
     }
 }
 

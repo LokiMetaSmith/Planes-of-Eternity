@@ -37,6 +37,11 @@ pub struct GenieBridge {
     pub latent_physics: Arc<Mutex<LatentPhysicsEngine>>,
     pub active_lora: Arc<Mutex<Option<reality_genie::dit::LoraAdapter>>>,
     pub swarm_engine: Arc<Mutex<reality_genie::dit::MultiAgentCoDiffusion>>,
+    pub audio_dit: Arc<Mutex<reality_genie::dit::AudioDitCoDiffuser>>,
+    pub latest_audio_packet: Arc<Mutex<Option<reality_genie::dit::AudioPacket>>>,
+    pub mcts_planner: Arc<Mutex<reality_genie::dit::WorldModelMcts>>,
+    pub mcts_candidate_paths: Arc<Mutex<Vec<reality_genie::dit::CandidateTrajectoryPath>>>,
+    pub rollback_netcode: Arc<Mutex<LatentRollbackNetcode>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -92,6 +97,11 @@ impl GenieBridge {
             latent_physics: Arc::new(Mutex::new(LatentPhysicsEngine::default())),
             active_lora: Arc::new(Mutex::new(None)),
             swarm_engine: Arc::new(Mutex::new(reality_genie::dit::MultiAgentCoDiffusion::new(64, 16))),
+            audio_dit: Arc::new(Mutex::new(reality_genie::dit::AudioDitCoDiffuser::new(16, 64))),
+            latest_audio_packet: Arc::new(Mutex::new(None)),
+            mcts_planner: Arc::new(Mutex::new(reality_genie::dit::WorldModelMcts::new(5, 30))),
+            mcts_candidate_paths: Arc::new(Mutex::new(Vec::new())),
+            rollback_netcode: Arc::new(Mutex::new(LatentRollbackNetcode::new(128))),
         }
     }
 
@@ -248,18 +258,32 @@ impl GenieBridge {
         guidance_scale: f64,
     ) {
         let latents_ref = Arc::clone(&self.latest_action_dit_latents);
+        let audio_dit_ref = Arc::clone(&self.audio_dit);
+        let audio_packet_ref = Arc::clone(&self.latest_audio_packet);
+        let _actions_clone = actions.clone();
 
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let actions_clone = _actions_clone;
             std::thread::spawn(move || {
                 if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal_full(
-                    &actions,
+                    &actions_clone,
                     continuous_actions.as_deref(),
                     prompt.as_deref(),
                     Some("action_dit_model.safetensors"),
                     num_denoising_steps,
                     guidance_scale,
                 ) {
+                    // Diffuse synchronized audio packet
+                    let last_act = actions_clone.last().copied().unwrap_or(0);
+                    if let Ok(audio_model) = audio_dit_ref.lock() {
+                        let acoustic_latents = audio_model.diffuse_acoustic_latent(&flat, last_act, 0.5);
+                        let packet = audio_model.decode_to_pcm(&acoustic_latents, last_act, 0.5, 4096);
+                        if let Ok(mut ap_lock) = audio_packet_ref.lock() {
+                            *ap_lock = Some(packet);
+                        }
+                    }
+
                     if let Ok(mut lock) = latents_ref.lock() {
                         *lock = Some(flat);
                     }
@@ -277,6 +301,15 @@ impl GenieBridge {
                 num_denoising_steps,
                 guidance_scale,
             ) {
+                let last_act = actions.last().copied().unwrap_or(0);
+                if let Ok(audio_model) = audio_dit_ref.lock() {
+                    let acoustic_latents = audio_model.diffuse_acoustic_latent(&flat, last_act, 0.5);
+                    let packet = audio_model.decode_to_pcm(&acoustic_latents, last_act, 0.5, 4096);
+                    if let Ok(mut ap_lock) = audio_packet_ref.lock() {
+                        *ap_lock = Some(packet);
+                    }
+                }
+
                 if let Ok(mut lock) = latents_ref.lock() {
                     *lock = Some(flat);
                 }
@@ -577,6 +610,141 @@ impl GenieBridge {
             if let Ok(mut pending) = pending_ref.clone().lock() {
                 pending.push(direct_splats);
             }
+        }
+    }
+}
+
+// ============================================================================
+// Multiplayer Latent State Streaming & Rollback Netcode
+// ============================================================================
+
+/// Snapshot frame stored in the netcode history ring buffer
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LatentFrameSnapshot {
+    pub frame_id: u64,
+    pub timestamp: f64,
+    pub input_action: u32,
+    pub continuous_input: [f32; 5],
+    pub latents: Vec<f32>,
+    pub position: [f32; 3],
+}
+
+/// Latent Rollback Netcode engine managing client-side prediction, jitter simulation,
+/// and fast-forward resimulation against authoritative / peer states.
+#[derive(Debug, Clone)]
+pub struct LatentRollbackNetcode {
+    pub history_capacity: usize,
+    pub history_buffer: Vec<LatentFrameSnapshot>,
+    pub current_frame: u64,
+    pub simulated_jitter_ms: f32,
+    pub simulated_packet_loss: f32,
+    pub total_rollbacks: u64,
+    pub last_rollback_frames: u32,
+    pub last_drift_reconciled: f32,
+}
+
+impl LatentRollbackNetcode {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            history_capacity: capacity,
+            history_buffer: Vec::with_capacity(capacity),
+            current_frame: 0,
+            simulated_jitter_ms: 0.0,
+            simulated_packet_loss: 0.0,
+            total_rollbacks: 0,
+            last_rollback_frames: 0,
+            last_drift_reconciled: 0.0,
+        }
+    }
+
+    /// Records client-predicted frame into history buffer
+    pub fn record_predicted_frame(
+        &mut self,
+        timestamp: f64,
+        action: u32,
+        continuous: [f32; 5],
+        latents: Vec<f32>,
+        pos: [f32; 3],
+    ) {
+        self.current_frame += 1;
+        let snap = LatentFrameSnapshot {
+            frame_id: self.current_frame,
+            timestamp,
+            input_action: action,
+            continuous_input: continuous,
+            latents,
+            position: pos,
+        };
+
+        if self.history_buffer.len() >= self.history_capacity {
+            self.history_buffer.remove(0);
+        }
+        self.history_buffer.push(snap);
+    }
+
+    /// Reconciles an authoritative / peer latent frame with history.
+    /// If drift exceeds threshold, rolls back and fast-forwards through subsequent stored inputs.
+    pub fn reconcile_and_rollback(
+        &mut self,
+        verified_frame_id: u64,
+        authoritative_latents: &[f32],
+        authoritative_pos: [f32; 3],
+        drift_threshold: f32,
+    ) -> bool {
+        // Find snapshot in history
+        let snap_index = match self.history_buffer.iter().position(|s| s.frame_id == verified_frame_id) {
+            Some(idx) => idx,
+            None => return false,
+        };
+
+        let local_latents = &self.history_buffer[snap_index].latents;
+        let n = local_latents.len().min(authoritative_latents.len());
+        if n == 0 {
+            return false;
+        }
+
+        let total_diff: f32 = local_latents.iter().zip(authoritative_latents.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        let avg_drift = total_diff / (n as f32);
+
+        if avg_drift > drift_threshold {
+            // Drift exceeded! Trigger rollback
+            self.total_rollbacks += 1;
+            let rollback_frames = (self.history_buffer.len() - 1 - snap_index) as u32;
+            self.last_rollback_frames = rollback_frames;
+            self.last_drift_reconciled = avg_drift;
+
+            // 1. Correct history frame
+            self.history_buffer[snap_index].latents = authoritative_latents.to_vec();
+            self.history_buffer[snap_index].position = authoritative_pos;
+
+            // 2. Fast-forward resimulate subsequent frames
+            let mut rolling_latents = authoritative_latents.to_vec();
+            let mut rolling_pos = authoritative_pos;
+
+            for i in (snap_index + 1)..self.history_buffer.len() {
+                let act = self.history_buffer[i].input_action;
+                // Simple forward Euler integration
+                match act {
+                    1 => rolling_pos[2] -= 1.0,
+                    2 => rolling_pos[2] += 1.0,
+                    3 => rolling_pos[0] -= 1.0,
+                    4 => rolling_pos[0] += 1.0,
+                    5 => rolling_pos[1] += 1.0,
+                    _ => {}
+                }
+                // Modulate latents lightly
+                if let Some(first) = rolling_latents.first_mut() {
+                    *first += (act as f32) * 0.005;
+                }
+                self.history_buffer[i].latents = rolling_latents.clone();
+                self.history_buffer[i].position = rolling_pos;
+            }
+
+            true
+        } else {
+            false
         }
     }
 }

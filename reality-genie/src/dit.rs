@@ -33,6 +33,542 @@ impl Default for DiTConfig {
     }
 }
 
+// ============================================================================
+// Headless Reinforcement Learning (Gym-compatible) Environment
+// ============================================================================
+
+/// Observation dictionary returned by WorldModelGymEnv
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GymObservation {
+    pub latent_tokens: Vec<f32>,
+    pub agent_position: [f32; 3],
+    pub agent_velocity: [f32; 3],
+    pub step_count: u32,
+    pub target_distance: f32,
+}
+
+/// Step return payload matching OpenAI Gym / Gymnasium API
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GymStepResult {
+    pub observation: GymObservation,
+    pub reward: f32,
+    pub terminated: bool,
+    pub truncated: bool,
+    pub info_json: String,
+}
+
+/// Headless Gymnasium-compatible World Model environment for high-throughput RL policy training
+#[derive(Debug, Clone)]
+pub struct WorldModelGymEnv {
+    pub latent_dim: usize,
+    pub max_episode_steps: u32,
+    pub current_step: u32,
+    pub agent_pos: [f32; 3],
+    pub agent_vel: [f32; 3],
+    pub target_pos: [f32; 3],
+    pub current_latents: Vec<f32>,
+    pub total_reward: f32,
+}
+
+impl WorldModelGymEnv {
+    pub fn new(latent_dim: usize, max_episode_steps: u32) -> Self {
+        let mut env = Self {
+            latent_dim,
+            max_episode_steps,
+            current_step: 0,
+            agent_pos: [0.0, 0.0, 0.0],
+            agent_vel: [0.0, 0.0, 0.0],
+            target_pos: [0.0, 0.0, -15.0],
+            current_latents: vec![0.0f32; latent_dim],
+            total_reward: 0.0,
+        };
+        env.reset();
+        env
+    }
+
+    /// Resets the environment to initial conditions and returns the initial observation
+    pub fn reset(&mut self) -> GymObservation {
+        self.current_step = 0;
+        self.agent_pos = [0.0, 1.0, 0.0];
+        self.agent_vel = [0.0, 0.0, 0.0];
+        self.target_pos = [0.0, 1.0, -12.0];
+        self.current_latents = vec![0.05f32; self.latent_dim];
+        self.total_reward = 0.0;
+        self.get_observation()
+    }
+
+    /// Executes one environment step with discrete action
+    pub fn step(&mut self, action: u32) -> GymStepResult {
+        self.current_step += 1;
+
+        // Kinematic state transition
+        let prev_dist = self.distance_to_target();
+        match action {
+            1 => self.agent_vel[2] = -1.5, // Forward
+            2 => self.agent_vel[2] = 1.0,  // Backward
+            3 => self.agent_vel[0] = -1.0, // Left
+            4 => self.agent_vel[0] = 1.0,  // Right
+            5 => self.agent_vel[1] = 1.5,  // Jump
+            _ => {
+                self.agent_vel[0] *= 0.8;
+                self.agent_vel[2] *= 0.8;
+            }
+        }
+
+        // Apply friction & gravity
+        self.agent_pos[0] += self.agent_vel[0] * 0.1;
+        self.agent_pos[1] = (self.agent_pos[1] + self.agent_vel[1] * 0.1).max(0.0);
+        self.agent_pos[2] += self.agent_vel[2] * 0.1;
+        self.agent_vel[1] -= 0.2; // Gravity
+
+        // Perturb latent representations
+        for (i, val) in self.current_latents.iter_mut().enumerate() {
+            *val = (*val * 0.95 + (action as f32 * 0.1) * ((i + 1) as f32 * 0.3).sin()).clamp(-2.0, 2.0);
+        }
+
+        let new_dist = self.distance_to_target();
+        // Potential-based reward shaping: reward progress towards goal
+        let progress_reward = (prev_dist - new_dist) * 2.0;
+        let time_penalty = -0.01f32;
+        let mut step_reward = progress_reward + time_penalty;
+
+        let reached_target = new_dist < 1.0;
+        if reached_target {
+            step_reward += 50.0;
+        }
+
+        let terminated = reached_target;
+        let truncated = self.current_step >= self.max_episode_steps;
+
+        self.total_reward += step_reward;
+
+        GymStepResult {
+            observation: self.get_observation(),
+            reward: step_reward,
+            terminated,
+            truncated,
+            info_json: format!("{{\"total_reward\":{:.2},\"step\":{}}}", self.total_reward, self.current_step),
+        }
+    }
+
+    fn distance_to_target(&self) -> f32 {
+        let dx = self.agent_pos[0] - self.target_pos[0];
+        let dy = self.agent_pos[1] - self.target_pos[1];
+        let dz = self.agent_pos[2] - self.target_pos[2];
+        (dx * dx + dy * dy + dz * dz).sqrt()
+    }
+
+    pub fn get_observation(&self) -> GymObservation {
+        GymObservation {
+            latent_tokens: self.current_latents.clone(),
+            agent_position: self.agent_pos,
+            agent_velocity: self.agent_vel,
+            step_count: self.current_step,
+            target_distance: self.distance_to_target(),
+        }
+    }
+}
+
+// ============================================================================
+// World Model MCTS (Value-Guided Subgoal Planner)
+// ============================================================================
+
+/// Configurable goal objectives for World Model MCTS
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum MctsGoalObjective {
+    /// Navigate towards target coordinates
+    TargetSeek,
+    /// Maximize distance from hazardous entities / obstacles
+    ObstacleAvoidance,
+    /// Maximize trajectory entropy / novel spatial exploration
+    NoveltyExploration,
+}
+
+/// Node in the World Model MCTS rollout tree
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MctsNode {
+    pub state_latents: Vec<f32>,
+    pub position: [f32; 3],
+    pub action_taken: u32,
+    pub visit_count: u32,
+    pub cumulative_value: f32,
+    pub children: Vec<usize>,
+    pub parent: Option<usize>,
+}
+
+/// Candidate trajectory forecast computed by MCTS
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CandidateTrajectoryPath {
+    pub action_sequence: Vec<u32>,
+    pub waypoint_positions: Vec<[f32; 3]>,
+    pub estimated_value: f32,
+    pub is_optimal: bool,
+}
+
+/// Monte Carlo Tree Search planner that operates inside the World Model latent space
+#[derive(Debug, Clone)]
+pub struct WorldModelMcts {
+    pub max_rollout_depth: usize,
+    pub num_simulations: usize,
+    pub exploration_c: f32,
+    pub goal_objective: MctsGoalObjective,
+    pub target_coords: [f32; 3],
+    pub hazard_coords: Vec<[f32; 3]>,
+}
+
+impl WorldModelMcts {
+    pub fn new(max_rollout_depth: usize, num_simulations: usize) -> Self {
+        Self {
+            max_rollout_depth,
+            num_simulations,
+            exploration_c: 1.414,
+            goal_objective: MctsGoalObjective::TargetSeek,
+            target_coords: [0.0, 0.0, 0.0],
+            hazard_coords: Vec::new(),
+        }
+    }
+
+    /// Evaluates the value of a position and latent state against current goal objective
+    pub fn evaluate_state(&self, pos: [f32; 3], state_latents: &[f32]) -> f32 {
+        match self.goal_objective {
+            MctsGoalObjective::TargetSeek => {
+                let dx = pos[0] - self.target_coords[0];
+                let dy = pos[1] - self.target_coords[1];
+                let dz = pos[2] - self.target_coords[2];
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                1.0 / (1.0 + dist * 0.1)
+            }
+            MctsGoalObjective::ObstacleAvoidance => {
+                let mut min_hazard_dist = 100.0f32;
+                for h in &self.hazard_coords {
+                    let dx = pos[0] - h[0];
+                    let dy = pos[1] - h[1];
+                    let dz = pos[2] - h[2];
+                    let d = (dx * dx + dy * dy + dz * dz).sqrt();
+                    if d < min_hazard_dist {
+                        min_hazard_dist = d;
+                    }
+                }
+                (min_hazard_dist / 20.0).clamp(0.0, 1.0)
+            }
+            MctsGoalObjective::NoveltyExploration => {
+                // Latent entropy/variance as novelty proxy
+                let mean = state_latents.iter().sum::<f32>() / (state_latents.len().max(1) as f32);
+                let variance = state_latents.iter().map(|&x| (x - mean).powi(2)).sum::<f32>()
+                    / (state_latents.len().max(1) as f32);
+                (variance * 2.0).clamp(0.0, 1.0)
+            }
+        }
+    }
+
+    /// Simulates transition given current position and action
+    fn simulate_kinematics(pos: [f32; 3], action: u32) -> [f32; 3] {
+        let step_size = 1.0f32;
+        let mut new_pos = pos;
+        match action {
+            1 => new_pos[2] -= step_size, // Forward (-Z)
+            2 => new_pos[2] += step_size, // Backward (+Z)
+            3 => new_pos[0] -= step_size, // Left (-X)
+            4 => new_pos[0] += step_size, // Right (+X)
+            5 => new_pos[1] += step_size, // Jump (+Y)
+            _ => {}
+        }
+        new_pos
+    }
+
+    /// Executes MCTS simulations and produces top candidate trajectory paths
+    pub fn plan_paths(&self, root_latents: &[f32], root_pos: [f32; 3]) -> Vec<CandidateTrajectoryPath> {
+        let mut tree: Vec<MctsNode> = vec![MctsNode {
+            state_latents: root_latents.to_vec(),
+            position: root_pos,
+            action_taken: 0,
+            visit_count: 1,
+            cumulative_value: 0.0,
+            children: Vec::new(),
+            parent: None,
+        }];
+
+        let candidate_actions = [1u32, 2, 3, 4, 5];
+
+        for _ in 0..self.num_simulations {
+            let mut current_idx = 0;
+            let mut depth = 0;
+
+            // 1. Selection
+            while !tree[current_idx].children.is_empty() && depth < self.max_rollout_depth {
+                let total_visits = tree[current_idx].visit_count as f32;
+                let mut best_child = tree[current_idx].children[0];
+                let mut best_uct = -f32::INFINITY;
+
+                for &child_idx in &tree[current_idx].children {
+                    let child = &tree[child_idx];
+                    let q = if child.visit_count > 0 {
+                        child.cumulative_value / child.visit_count as f32
+                    } else {
+                        0.0
+                    };
+                    let u = self.exploration_c * ((total_visits.ln().max(0.0)) / (child.visit_count as f32 + 1.0)).sqrt();
+                    let uct = q + u;
+                    if uct > best_uct {
+                        best_uct = uct;
+                        best_child = child_idx;
+                    }
+                }
+
+                current_idx = best_child;
+                depth += 1;
+            }
+
+            // 2. Expansion
+            if depth < self.max_rollout_depth && tree[current_idx].children.is_empty() {
+                for &act in &candidate_actions {
+                    let child_pos = Self::simulate_kinematics(tree[current_idx].position, act);
+                    // Perturb latents lightly based on action
+                    let mut child_latents = tree[current_idx].state_latents.clone();
+                    if let Some(first) = child_latents.first_mut() {
+                        *first += (act as f32) * 0.01;
+                    }
+                    let new_child_idx = tree.len();
+                    tree.push(MctsNode {
+                        state_latents: child_latents,
+                        position: child_pos,
+                        action_taken: act,
+                        visit_count: 0,
+                        cumulative_value: 0.0,
+                        children: Vec::new(),
+                        parent: Some(current_idx),
+                    });
+                    tree[current_idx].children.push(new_child_idx);
+                }
+                if let Some(&first_child) = tree[current_idx].children.first() {
+                    current_idx = first_child;
+                }
+            }
+
+            // 3. Rollout / Evaluation
+            let rollout_val = self.evaluate_state(tree[current_idx].position, &tree[current_idx].state_latents);
+
+            // 4. Backpropagation
+            let mut backprop_idx = Some(current_idx);
+            while let Some(idx) = backprop_idx {
+                tree[idx].visit_count += 1;
+                tree[idx].cumulative_value += rollout_val;
+                backprop_idx = tree[idx].parent;
+            }
+        }
+
+        // Extract top paths through highest visit-count / Q-value branches
+        let mut paths: Vec<CandidateTrajectoryPath> = Vec::new();
+        let root_children = &tree[0].children;
+
+        let mut child_values: Vec<(usize, f32)> = root_children
+            .iter()
+            .map(|&idx| {
+                let v = if tree[idx].visit_count > 0 {
+                    tree[idx].cumulative_value / tree[idx].visit_count as f32
+                } else {
+                    0.0
+                };
+                (idx, v)
+            })
+            .collect();
+
+        child_values.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let max_val = child_values.first().map(|x| x.1).unwrap_or(0.0);
+
+        for (rank, &(child_idx, _)) in child_values.iter().take(3).enumerate() {
+            let mut action_sequence = Vec::new();
+            let mut waypoint_positions = Vec::new();
+            let mut curr = child_idx;
+
+            loop {
+                action_sequence.push(tree[curr].action_taken);
+                waypoint_positions.push(tree[curr].position);
+                if tree[curr].children.is_empty() {
+                    break;
+                }
+                // Follow most visited child
+                let best = *tree[curr]
+                    .children
+                    .iter()
+                    .max_by_key(|&&c| tree[c].visit_count)
+                    .unwrap();
+                curr = best;
+            }
+
+            let est_val = if tree[child_idx].visit_count > 0 {
+                tree[child_idx].cumulative_value / tree[child_idx].visit_count as f32
+            } else {
+                0.0
+            };
+
+            paths.push(CandidateTrajectoryPath {
+                action_sequence,
+                waypoint_positions,
+                estimated_value: est_val,
+                is_optimal: rank == 0 && est_val >= max_val,
+            });
+        }
+
+        paths
+    }
+}
+
+// ============================================================================
+// Multimodal Audio-DiT (Acoustic Latent Co-Diffusion)
+// ============================================================================
+
+/// Output audio packet representing stereo multi-channel PCM audio
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AudioPacket {
+    pub left_channel: Vec<f32>,
+    pub right_channel: Vec<f32>,
+    pub sample_rate: u32,
+    pub reverb_tail_factor: f32,
+    pub dominant_freq_hz: f32,
+}
+
+/// Acoustic Latent Co-Diffusion model that predicts spatial audio synchronized with world frame latents
+#[derive(Debug, Clone)]
+pub struct AudioDitCoDiffuser {
+    pub audio_latent_dim: usize,
+    pub visual_latent_dim: usize,
+    pub cross_attention_weights: Vec<f32>,
+}
+
+impl AudioDitCoDiffuser {
+    pub fn new(audio_latent_dim: usize, visual_latent_dim: usize) -> Self {
+        // Cross-projection matrix [audio_latent_dim, visual_latent_dim]
+        let mut rng_seed = 12345u32;
+        let mut pseudo_rand = || -> f32 {
+            rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            ((rng_seed as f32 / 4294967296.0) - 0.5) * 0.1
+        };
+
+        let mut cross_attention_weights = Vec::with_capacity(audio_latent_dim * visual_latent_dim);
+        for _ in 0..(audio_latent_dim * visual_latent_dim) {
+            cross_attention_weights.push(pseudo_rand());
+        }
+
+        Self {
+            audio_latent_dim,
+            visual_latent_dim,
+            cross_attention_weights,
+        }
+    }
+
+    /// Predicts acoustic latent tokens from visual latents, player action, and voxel density
+    pub fn diffuse_acoustic_latent(
+        &self,
+        visual_latents: &[f32],
+        action: u32,
+        local_voxel_density: f32,
+    ) -> Vec<f32> {
+        let mut audio_latents = vec![0.0f32; self.audio_latent_dim];
+        let v_dim = self.visual_latent_dim.min(visual_latents.len());
+
+        // Cross-modal attention projection
+        for a in 0..self.audio_latent_dim {
+            let row_offset = a * self.visual_latent_dim;
+            let mut sum = 0.0f32;
+            for v in 0..v_dim {
+                sum += self.cross_attention_weights[row_offset + v] * visual_latents[v];
+            }
+
+            // Modulate by action frequency signatures
+            let action_harmonic = match action {
+                1 | 2 | 3 | 4 => (a as f32 * 0.8).sin() * 0.3, // movement
+                5 => (a as f32 * 1.5).sin() * 0.7,             // jump impact
+                6 => (a as f32 * 2.2).cos() * 0.9,             // spellcast resonance
+                _ => 0.05,                                     // ambient hum
+            };
+
+            // Acoustic absorption based on local solid voxel density
+            let absorption = (1.0 - local_voxel_density * 0.4).max(0.1);
+            audio_latents[a] = (sum + action_harmonic) * absorption;
+        }
+
+        audio_latents
+    }
+
+    /// Decodes acoustic latents into a stereo PCM waveform buffer with voxel-based reverberation
+    pub fn decode_to_pcm(
+        &self,
+        audio_latents: &[f32],
+        action: u32,
+        local_voxel_density: f32,
+        num_samples: usize,
+    ) -> AudioPacket {
+        let sample_rate = 44100;
+        let mut left_channel = Vec::with_capacity(num_samples);
+        let mut right_channel = Vec::with_capacity(num_samples);
+
+        // Calculate reverberation tail factor based on enclosed cavernous voxel density
+        // High density in an enclosure creates strong early reflections and longer reverb tail
+        let reverb_tail_factor = (local_voxel_density * 0.85).clamp(0.05, 0.92);
+
+        // Derive base frequency from audio latents
+        let latent_energy = audio_latents.iter().map(|&x| x.abs()).sum::<f32>() / (audio_latents.len().max(1) as f32);
+        let base_freq = match action {
+            1 | 2 | 3 | 4 => 120.0 + latent_energy * 50.0,
+            5 => 80.0 + latent_energy * 30.0,
+            6 => 440.0 + latent_energy * 220.0,
+            _ => 60.0 + latent_energy * 20.0,
+        };
+
+        let mut prev_left = 0.0f32;
+        let mut prev_right = 0.0f32;
+
+        for i in 0..num_samples {
+            let t = i as f32 / sample_rate as f32;
+            let decay = (-t * (4.0 - reverb_tail_factor * 3.0)).exp();
+
+            // Direct sound generator
+            let raw_sample = match action {
+                1 | 2 | 3 | 4 => {
+                    // Footstep rhythm pulse
+                    let step_env = (t * 8.0 * std::f32::consts::PI).sin().abs().powf(3.0);
+                    (2.0 * std::f32::consts::PI * base_freq * t).sin() * step_env * decay
+                }
+                5 => {
+                    // Impact thud
+                    (2.0 * std::f32::consts::PI * (base_freq * (1.0 - t * 2.0).max(0.1)) * t).sin() * decay
+                }
+                6 => {
+                    // Shimmering spell resonance with harmonics
+                    let f1 = (2.0 * std::f32::consts::PI * base_freq * t).sin();
+                    let f2 = (2.0 * std::f32::consts::PI * base_freq * 1.5 * t).sin() * 0.5;
+                    let f3 = (2.0 * std::f32::consts::PI * base_freq * 2.0 * t).sin() * 0.25;
+                    (f1 + f2 + f3) * 0.6 * decay
+                }
+                _ => {
+                    // Ambient wind/drone
+                    (2.0 * std::f32::consts::PI * base_freq * t).sin() * 0.15 * decay
+                }
+            };
+
+            // Stereo spatialization with acoustic reverb reflection feedback
+            let left_sample = raw_sample * 0.95 + prev_left * reverb_tail_factor;
+            let right_sample = raw_sample * 0.85 + prev_right * reverb_tail_factor;
+
+            prev_left = left_sample.clamp(-1.0, 1.0);
+            prev_right = right_sample.clamp(-1.0, 1.0);
+
+            left_channel.push(prev_left);
+            right_channel.push(prev_right);
+        }
+
+        AudioPacket {
+            left_channel,
+            right_channel,
+            sample_rate,
+            reverb_tail_factor,
+            dominant_freq_hz: base_freq,
+        }
+    }
+}
+
 /// Swarm Agent State for multi-agent co-diffusion
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SwarmAgentState {

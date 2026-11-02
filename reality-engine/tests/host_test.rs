@@ -857,6 +857,28 @@ fn test_p2p_latent_consensus_and_npc_neural_empathy() {
 }
 
 #[test]
+fn test_latent_rollback_netcode_reconciliation() {
+    let mut netcode = reality_engine::genie_bridge::LatentRollbackNetcode::new(32);
+    for frame in 1..=10 {
+        netcode.record_predicted_frame(
+            frame as f64 * 0.016,
+            1, // forward
+            [0.0, 0.0, 0.0, 0.0, -1.0],
+            vec![0.1f32; 16],
+            [0.0, 0.0, -(frame as f32)],
+        );
+    }
+    assert_eq!(netcode.current_frame, 10);
+
+    // Frame 5 diverges on peer
+    let authoritative_latents = vec![0.8f32; 16];
+    let did_rollback = netcode.reconcile_and_rollback(5, &authoritative_latents, [0.0, 0.0, -5.0], 0.2);
+    assert!(did_rollback);
+    assert_eq!(netcode.total_rollbacks, 1);
+    assert_eq!(netcode.last_rollback_frames, 5); // frames 6, 7, 8, 9, 10 resimulated
+}
+
+#[test]
 fn test_latent_physics_rigidbody_simulation() {
     use reality_engine::genie_bridge::LatentPhysicsEngine;
 

@@ -43,6 +43,7 @@ pub struct GenieBridge {
     pub mcts_candidate_paths: Arc<Mutex<Vec<reality_genie::dit::CandidateTrajectoryPath>>>,
     pub rollback_netcode: Arc<Mutex<LatentRollbackNetcode>>,
     pub webrtc_streamer: Arc<Mutex<WebRtcLatentChunkStreamer>>,
+    pub holographic_manager: Arc<Mutex<HolographicTeleportationManager>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -104,6 +105,7 @@ impl GenieBridge {
             mcts_candidate_paths: Arc::new(Mutex::new(Vec::new())),
             rollback_netcode: Arc::new(Mutex::new(LatentRollbackNetcode::new(128))),
             webrtc_streamer: Arc::new(Mutex::new(WebRtcLatentChunkStreamer::new())),
+            holographic_manager: Arc::new(Mutex::new(HolographicTeleportationManager::new())),
         }
     }
 
@@ -612,6 +614,86 @@ impl GenieBridge {
             if let Ok(mut pending) = pending_ref.clone().lock() {
                 pending.push(direct_splats);
             }
+        }
+    }
+}
+
+// ============================================================================
+// Cross-Reality Holographic Teleportation (AR/VR Neural Avatars)
+// ============================================================================
+
+/// Holographic avatar packet containing live player splats and pose matrices for WebXR teleportation
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HolographicAvatarPacket {
+    pub peer_id: String,
+    pub head_pose: [f32; 16],
+    pub left_hand_pose: Option<[f32; 16]>,
+    pub right_hand_pose: Option<[f32; 16]>,
+    pub avatar_splats: Vec<[f32; 14]>,
+    pub timestamp_ms: u64,
+}
+
+/// Holographic avatar teleportation manager for cross-reality WebXR AR/VR sessions
+#[derive(Debug, Clone)]
+pub struct HolographicTeleportationManager {
+    pub remote_avatars: std::collections::HashMap<String, HolographicAvatarPacket>,
+    pub local_head_pose: [f32; 16],
+}
+
+impl Default for HolographicTeleportationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HolographicTeleportationManager {
+    pub fn new() -> Self {
+        let mut id_matrix = [0.0f32; 16];
+        id_matrix[0] = 1.0;
+        id_matrix[5] = 1.0;
+        id_matrix[10] = 1.0;
+        id_matrix[15] = 1.0;
+
+        Self {
+            remote_avatars: std::collections::HashMap::new(),
+            local_head_pose: id_matrix,
+        }
+    }
+
+    /// Ingests a holographic avatar packet received from a remote AR/VR peer
+    pub fn ingest_avatar_packet(&mut self, packet: HolographicAvatarPacket) {
+        self.remote_avatars.insert(packet.peer_id.clone(), packet);
+    }
+
+    /// Emits local player avatar splat vertices for streaming
+    pub fn encode_local_avatar(
+        &self,
+        peer_id: &str,
+        player_pos: [f32; 3],
+        timestamp_ms: u64,
+    ) -> HolographicAvatarPacket {
+        // Generate a concise 16-splat avatar representation
+        let mut avatar_splats = Vec::with_capacity(16);
+        for i in 0..16 {
+            let theta = (i as f32) * std::f32::consts::PI * 0.125;
+            let sx = player_pos[0] + theta.cos() * 0.4;
+            let sy = player_pos[1] + (i as f32 * 0.08);
+            let sz = player_pos[2] + theta.sin() * 0.4;
+            avatar_splats.push([
+                sx, sy, sz,
+                0.0, 0.0, 0.0, 1.0,
+                0.1, 0.1, 0.1,
+                0.0, 0.9, 1.0, 0.8,
+            ]);
+        }
+
+        HolographicAvatarPacket {
+            peer_id: peer_id.to_string(),
+            head_pose: self.local_head_pose,
+            left_hand_pose: None,
+            right_hand_pose: None,
+            avatar_splats,
+            timestamp_ms,
         }
     }
 }

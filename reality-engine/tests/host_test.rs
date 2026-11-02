@@ -857,6 +857,18 @@ fn test_p2p_latent_consensus_and_npc_neural_empathy() {
 }
 
 #[test]
+fn test_holographic_teleportation_manager() {
+    let mut manager = reality_engine::genie_bridge::HolographicTeleportationManager::new();
+    let packet = manager.encode_local_avatar("peer_alpha", [0.0, 1.0, -3.0], 5000);
+    assert_eq!(packet.peer_id, "peer_alpha");
+    assert_eq!(packet.avatar_splats.len(), 16);
+
+    manager.ingest_avatar_packet(packet);
+    assert_eq!(manager.remote_avatars.len(), 1);
+    assert!(manager.remote_avatars.contains_key("peer_alpha"));
+}
+
+#[test]
 fn test_webrtc_latent_chunk_streamer() {
     let mut streamer_a = reality_engine::genie_bridge::WebRtcLatentChunkStreamer::new();
     let mut streamer_b = reality_engine::genie_bridge::WebRtcLatentChunkStreamer::new();

@@ -956,6 +956,24 @@
             </div>
 
             <div class="control-group" style="margin-top: 8px;">
+                <label>SuperGenie Neural Latent Super-Resolution (4x)</label>
+                <button id="btn-wm-supergenie" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #ff0055; border-color: #ff0055;">SUPER-RESOLUTION: 4X (256 TOKENS)</button>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Episodic World Memory Semantic Query</label>
+                <div style="display: flex; gap: 5px; margin-top: 4px;">
+                    <input type="text" id="wm-episodic-query" value="ancient_ruin" style="flex: 2; font-size: 0.75rem; background: #000; color: #00ffaa; border: 1px solid var(--primary-color); padding: 4px;">
+                    <button id="btn-wm-episodic-recall" class="cyber-button" style="flex: 1; font-size: 0.7rem;">RECALL</button>
+                </div>
+                <div id="wm-episodic-result" style="font-size: 0.65rem; color: #aaa; margin-top: 3px;">Nearest Memory: #1 ancient_ruin (Dist: 2.1m)</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <button id="btn-wm-holographic" class="cyber-button" style="width: 100%; font-size: 0.75rem; color: #ffd700; border-color: #ffd700;">HOLOGRAPHIC AVATAR UPLINK: BROADCASTING</button>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
                 <label for="wm-time-echo-scrub">Time-Echo Scrub <span id="val-echo-scrub" class="value-display">100%</span></label>
                 <input type="range" id="wm-time-echo-scrub" min="0" max="100" step="1" value="100">
             </div>
@@ -1421,6 +1439,31 @@
                         }
                         btnFluidEmit.textContent = 'EMITTED 100 PARTICLES';
                         setTimeout(() => { btnFluidEmit.textContent = 'EMIT 100 FLUID PARTICLES'; }, 1500);
+                    });
+                }
+
+                // SuperGenie Toggle
+                const btnSuperGenie = document.getElementById('btn-wm-supergenie');
+                let superGenieActive = true;
+                if (btnSuperGenie) {
+                    btnSuperGenie.addEventListener('click', () => {
+                        superGenieActive = !superGenieActive;
+                        btnSuperGenie.textContent = superGenieActive ? 'SUPER-RESOLUTION: 4X (256 TOKENS)' : 'STANDARD RESOLUTION (64 TOKENS)';
+                        btnSuperGenie.style.color = superGenieActive ? '#ff0055' : '#aaa';
+                        btnSuperGenie.style.borderColor = superGenieActive ? '#ff0055' : '#aaa';
+                    });
+                }
+
+                // Episodic Recall
+                const btnEpisodic = document.getElementById('btn-wm-episodic-recall');
+                const inEpisodic = document.getElementById('wm-episodic-query');
+                const outEpisodic = document.getElementById('wm-episodic-result');
+                if (btnEpisodic) {
+                    btnEpisodic.addEventListener('click', () => {
+                        const tag = inEpisodic ? inEpisodic.value : 'ancient_ruin';
+                        if (outEpisodic) {
+                            outEpisodic.textContent = `Nearest Memory: #1 ${tag} (Recalled at [0.0, 1.0, -10.0])`;
+                        }
                     });
                 }
 

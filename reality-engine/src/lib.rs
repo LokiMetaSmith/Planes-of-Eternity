@@ -1822,10 +1822,20 @@ impl State {
                     velocity: [0.0, 0.0, 0.0],
                     intent_action: idx % 5,
                     influence_radius: 12.0,
+                    emotional_valence: 0.5,
+                    dialogue_intent: (idx % 4) as u32,
+                    last_speech_utterance: None,
                 }
             }).collect();
             swarm.set_agents(swarm_agents);
             swarm.step_swarm(0.016);
+
+            // Reflect diffused dialogue utterances back to NPC chat bubbles
+            for (idx, agent) in swarm.agents.iter().enumerate() {
+                if let (Some(npc), Some(ref msg)) = (self.engine.world_state.npcs.get_mut(idx), &agent.last_speech_utterance) {
+                    npc.chat_message = Some((msg.clone(), crate::projector::get_current_timestamp()));
+                }
+            }
         }
 
         // Update 3D HRTF AudioListener pose from camera/headset

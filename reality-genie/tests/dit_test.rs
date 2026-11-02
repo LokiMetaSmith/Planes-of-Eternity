@@ -501,6 +501,43 @@ fn test_action_conditioned_sampler_rollout() -> candle_core::Result<()> {
 }
 
 #[test]
+fn test_episodic_memory_graph_recall() {
+    let mut memory_graph = reality_genie::dit::EpisodicMemoryGraph::new();
+    let latents1 = vec![0.9f32, 0.1f32, 0.0f32, 0.0f32];
+    let latents2 = vec![0.0f32, 0.0f32, 0.8f32, 0.2f32];
+
+    let id1 = memory_graph.record_episode("ancient_ruin", [10.0, 0.0, -15.0], &latents1, 1000);
+    let _id2 = memory_graph.record_episode("cyber_tower", [12.0, 0.0, -18.0], &latents2, 2000);
+
+    let recalled = memory_graph.recall_episodes(&[0.85, 0.1, 0.0, 0.0], 1);
+    assert_eq!(recalled.len(), 1);
+    assert_eq!(recalled[0].id, id1);
+    assert_eq!(recalled[0].semantic_tag, "ancient_ruin");
+}
+
+#[test]
+fn test_neural_gi_evaluation() {
+    let gi = reality_genie::dit::NeuralGiField::new(8);
+    let latents = vec![0.1f32; 16];
+    let noon_sample = gi.evaluate_gi([0.0, 1.0, 0.0], 0.25, &latents); // 0.25 = sunrise/day
+    assert!(noon_sample.irradiance_rgb[0] > 0.1);
+    assert!(noon_sample.ambient_occlusion > 0.0);
+    assert!(noon_sample.directional_shadow_factor > 0.0);
+
+    let midnight_sample = gi.evaluate_gi([0.0, 1.0, 0.0], 0.75, &latents); // 0.75 = night
+    assert!(midnight_sample.irradiance_rgb[0] < noon_sample.irradiance_rgb[0]);
+}
+
+#[test]
+fn test_supergenie_upscaling() {
+    let upscaler = reality_genie::dit::SuperGenieUpscaler::new(4, 4, 4);
+    let coarse_latents = vec![0.2f32; 16]; // 4 tokens with 4 channels
+    let upscaled = upscaler.upscale_latents(&coarse_latents, 4);
+
+    assert_eq!(upscaled.len(), 4 * 4 * 4); // 16 tokens with 4 channels = 64 floats
+}
+
+#[test]
 fn test_neural_fluid_particle_simulation() {
     let mut fluid_sim = reality_genie::dit::NeuralFluidSimulator::new(8);
     let latents = vec![0.5f32; 16];
@@ -698,6 +735,9 @@ fn test_multi_agent_co_diffusion_swarm() {
             velocity: [1.0, 0.0, 0.0],
             intent_action: 1,
             influence_radius: 10.0,
+            emotional_valence: 0.8,
+            dialogue_intent: 1,
+            last_speech_utterance: None,
         },
         SwarmAgentState {
             id: 2,
@@ -705,6 +745,9 @@ fn test_multi_agent_co_diffusion_swarm() {
             velocity: [0.0, 0.0, 1.0],
             intent_action: 1,
             influence_radius: 10.0,
+            emotional_valence: -0.5,
+            dialogue_intent: 2,
+            last_speech_utterance: None,
         },
     ];
     swarm.set_agents(agents);

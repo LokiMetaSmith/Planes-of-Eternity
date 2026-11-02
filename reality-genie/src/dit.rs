@@ -33,6 +33,265 @@ impl Default for DiTConfig {
     }
 }
 
+/// Swarm Agent State for multi-agent co-diffusion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SwarmAgentState {
+    pub id: u32,
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub intent_action: usize,
+    pub influence_radius: f32,
+}
+
+/// Multi-Agent Co-Diffusion Engine: evaluates N x N cross-agent attention to model collective flocking/swarm emergent dynamics in latent space
+#[derive(Debug, Clone)]
+pub struct MultiAgentCoDiffusion {
+    pub d_model: usize,
+    pub max_agents: usize,
+    pub agents: Vec<SwarmAgentState>,
+    pub cohesion_weight: f32,
+    pub alignment_weight: f32,
+    pub separation_weight: f32,
+}
+
+impl MultiAgentCoDiffusion {
+    pub fn new(d_model: usize, max_agents: usize) -> Self {
+        Self {
+            d_model,
+            max_agents,
+            agents: Vec::new(),
+            cohesion_weight: 0.35,
+            alignment_weight: 0.40,
+            separation_weight: 0.25,
+        }
+    }
+
+    pub fn set_agents(&mut self, agents: Vec<SwarmAgentState>) {
+        self.agents = agents;
+        if self.agents.len() > self.max_agents {
+            self.agents.truncate(self.max_agents);
+        }
+    }
+
+    /// Computes N x N cross-agent attention matrix based on spatial proximity & intent alignment
+    pub fn compute_swarm_attention_matrix(&self) -> Vec<Vec<f32>> {
+        let n = self.agents.len();
+        if n == 0 {
+            return Vec::new();
+        }
+
+        let mut matrix = vec![vec![0.0f32; n]; n];
+
+        for i in 0..n {
+            let mut row_sum = 0.0f32;
+            for j in 0..n {
+                if i == j {
+                    matrix[i][j] = 1.0;
+                } else {
+                    let a_i = &self.agents[i];
+                    let a_j = &self.agents[j];
+                    let dx = a_i.position[0] - a_j.position[0];
+                    let dy = a_i.position[1] - a_j.position[1];
+                    let dz = a_i.position[2] - a_j.position[2];
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
+                    let r = a_i.influence_radius.max(1.0);
+
+                    // Spatial Gaussian kernel
+                    let spatial_att = (-dist_sq / (2.0 * r * r)).exp();
+
+                    // Intent alignment bonus
+                    let intent_bonus = if a_i.intent_action == a_j.intent_action { 1.25 } else { 0.85 };
+
+                    let score = spatial_att * intent_bonus;
+                    matrix[i][j] = score;
+                }
+                row_sum += matrix[i][j];
+            }
+            // Softmax / normalization per row
+            if row_sum > 1e-6 {
+                for j in 0..n {
+                    matrix[i][j] /= row_sum;
+                }
+            }
+        }
+        matrix
+    }
+
+    /// Evaluates joint swarm steering delta [v_x, v_y, v_z] for each agent using co-diffusion attention
+    pub fn step_swarm(&mut self, dt: f32) -> (f32, f32) {
+        let n = self.agents.len();
+        if n < 2 {
+            return (0.0, 1.0);
+        }
+
+        let attn = self.compute_swarm_attention_matrix();
+        let mut new_velocities = Vec::with_capacity(n);
+
+        let mut mean_vel = [0.0f32; 3];
+        let mut mean_pos = [0.0f32; 3];
+
+        for a in &self.agents {
+            for k in 0..3 {
+                mean_pos[k] += a.position[k];
+                mean_vel[k] += a.velocity[k];
+            }
+        }
+        for k in 0..3 {
+            mean_pos[k] /= n as f32;
+            mean_vel[k] /= n as f32;
+        }
+
+        for i in 0..n {
+            let mut steer_cohesion = [0.0f32; 3];
+            let mut steer_align = [0.0f32; 3];
+            let mut steer_separation = [0.0f32; 3];
+
+            for j in 0..n {
+                if i == j { continue; }
+                let w = attn[i][j];
+                let a_i = &self.agents[i];
+                let a_j = &self.agents[j];
+
+                // Cohesion (pull towards attended neighbors)
+                for k in 0..3 {
+                    steer_cohesion[k] += w * (a_j.position[k] - a_i.position[k]);
+                    steer_align[k] += w * (a_j.velocity[k] - a_i.velocity[k]);
+                }
+
+                // Separation (push away if too close)
+                let dx = a_i.position[0] - a_j.position[0];
+                let dy = a_i.position[1] - a_j.position[1];
+                let dz = a_i.position[2] - a_j.position[2];
+                let d_sq = (dx * dx + dy * dy + dz * dz).max(0.01);
+                if d_sq < 4.0 {
+                    let inv_d = 1.0 / d_sq;
+                    steer_separation[0] += dx * inv_d;
+                    steer_separation[1] += dy * inv_d;
+                    steer_separation[2] += dz * inv_d;
+                }
+            }
+
+            let mut v = self.agents[i].velocity;
+            for k in 0..3 {
+                let accel = steer_cohesion[k] * self.cohesion_weight
+                    + steer_align[k] * self.alignment_weight
+                    + steer_separation[k] * self.separation_weight;
+                v[k] = (v[k] + accel * dt).clamp(-10.0, 10.0);
+            }
+            new_velocities.push(v);
+        }
+
+        // Apply positions
+        for (i, v) in new_velocities.into_iter().enumerate() {
+            self.agents[i].velocity = v;
+            for k in 0..3 {
+                self.agents[i].position[k] += v[k] * dt;
+            }
+        }
+
+        // Compute alignment cohesion metrics
+        let mut variance = 0.0f32;
+        for a in &self.agents {
+            for k in 0..3 {
+                let dv = a.velocity[k] - mean_vel[k];
+                variance += dv * dv;
+            }
+        }
+        let alignment_drift = (variance / (n as f32)).sqrt();
+        let cohesion_index = (1.0 / (1.0 + alignment_drift)).clamp(0.0, 1.0);
+
+        (alignment_drift, cohesion_index)
+    }
+}
+
+/// Low-Rank Adaptation (LoRA) linear layer adapter: W_eff = W_base + (alpha / r) * (B @ A)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LoraAdapter {
+    pub name: String,
+    pub rank: usize,
+    pub alpha: f32,
+    pub in_features: usize,
+    pub out_features: usize,
+    /// Matrix A: [rank, in_features]
+    pub a: Vec<f32>,
+    /// Matrix B: [out_features, rank]
+    pub b: Vec<f32>,
+    pub blend_weight: f32,
+}
+
+impl LoraAdapter {
+    pub fn new(name: &str, in_features: usize, out_features: usize, rank: usize, alpha: f32) -> Self {
+        let r = rank.max(1);
+        // Initialize A with Gaussian-like small values and B with zeros
+        let mut a = Vec::with_capacity(r * in_features);
+        for i in 0..(r * in_features) {
+            let val = ((i % 17) as f32 - 8.0) * 0.005;
+            a.push(val);
+        }
+        let b = vec![0.0f32; out_features * r];
+
+        Self {
+            name: name.to_string(),
+            rank: r,
+            alpha,
+            in_features,
+            out_features,
+            a,
+            b,
+            blend_weight: 1.0,
+        }
+    }
+
+    /// Evaluates the low-rank delta: Delta = (alpha / rank) * blend_weight * (B @ (A @ x))
+    pub fn forward_delta(&self, input: &[f32], output_delta: &mut [f32]) {
+        assert_eq!(input.len(), self.in_features);
+        assert_eq!(output_delta.len(), self.out_features);
+
+        let scale = (self.alpha / self.rank as f32) * self.blend_weight;
+        if scale.abs() < 1e-7 {
+            output_delta.fill(0.0);
+            return;
+        }
+
+        // intermediate = A @ input (size: [rank])
+        let mut intermediate = vec![0.0f32; self.rank];
+        for r in 0..self.rank {
+            let mut sum = 0.0f32;
+            let offset = r * self.in_features;
+            for i in 0..self.in_features {
+                sum += self.a[offset + i] * input[i];
+            }
+            intermediate[r] = sum;
+        }
+
+        // output_delta = scale * (B @ intermediate) (size: [out_features])
+        for o in 0..self.out_features {
+            let mut sum = 0.0f32;
+            let offset = o * self.rank;
+            for r in 0..self.rank {
+                sum += self.b[offset + r] * intermediate[r];
+            }
+            output_delta[o] = sum * scale;
+        }
+    }
+
+    /// Creates a preset LoRA adapter for stylized world dynamics
+    pub fn preset_style(style: &str, in_features: usize, out_features: usize, rank: usize) -> Self {
+        let mut adapter = Self::new(style, in_features, out_features, rank, 16.0);
+        // Fill B with non-zero distinctive weights according to style
+        let seed_val = match style {
+            "Cyberpunk" => 0.04f32,
+            "RetroPixel" => -0.05f32,
+            "OrganicBiolum" => 0.035f32,
+            _ => 0.02f32,
+        };
+        for (i, val) in adapter.b.iter_mut().enumerate() {
+            *val = seed_val * ((i % 13) as f32 * 0.1 - 0.6);
+        }
+        adapter
+    }
+}
+
 /// Continuous Action Embedder: projects 5D continuous vectors [d_theta_x, d_theta_y, v_x, v_y, v_z]
 /// via a 2-layer MLP with GELU activations to match the model feature dimension d_model.
 #[derive(Debug)]

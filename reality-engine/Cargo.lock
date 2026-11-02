@@ -2185,6 +2185,7 @@ dependencies = [
  "npyz",
  "rand 0.8.5",
  "serde",
+ "serde_json",
  "tokenizers",
  "wasm-bindgen",
  "wasm-bindgen-futures",

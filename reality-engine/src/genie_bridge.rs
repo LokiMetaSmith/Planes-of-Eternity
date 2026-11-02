@@ -34,6 +34,9 @@ pub struct GenieBridge {
     pub resolution_mode: Arc<Mutex<reality_genie::dit::ResolutionPyramidMode>>,
     pub sfx_genie: Arc<Mutex<reality_genie::dit::SfxGenie>>,
     pub p2p_consensus: Arc<Mutex<P2PTrajectoryConsensus>>,
+    pub latent_physics: Arc<Mutex<LatentPhysicsEngine>>,
+    pub active_lora: Arc<Mutex<Option<reality_genie::dit::LoraAdapter>>>,
+    pub swarm_engine: Arc<Mutex<reality_genie::dit::MultiAgentCoDiffusion>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -86,6 +89,9 @@ impl GenieBridge {
             resolution_mode: Arc::new(Mutex::new(reality_genie::dit::ResolutionPyramidMode::Full64)),
             sfx_genie: Arc::new(Mutex::new(reality_genie::dit::SfxGenie::new(44100))),
             p2p_consensus: Arc::new(Mutex::new(P2PTrajectoryConsensus::default())),
+            latent_physics: Arc::new(Mutex::new(LatentPhysicsEngine::default())),
+            active_lora: Arc::new(Mutex::new(None)),
+            swarm_engine: Arc::new(Mutex::new(reality_genie::dit::MultiAgentCoDiffusion::new(64, 16))),
         }
     }
 
@@ -572,6 +578,151 @@ impl GenieBridge {
                 pending.push(direct_splats);
             }
         }
+    }
+}
+
+/// Dynamic Rigidbody operating under latent physics fields
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LatentRigidBody {
+    pub id: u32,
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub angular_velocity: [f32; 3],
+    pub mass: f32,
+    pub restitution: f32,
+    pub radius: f32,
+    pub active: bool,
+    pub lifetime: f32,
+}
+
+impl LatentRigidBody {
+    pub fn new(id: u32, position: [f32; 3], velocity: [f32; 3], mass: f32, restitution: f32, radius: f32) -> Self {
+        Self {
+            id,
+            position,
+            velocity,
+            angular_velocity: [0.0, 0.0, 0.0],
+            mass: mass.max(0.1),
+            restitution: restitution.clamp(0.0, 0.95),
+            radius: radius.max(0.1),
+            active: true,
+            lifetime: 0.0,
+        }
+    }
+}
+
+/// Latent Physics Engine that resolves movement, collisions, and bounce impulses via spatial latent token gradients
+#[derive(Debug, Clone)]
+pub struct LatentPhysicsEngine {
+    pub bodies: Vec<LatentRigidBody>,
+    pub gravity: [f32; 3],
+    pub drag: f32,
+    pub latent_force_scale: f32,
+    pub next_body_id: u32,
+}
+
+impl Default for LatentPhysicsEngine {
+    fn default() -> Self {
+        Self {
+            bodies: Vec::new(),
+            gravity: [0.0, -9.81, 0.0],
+            drag: 0.985,
+            latent_force_scale: 4.5,
+            next_body_id: 1,
+        }
+    }
+}
+
+impl LatentPhysicsEngine {
+    pub fn spawn_body(&mut self, pos: [f32; 3], vel: [f32; 3], mass: f32, restitution: f32, radius: f32) -> u32 {
+        let id = self.next_body_id;
+        self.next_body_id += 1;
+        self.bodies.push(LatentRigidBody::new(id, pos, vel, mass, restitution, radius));
+        id
+    }
+
+    /// Sample spatial gradient from the current latent field tokens [S, C]
+    pub fn sample_latent_gradient(latents: &[f32], pos: [f32; 3]) -> [f32; 3] {
+        if latents.is_empty() {
+            return [0.0, 0.0, 0.0];
+        }
+        let seq_len = latents.len() / 64; // assuming channel dim 64
+        if seq_len < 4 {
+            return [0.0, 0.0, 0.0];
+        }
+        // Map 3D coordinate to spatial token grid indices
+        let gx = ((pos[0] * 0.25).floor() as isize).rem_euclid(seq_len as isize) as usize;
+        let gy = ((pos[1] * 0.25).floor() as isize).rem_euclid(seq_len as isize) as usize;
+        let gz = ((pos[2] * 0.25).floor() as isize).rem_euclid(seq_len as isize) as usize;
+
+        let val_c = latents[(gx * 64) % latents.len()];
+        let val_x = latents[((gx + 1) % seq_len * 64) % latents.len()];
+        let val_y = latents[((gy + 1) % seq_len * 64) % latents.len()];
+        let val_z = latents[((gz + 1) % seq_len * 64) % latents.len()];
+
+        [
+            (val_x - val_c) * 2.0,
+            (val_y - val_c) * 2.0,
+            (val_z - val_c) * 2.0,
+        ]
+    }
+
+    /// Step the simulation dt seconds forward using latent gradients and ground boundaries
+    pub fn step(&mut self, dt: f32, latents: &[f32]) {
+        let dt_clamped = dt.clamp(0.001, 0.1);
+
+        for body in self.bodies.iter_mut().filter(|b| b.active) {
+            body.lifetime += dt_clamped;
+            if body.lifetime > 60.0 {
+                body.active = false;
+                continue;
+            }
+
+            // Latent gradient force
+            let grad = Self::sample_latent_gradient(latents, body.position);
+            let f_latent = [
+                grad[0] * self.latent_force_scale,
+                grad[1] * self.latent_force_scale,
+                grad[2] * self.latent_force_scale,
+            ];
+
+            // Acceleration = gravity + (f_latent / mass)
+            let ax = self.gravity[0] + f_latent[0] / body.mass;
+            let ay = self.gravity[1] + f_latent[1] / body.mass;
+            let az = self.gravity[2] + f_latent[2] / body.mass;
+
+            // Velocity integration with drag
+            body.velocity[0] = (body.velocity[0] + ax * dt_clamped) * self.drag;
+            body.velocity[1] = (body.velocity[1] + ay * dt_clamped) * self.drag;
+            body.velocity[2] = (body.velocity[2] + az * dt_clamped) * self.drag;
+
+            // Position integration
+            body.position[0] += body.velocity[0] * dt_clamped;
+            body.position[1] += body.velocity[1] * dt_clamped;
+            body.position[2] += body.velocity[2] * dt_clamped;
+
+            // Ground plane bounce collision (Y = 0 or latent floor threshold)
+            let floor_y = body.radius;
+            if body.position[1] < floor_y {
+                body.position[1] = floor_y;
+                if body.velocity[1] < -0.2 {
+                    body.velocity[1] = -body.velocity[1] * body.restitution;
+                    // Introduce spin from bounce impulse
+                    body.angular_velocity[0] += body.velocity[2] * 0.5;
+                    body.angular_velocity[2] -= body.velocity[0] * 0.5;
+                } else {
+                    body.velocity[1] = 0.0;
+                }
+            }
+
+            // Angular velocity decay
+            body.angular_velocity[0] *= 0.95;
+            body.angular_velocity[1] *= 0.95;
+            body.angular_velocity[2] *= 0.95;
+        }
+
+        // Clean up inactive bodies
+        self.bodies.retain(|b| b.active);
     }
 }
 

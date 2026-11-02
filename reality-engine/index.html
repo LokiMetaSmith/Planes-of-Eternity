@@ -799,6 +799,23 @@
                 <button id="btn-wm-inpaint-box" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #ff007f; color: #ff007f;">INPAINT BOX</button>
                 <button id="btn-wm-inpaint-brush" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">INPAINT SPHERE</button>
             </div>
+
+            <!-- Neural 3D Sculptor -->
+            <div class="control-group" style="margin-top: 6px; padding: 6px; border: 1px dashed #ff007f; border-radius: 4px;">
+                <div style="font-size: 0.75rem; color: #ff007f; font-weight: bold; margin-bottom: 4px;">NEURAL 3D SCULPTOR</div>
+                <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 4px;">
+                    <label for="wm-sculptor-radius" style="margin: 0; font-size: 0.7rem; flex: 1;">Brush Radius <span id="val-sculptor-radius">3.0m</span></label>
+                    <input type="range" id="wm-sculptor-radius" min="1.0" max="10.0" step="0.5" value="3.0" style="flex: 2;">
+                </div>
+                <div style="display: flex; gap: 5px;">
+                    <select id="wm-sculptor-tag" style="flex: 2; font-size: 0.75rem;">
+                        <option value="crystallize neon spire">Crystallize Spires</option>
+                        <option value="hollow bioluminescent cave">Biolum Cavity</option>
+                        <option value="ancient monolithic ruins">Ancient Monolith</option>
+                    </select>
+                    <button id="btn-wm-sculpt-paint" class="cyber-button" style="flex: 1; padding: 4px; font-size: 0.75rem; border-color: #ff007f; color: #ff007f;">SCULPT</button>
+                </div>
+            </div>
             <div class="control-group" style="margin-top: 8px; margin-bottom: 8px;">
                 <label for="wm-timeline-select">Timeline (Multiverse)</label>
                 <div style="display: flex; gap: 5px;">
@@ -838,6 +855,38 @@
                     <button id="btn-weather-rain" class="cyber-button" style="flex: 1; font-size: 0.7rem; padding: 4px;">RAIN</button>
                     <button id="btn-weather-tempest" class="cyber-button" style="flex: 1; font-size: 0.7rem; padding: 4px;">TEMPEST</button>
                 </div>
+            </div>
+
+            <div style="margin-top: 8px; display: flex; gap: 5px;">
+                <button id="btn-spawn-rigidbody" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #ffd700; color: #ffd700;">SPAWN RIGIDBODY</button>
+                <button id="btn-sync-swarm" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">SYNC SWARM</button>
+            </div>
+            <div id="swarm-telemetry-badge" style="font-size: 0.7rem; color: #05ffa1; font-family: monospace; margin-top: 4px;">SWARM AGENTS: 12 | COHESION: ACTIVE</div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-lora-preset">Style LoRA Adapter</label>
+                <select id="wm-lora-preset" style="width: 100%;">
+                    <option value="none">None (Standard Base Model)</option>
+                    <option value="Cyberpunk">Cyberpunk Spires</option>
+                    <option value="RetroPixel">Retro Pixel Realm</option>
+                    <option value="OrganicBiolum">Organic Bioluminescent</option>
+                </select>
+                <div style="margin-top: 4px; display: flex; align-items: center; gap: 6px;">
+                    <label for="wm-lora-blend" style="margin: 0; font-size: 0.7rem; flex: 1;">LoRA Blend <span id="val-lora-blend">100%</span></label>
+                    <input type="range" id="wm-lora-blend" min="0" max="100" step="5" value="100" style="flex: 2;">
+                </div>
+                <div style="margin-top: 4px;">
+                    <input type="file" id="wm-lora-file" accept=".json,.safetensors" style="display: none;">
+                    <button id="btn-upload-lora" class="cyber-button" style="width: 100%; font-size: 0.7rem; padding: 3px;">LOAD CUSTOM LORA ADAPTER</button>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-compute-engine">Compute Hardware Acceleration</label>
+                <select id="wm-compute-engine" style="width: 100%;">
+                    <option value="webgpu">WebGPU WGSL Compute (Hardware Accelerated)</option>
+                    <option value="cpu">WebAssembly CPU Fallback</option>
+                </select>
             </div>
 
             <div class="control-group" style="margin-top: 8px;">
@@ -1391,6 +1440,72 @@
                         if (valCelestial) valCelestial.textContent = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
                         if (gameClient && gameClient.set_celestial_time_of_day) {
                             gameClient.set_celestial_time_of_day(val);
+                        }
+                    });
+                }
+
+                // LoRA Adapter Wiring
+                const loraSelect = document.getElementById('wm-lora-preset');
+                const loraBlend = document.getElementById('wm-lora-blend');
+                const valLoraBlend = document.getElementById('val-lora-blend');
+                const btnUploadLora = document.getElementById('btn-upload-lora');
+                const loraFileInput = document.getElementById('wm-lora-file');
+
+                function updateLora() {
+                    const preset = loraSelect ? loraSelect.value : 'none';
+                    const weight = loraBlend ? parseFloat(loraBlend.value) / 100.0 : 1.0;
+                    if (valLoraBlend && loraBlend) valLoraBlend.textContent = `${loraBlend.value}%`;
+                    if (gameClient && gameClient.set_lora_preset) {
+                        gameClient.set_lora_preset(preset, weight);
+                    }
+                }
+
+                if (loraSelect) loraSelect.addEventListener('change', updateLora);
+                if (loraBlend) loraBlend.addEventListener('input', updateLora);
+                if (btnUploadLora && loraFileInput) {
+                    btnUploadLora.addEventListener('click', () => loraFileInput.click());
+                    loraFileInput.addEventListener('change', (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                                const content = event.target.result;
+                                if (gameClient && gameClient.load_lora_json) {
+                                    const ok = gameClient.load_lora_json(content);
+                                    if (ok) {
+                                        btnUploadLora.textContent = `LOADED: ${file.name.slice(0, 15)}`;
+                                        btnUploadLora.style.borderColor = '#05ffa1';
+                                    }
+                                }
+                            };
+                            reader.readAsText(file);
+                        }
+                    });
+                }
+
+                // Swarm Telemetry Sync
+                const btnSyncSwarm = document.getElementById('btn-sync-swarm');
+                const swarmBadge = document.getElementById('swarm-telemetry-badge');
+                if (btnSyncSwarm) {
+                    btnSyncSwarm.addEventListener('click', () => {
+                        if (gameClient && gameClient.get_swarm_telemetry_json) {
+                            try {
+                                const data = JSON.parse(gameClient.get_swarm_telemetry_json());
+                                if (swarmBadge) {
+                                    swarmBadge.textContent = `SWARM AGENTS: ${data.agents_count} | COHESION: ACTIVE`;
+                                }
+                            } catch (e) {}
+                        }
+                    });
+                }
+
+                // Latent Rigidbody Spawner
+                const btnSpawnRb = document.getElementById('btn-spawn-rigidbody');
+                if (btnSpawnRb) {
+                    btnSpawnRb.addEventListener('click', () => {
+                        if (gameClient && gameClient.spawn_latent_rigidbody) {
+                            const id = gameClient.spawn_latent_rigidbody(1.0, 0.7, 0.5);
+                            console.log('Spawned Latent Rigidbody:', id);
                         }
                     });
                 }

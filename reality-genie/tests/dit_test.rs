@@ -579,3 +579,62 @@ fn test_atmospheric_conditioning_and_tinygenie_quantization() {
     let rainy_step = sfx.synthesize_action_sound_atmos(1, 4.0, 0.1, 0.5, 0.25, 0.8);
     assert_eq!(rainy_step.len(), (44100.0 * 0.1) as usize);
 }
+
+#[test]
+fn test_lora_adapter_and_presets() {
+    use reality_genie::dit::LoraAdapter;
+
+    let adapter = LoraAdapter::preset_style("Cyberpunk", 64, 64, 4);
+    assert_eq!(adapter.name, "Cyberpunk");
+    assert_eq!(adapter.rank, 4);
+    assert_eq!(adapter.in_features, 64);
+    assert_eq!(adapter.out_features, 64);
+
+    let input = vec![1.0f32; 64];
+    let mut delta = vec![0.0f32; 64];
+    adapter.forward_delta(&input, &mut delta);
+
+    // Delta should be non-zero and bounded
+    let sum_abs: f32 = delta.iter().map(|v| v.abs()).sum();
+    assert!(sum_abs > 0.001);
+
+    // Test serialization roundtrip
+    let json_str = serde_json::to_string(&adapter).unwrap();
+    let loaded: LoraAdapter = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(loaded.name, "Cyberpunk");
+}
+
+#[test]
+fn test_multi_agent_co_diffusion_swarm() {
+    use reality_genie::dit::{MultiAgentCoDiffusion, SwarmAgentState};
+
+    let mut swarm = MultiAgentCoDiffusion::new(64, 8);
+    let agents = vec![
+        SwarmAgentState {
+            id: 1,
+            position: [0.0, 0.0, 0.0],
+            velocity: [1.0, 0.0, 0.0],
+            intent_action: 1,
+            influence_radius: 10.0,
+        },
+        SwarmAgentState {
+            id: 2,
+            position: [2.0, 0.0, 0.0],
+            velocity: [0.0, 0.0, 1.0],
+            intent_action: 1,
+            influence_radius: 10.0,
+        },
+    ];
+    swarm.set_agents(agents);
+
+    let attn = swarm.compute_swarm_attention_matrix();
+    assert_eq!(attn.len(), 2);
+    assert_eq!(attn[0].len(), 2);
+    // Attentions should sum to ~1.0
+    let row0_sum: f32 = attn[0].iter().sum();
+    assert!((row0_sum - 1.0).abs() < 1e-4);
+
+    let (drift, cohesion) = swarm.step_swarm(0.05);
+    assert!(cohesion > 0.0 && cohesion <= 1.0);
+    assert!(drift >= 0.0);
+}

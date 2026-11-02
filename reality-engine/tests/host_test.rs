@@ -855,3 +855,26 @@ fn test_p2p_latent_consensus_and_npc_neural_empathy() {
     assert!(local_latents[0] > 0.0);
     assert!(consensus.last_consensus_drift > 0.0);
 }
+
+#[test]
+fn test_latent_physics_rigidbody_simulation() {
+    use reality_engine::genie_bridge::LatentPhysicsEngine;
+
+    let mut physics = LatentPhysicsEngine::default();
+    let id = physics.spawn_body([0.0, 5.0, 0.0], [1.0, 0.0, 1.0], 1.0, 0.8, 0.5);
+    assert_eq!(id, 1);
+    assert_eq!(physics.bodies.len(), 1);
+
+    // Provide synthetic latent tokens for spatial gradient calculation
+    let latents = vec![0.25f32; 64 * 64];
+
+    // Simulate physics steps
+    for _ in 0..60 {
+        physics.step(0.016, &latents);
+    }
+
+    let b = &physics.bodies[0];
+    assert!(b.lifetime > 0.8);
+    // Y position should have fallen and collided/bounced off floor
+    assert!(b.position[1] >= b.radius);
+}

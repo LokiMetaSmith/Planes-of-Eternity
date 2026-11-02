@@ -5595,6 +5595,30 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
             "cumulative_reward": cumulative_reward,
         }).to_string()
     }
+
+    #[wasm_bindgen]
+    pub fn companion_propose_cocreation(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+        let creation = companion.propose_co_creation(player_pos, 1);
+        serde_json::to_string(&creation).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_generate_challenge(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+        let challenge = companion.generate_dynamic_challenge(player_pos);
+        serde_json::to_string(&challenge).unwrap_or_else(|_| "{}".to_string())
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

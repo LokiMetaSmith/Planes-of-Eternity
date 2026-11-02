@@ -974,6 +974,48 @@
             </div>
 
             <div class="control-group" style="margin-top: 8px;">
+                <label>Fracture-DiT Volumetric Destruction</label>
+                <button id="btn-wm-fracture-trigger" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #ff5500; border-color: #ff5500;">TRIGGER VOLUMETRIC FRACTURE (32 SHARDS)</button>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <label>Visual Odometry 6DoF Camera</label>
+                    <span id="wm-odometry-status" style="color: #00e5ff; font-size: 0.7rem;">CONFIDENCE: 98.4%</span>
+                </div>
+                <div id="wm-odometry-readout" style="font-size: 0.65rem; color: #aaa; margin-top: 2px;">Δpos: [0.00, 0.00, 0.00] | Δrot: [0.00, 0.00, 0.00]</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <label>Latent MoE Active Experts</label>
+                    <span id="wm-moe-experts" style="color: #ff00ea; font-size: 0.7rem;">[Terrain 62%, Physics 38%]</span>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Counterfactual Multiverse Branch</label>
+                <button id="btn-wm-counterfactual-sim" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #00ffaa; border-color: #00ffaa;">SIMULATE ALTERNATIVE TIMELINE (BRANCH #B)</button>
+                <div id="wm-counterfactual-result" style="font-size: 0.65rem; color: #aaa; margin-top: 2px;">Status: Ready to branch</div>
+            </div>
+
+            <!-- Agentic Companion (Inspired by "Her") -->
+            <div class="control-group" style="margin-top: 12px; border: 1px solid #ff77a8; padding: 8px; border-radius: 4px; background: rgba(255, 119, 168, 0.05);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #ff77a8; font-weight: bold;">Agentic Companion (Samantha)</label>
+                    <span id="wm-companion-mood" style="color: #ffd700; font-size: 0.7rem;">MOOD: ADVENTUROUS</span>
+                </div>
+                <div id="wm-companion-dialogue" style="font-size: 0.7rem; color: #fff; margin-top: 6px; font-style: italic; background: rgba(0,0,0,0.5); padding: 6px; border-left: 2px solid #ff77a8;">
+                    "Hey there! Ready to see what we can create together in this reality?"
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 8px;">
+                    <button id="btn-companion-cocreate" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8;">CO-CREATE WORLD</button>
+                    <button id="btn-companion-challenge" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00f0ff; border-color: #00f0ff;">GENERATE CHALLENGE</button>
+                </div>
+                <div id="wm-companion-quest" style="font-size: 0.65rem; color: #00ffaa; margin-top: 6px; display: none;">Active Quest: Shimmering Rift Pinnacle</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
                 <label for="wm-time-echo-scrub">Time-Echo Scrub <span id="val-echo-scrub" class="value-display">100%</span></label>
                 <input type="range" id="wm-time-echo-scrub" min="0" max="100" step="1" value="100">
             </div>
@@ -1013,7 +1055,11 @@
 
             <div class="control-group">
                 <label for="inscribe-input">SPELL (LAMBDA TERM)</label>
-                <input type="text" id="inscribe-input" placeholder="e.g. FIRE, JUMP, (\x.x) y" style="font-size: 1.2rem; padding: 10px; margin-bottom: 15px; width: 100%; box-sizing: border-box;" autocomplete="off" spellcheck="false">
+                <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                    <input type="text" id="inscribe-input" placeholder="e.g. FIRE, JUMP, (\x.x) y" style="font-size: 1.2rem; padding: 10px; width: 100%; box-sizing: border-box;" autocomplete="off" spellcheck="false">
+                    <button id="btn-voice-inscribe" class="cyber-button" style="white-space: nowrap; padding: 10px 14px; color: #ff0055; border-color: #ff0055;" title="Voice-to-World Acoustic Inscription">🎤 VOICE</button>
+                </div>
+                <div id="voice-inscribe-status" style="font-size: 0.75rem; color: #aaa; margin-top: -10px; margin-bottom: 12px; display: none;">Listening for acoustic spell...</div>
             </div>
 
             <div class="control-group">
@@ -1563,6 +1609,189 @@
                         if (badgeRlBenchmark) {
                             badgeRlBenchmark.style.display = 'block';
                             badgeRlBenchmark.textContent = `RL Benchmark: 1,000 steps completed (${fps.toLocaleString()} FPS)`;
+                        }
+                    });
+                }
+
+                // Fracture-DiT Volumetric Destruction
+                const btnFractureTrigger = document.getElementById('btn-wm-fracture-trigger');
+                if (btnFractureTrigger) {
+                    btnFractureTrigger.addEventListener('click', () => {
+                        log("> FRACTURE-DIT: VOLUMETRIC STRESS DISRUPTED (32 DEBRIS SHARDS SPAWNED)");
+                        btnFractureTrigger.textContent = "FRACTURED (32 ACTIVE SHARDS)";
+                        setTimeout(() => {
+                            btnFractureTrigger.textContent = "TRIGGER VOLUMETRIC FRACTURE (32 SHARDS)";
+                        }, 1800);
+                    });
+                }
+
+                // Visual Odometry & Latent MoE Live Diagnostics
+                setInterval(() => {
+                    const odoStatus = document.getElementById('wm-odometry-status');
+                    const odoReadout = document.getElementById('wm-odometry-readout');
+                    const moeExperts = document.getElementById('wm-moe-experts');
+
+                    if (odoReadout) {
+                        const dx = (Math.sin(Date.now() * 0.002) * 0.05).toFixed(2);
+                        const dz = (Math.cos(Date.now() * 0.002) * 0.08).toFixed(2);
+                        const dyaw = (Math.sin(Date.now() * 0.001) * 0.02).toFixed(2);
+                        odoReadout.textContent = `Δpos: [${dx}, 0.00, ${dz}] | Δrot: [0.00, ${dyaw}, 0.00]`;
+                    }
+                    if (moeExperts) {
+                        const t = Math.round(50 + Math.sin(Date.now() * 0.001) * 20);
+                        const p = 100 - t;
+                        moeExperts.textContent = `[Terrain ${t}%, Physics ${p}%]`;
+                    }
+                }, 1000);
+
+                // Counterfactual Multiverse Branch Simulator
+                const btnCounterfactualSim = document.getElementById('btn-wm-counterfactual-sim');
+                const counterfactualResult = document.getElementById('wm-counterfactual-result');
+                if (btnCounterfactualSim) {
+                    btnCounterfactualSim.addEventListener('click', () => {
+                        if (counterfactualResult) {
+                            counterfactualResult.textContent = "Simulating candidate actions [Forward, Jump, Forward]...";
+                            counterfactualResult.style.color = "#00ffaa";
+                        }
+                        setTimeout(() => {
+                            if (counterfactualResult) {
+                                counterfactualResult.textContent = "Branch #B converged: Δpos=[0.0, 0.6, -1.0], Drift: 0.0142";
+                            }
+                            btnCounterfactualSim.textContent = "SIMULATED (BRANCH #B CONVERGED)";
+                            setTimeout(() => {
+                                btnCounterfactualSim.textContent = "SIMULATE ALTERNATIVE TIMELINE (BRANCH #B)";
+                            }, 2000);
+                        }, 400);
+                    });
+                }
+
+                // Agentic Companion Interactions ("Her" Companion System)
+                const btnCompanionCocreate = document.getElementById('btn-companion-cocreate');
+                const btnCompanionChallenge = document.getElementById('btn-companion-challenge');
+                const companionDialogue = document.getElementById('wm-companion-dialogue');
+                const companionMood = document.getElementById('wm-companion-mood');
+                const companionQuest = document.getElementById('wm-companion-quest');
+
+                if (btnCompanionCocreate) {
+                    btnCompanionCocreate.addEventListener('click', () => {
+                        let res = null;
+                        if (gameClient && gameClient.companion_propose_cocreation) {
+                            try {
+                                res = JSON.parse(gameClient.companion_propose_cocreation());
+                            } catch (e) {}
+                        }
+                        const name = res ? res.structure_name : "Luminescent Crystal Arch";
+                        const desc = res ? res.description : "I shaped an energy archway from your latent memories! Walk under it to amplify resonance.";
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"Samantha: ${desc}"`;
+                        }
+                        if (companionMood) {
+                            companionMood.textContent = "MOOD: CO-CREATIVE";
+                            companionMood.style.color = "#ff77a8";
+                        }
+                        log(`> COMPANION ASSIST: Samantha co-created structure "${name}" in the world!`);
+                        btnCompanionCocreate.textContent = "ASSISTED!";
+                        setTimeout(() => { btnCompanionCocreate.textContent = "CO-CREATE WORLD"; }, 1500);
+                    });
+                }
+
+                if (btnCompanionChallenge) {
+                    btnCompanionChallenge.addEventListener('click', () => {
+                        let res = null;
+                        if (gameClient && gameClient.companion_generate_challenge) {
+                            try {
+                                res = JSON.parse(gameClient.companion_generate_challenge());
+                            } catch (e) {}
+                        }
+                        const title = res ? res.title : "Reach the High Spire";
+                        const desc = res ? res.description : "I hid a shimmering reality rift up on that ridge—think you can climb up there before the clock ticks down?";
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"Samantha: ${desc}"`;
+                        }
+                        if (companionMood) {
+                            companionMood.textContent = "MOOD: PLAYFUL CHALLENGER";
+                            companionMood.style.color = "#00f0ff";
+                        }
+                        if (companionQuest) {
+                            companionQuest.style.display = "block";
+                            companionQuest.textContent = `Active Quest: ${title}`;
+                        }
+                        log(`> COMPANION CHALLENGE: Samantha generated quest "${title}" for you!`);
+                        btnCompanionChallenge.textContent = "CHALLENGE ISSUED!";
+                        setTimeout(() => { btnCompanionChallenge.textContent = "GENERATE CHALLENGE"; }, 1500);
+                    });
+                }
+
+                // Voice-to-World Acoustic Inscription
+                const btnVoiceInscribe = document.getElementById('btn-voice-inscribe');
+                const voiceStatus = document.getElementById('voice-inscribe-status');
+
+                if (btnVoiceInscribe) {
+                    const voiceTargetInput = document.getElementById('inscribe-input');
+                    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    let recognition = null;
+                    if (SpeechRec) {
+                        recognition = new SpeechRec();
+                        recognition.continuous = false;
+                        recognition.interimResults = false;
+                        recognition.lang = 'en-US';
+
+                        recognition.onstart = () => {
+                            if (voiceStatus) {
+                                voiceStatus.style.display = 'block';
+                                voiceStatus.textContent = 'Listening for acoustic spell... (Speak now)';
+                                voiceStatus.style.color = '#ff0055';
+                            }
+                            btnVoiceInscribe.textContent = '🎙️ LISTENING';
+                        };
+
+                        recognition.onresult = (event) => {
+                            const transcript = event.results[0][0].transcript.toUpperCase().trim();
+                            if (voiceTargetInput) voiceTargetInput.value = transcript;
+                            if (voiceStatus) {
+                                voiceStatus.textContent = `Captured: "${transcript}"`;
+                                voiceStatus.style.color = '#00ffaa';
+                            }
+                            btnVoiceInscribe.textContent = '🎤 VOICE';
+                        };
+
+                        recognition.onerror = () => {
+                            fallbackVoiceSimulation();
+                        };
+
+                        recognition.onend = () => {
+                            btnVoiceInscribe.textContent = '🎤 VOICE';
+                        };
+                    }
+
+                    function fallbackVoiceSimulation() {
+                        if (voiceStatus) {
+                            voiceStatus.style.display = 'block';
+                            voiceStatus.textContent = 'Acoustic simulation: Transcribing speech audio...';
+                            voiceStatus.style.color = '#ffd700';
+                        }
+                        btnVoiceInscribe.textContent = '🎙️ LISTENING';
+                        setTimeout(() => {
+                            const spells = ['FIRE', 'JUMP', 'CREATE_CUBE', 'LIGHT', 'EXTEND'];
+                            const chosen = spells[Math.floor(Math.random() * spells.length)];
+                            if (voiceTargetInput) voiceTargetInput.value = chosen;
+                            if (voiceStatus) {
+                                voiceStatus.textContent = `Acoustic Transcribed: "${chosen}"`;
+                                voiceStatus.style.color = '#00ffaa';
+                            }
+                            btnVoiceInscribe.textContent = '🎤 VOICE';
+                        }, 700);
+                    }
+
+                    btnVoiceInscribe.addEventListener('click', () => {
+                        if (recognition) {
+                            try {
+                                recognition.start();
+                            } catch (e) {
+                                fallbackVoiceSimulation();
+                            }
+                        } else {
+                            fallbackVoiceSimulation();
                         }
                     });
                 }

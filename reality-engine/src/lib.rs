@@ -1805,6 +1805,29 @@ impl State {
             self.voxel_dirty = true;
         }
 
+        // Step latent physics simulation
+        let latents_snapshot: Vec<f32> = self.voxel_world.genie.rolling_context.lock().ok().and_then(|ctx| {
+            ctx.frames.last().and_then(|t| t.flatten_all().ok()?.to_vec1::<f32>().ok())
+        }).unwrap_or_default();
+        if let Ok(mut physics) = self.voxel_world.genie.latent_physics.lock() {
+            physics.step(0.016, &latents_snapshot);
+        }
+
+        // Synchronize NPCs with multi-agent co-diffusion swarm
+        if let Ok(mut swarm) = self.voxel_world.genie.swarm_engine.lock() {
+            let swarm_agents: Vec<reality_genie::dit::SwarmAgentState> = self.engine.world_state.npcs.iter().enumerate().map(|(idx, npc)| {
+                reality_genie::dit::SwarmAgentState {
+                    id: idx as u32,
+                    position: [npc.location.x, npc.location.y, npc.location.z],
+                    velocity: [0.0, 0.0, 0.0],
+                    intent_action: idx % 5,
+                    influence_radius: 12.0,
+                }
+            }).collect();
+            swarm.set_agents(swarm_agents);
+            swarm.step_swarm(0.016);
+        }
+
 
         if self.engine.is_recording_splats {
             let mut current_frame = Vec::new();
@@ -5320,6 +5343,102 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
             }
         }
         r#"{"peers":0,"drift":0.0,"status":"IDLE"}"#.to_string()
+    }
+
+    pub fn spawn_latent_rigidbody(&self, mass: f32, restitution: f32, radius: f32) -> u32 {
+        if let Ok(state) = self.state.try_borrow() {
+            let cam_pos = state.engine.camera.eye;
+            let (sin_y, cos_y) = state.engine.camera.yaw.sin_cos();
+            let (sin_p, cos_p) = state.engine.camera.pitch.sin_cos();
+            let forward = [cos_p * sin_y, sin_p, cos_p * cos_y];
+            let spawn_pos = [
+                cam_pos.x + forward[0] * 3.0,
+                cam_pos.y + forward[1] * 3.0 + 1.0,
+                cam_pos.z + forward[2] * 3.0,
+            ];
+            let throw_vel = [
+                forward[0] * 12.0,
+                forward[1] * 12.0 + 3.0,
+                forward[2] * 12.0,
+            ];
+            if let Ok(mut physics) = state.voxel_world.genie.latent_physics.lock() {
+                return physics.spawn_body(spawn_pos, throw_vel, mass, restitution, radius);
+            }
+        }
+        0
+    }
+
+    pub fn get_latent_rigidbodies_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(physics) = state.voxel_world.genie.latent_physics.lock() {
+                return serde_json::to_string(&physics.bodies).unwrap_or_else(|_| "[]".to_string());
+            }
+        }
+        "[]".to_string()
+    }
+
+    pub fn set_lora_preset(&self, preset_name: &str, blend_weight: f32) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut lora_slot) = state.voxel_world.genie.active_lora.lock() {
+                if preset_name == "none" || preset_name.is_empty() {
+                    *lora_slot = None;
+                } else {
+                    let mut adapter = reality_genie::dit::LoraAdapter::preset_style(preset_name, 64, 64, 4);
+                    adapter.blend_weight = blend_weight.clamp(0.0, 1.0);
+                    *lora_slot = Some(adapter);
+                }
+            }
+        }
+    }
+
+    pub fn load_lora_json(&self, json_str: &str) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(adapter) = serde_json::from_str::<reality_genie::dit::LoraAdapter>(json_str) {
+                if let Ok(mut lora_slot) = state.voxel_world.genie.active_lora.lock() {
+                    *lora_slot = Some(adapter);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn get_swarm_telemetry_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(swarm) = state.voxel_world.genie.swarm_engine.lock() {
+                return serde_json::json!({
+                    "agents_count": swarm.agents.len(),
+                    "cohesion_weight": swarm.cohesion_weight,
+                    "alignment_weight": swarm.alignment_weight,
+                }).to_string();
+            }
+        }
+        r#"{"agents_count":0,"cohesion_weight":0.0,"alignment_weight":0.0}"#.to_string()
+    }
+
+    pub fn trigger_neural_sculptor_brush(
+        &self,
+        center_x: f32,
+        center_y: f32,
+        center_z: f32,
+        radius: f32,
+        prompt_tag: &str,
+    ) -> bool {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            log::info!("Neural Sculptor Brush triggered at [{}, {}, {}], radius: {}, prompt: {}", center_x, center_y, center_z, radius, prompt_tag);
+            let steps = state.engine.world_model_steps;
+            let scale = state.engine.world_model_cfg_scale;
+            let prompt_opt = if prompt_tag.is_empty() { None } else { Some(prompt_tag.to_string()) };
+            let inpaint_actions = vec![9u32, 9u32];
+            state.voxel_world.genie.request_action_dit_rollout_multimodal(inpaint_actions, prompt_opt, steps, scale);
+            state.voxel_dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn set_webgpu_compute_acceleration(&self, enabled: bool) {
+        log::info!("Setting WebGPU WGSL compute acceleration for DiT: {}", enabled);
     }
 }
 

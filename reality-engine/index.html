@@ -1011,8 +1011,14 @@
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
                     <button id="btn-companion-cocreate" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8;">CO-CREATE WORLD</button>
                     <button id="btn-companion-challenge" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00f0ff; border-color: #00f0ff;">GENERATE CHALLENGE</button>
+                    <button id="btn-companion-journal" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ffd700; border-color: #ffd700;">LORE JOURNAL</button>
+                    <button id="btn-companion-puzzle" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff00ff; border-color: #ff00ff;">CO-OP PUZZLE</button>
                 </div>
                 <div id="wm-companion-quest" style="font-size: 0.65rem; color: #00ffaa; margin-top: 6px; display: none;">Active Quest: Shimmering Rift Pinnacle</div>
+                <div id="wm-companion-journal-view" style="font-size: 0.65rem; color: #ffd700; margin-top: 6px; display: none; background: rgba(0,0,0,0.6); padding: 6px; border: 1px dashed #ffd700;">
+                    <strong>SHARED LORE DIARY:</strong>
+                    <div id="wm-companion-journal-list" style="margin-top: 4px;">Loading journal...</div>
+                </div>
             </div>
 
             <div class="control-group" style="margin-top: 8px;">
@@ -1668,7 +1674,11 @@
                 // Agentic Companion Interactions ("Her" Companion System)
                 const btnCompanionCocreate = document.getElementById('btn-companion-cocreate');
                 const btnCompanionChallenge = document.getElementById('btn-companion-challenge');
+                const btnCompanionJournal = document.getElementById('btn-companion-journal');
+                const btnCompanionPuzzle = document.getElementById('btn-companion-puzzle');
                 const companionDialogue = document.getElementById('wm-companion-dialogue');
+                const companionJournalView = document.getElementById('wm-companion-journal-view');
+                const companionJournalList = document.getElementById('wm-companion-journal-list');
                 const companionMood = document.getElementById('wm-companion-mood');
                 const companionQuest = document.getElementById('wm-companion-quest');
 
@@ -1689,6 +1699,7 @@
                             companionMood.textContent = "MOOD: CO-CREATIVE";
                             companionMood.style.color = "#ff77a8";
                         }
+                        speakCompanionLine(desc, "Co-Creative");
                         log(`> COMPANION ASSIST: Samantha co-created structure "${name}" in the world!`);
                         btnCompanionCocreate.textContent = "ASSISTED!";
                         setTimeout(() => { btnCompanionCocreate.textContent = "CO-CREATE WORLD"; }, 1500);
@@ -1712,6 +1723,7 @@
                             companionMood.textContent = "MOOD: PLAYFUL CHALLENGER";
                             companionMood.style.color = "#00f0ff";
                         }
+                        speakCompanionLine(desc, "Playful Challenger");
                         if (companionQuest) {
                             companionQuest.style.display = "block";
                             companionQuest.textContent = `Active Quest: ${title}`;
@@ -1719,6 +1731,51 @@
                         log(`> COMPANION CHALLENGE: Samantha generated quest "${title}" for you!`);
                         btnCompanionChallenge.textContent = "CHALLENGE ISSUED!";
                         setTimeout(() => { btnCompanionChallenge.textContent = "GENERATE CHALLENGE"; }, 1500);
+                    });
+                }
+
+                if (btnCompanionJournal) {
+                    btnCompanionJournal.addEventListener('click', () => {
+                        if (companionJournalView) {
+                            const isHidden = companionJournalView.style.display === "none";
+                            companionJournalView.style.display = isHidden ? "block" : "none";
+                            if (isHidden && gameClient && gameClient.companion_get_lore_journal) {
+                                try {
+                                    const entries = JSON.parse(gameClient.companion_get_lore_journal());
+                                    companionJournalList.innerHTML = entries.map(e => `<div><strong>${e.title}</strong> [${e.mood_at_time}]: <em>"${e.reflection}"</em></div>`).join("");
+                                } catch (e) {
+                                    companionJournalList.textContent = "No journal entries found yet.";
+                                }
+                            }
+                        }
+                    });
+                }
+
+                if (btnCompanionPuzzle) {
+                    btnCompanionPuzzle.addEventListener('click', () => {
+                        let puzzleObj = {
+                            puzzle_type: "ResonanceAlignment",
+                            player_objective: "Align harmonic crystal frequency with Samantha's beam",
+                            companion_role: "Samantha focuses high-frequency latent beam at coordinates [x+2, y+1, z]"
+                        };
+                        if (gameClient && gameClient.companion_spawn_coop_puzzle) {
+                            try {
+                                puzzleObj = JSON.parse(gameClient.companion_spawn_coop_puzzle());
+                            } catch (e) {
+                                console.warn("Failed to parse coop puzzle:", e);
+                            }
+                        }
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"Samantha: Let's do this together! ${puzzleObj.player_objective} while I focus on the counter-resonance."`;
+                        }
+                        if (companionMood) {
+                            companionMood.textContent = "MOOD: CO-CREATIVE";
+                            companionMood.style.color = "#ff00ff";
+                        }
+                        speakCompanionLine(`Let's solve this together! ${puzzleObj.player_objective}`, "Co-Creative");
+                        log(`> CO-OP PUZZLE INITIATED: [${puzzleObj.puzzle_type}] ${puzzleObj.player_objective}`);
+                        btnCompanionPuzzle.textContent = "ACTIVE PUZZLE!";
+                        setTimeout(() => { btnCompanionPuzzle.textContent = "CO-OP PUZZLE"; }, 1500);
                     });
                 }
 
@@ -2860,6 +2917,39 @@
 
             } catch (e) {
                 console.error("Minimap parsing error", e);
+            }
+        }
+
+        function speakCompanionLine(text, mood) {
+            if ('speechSynthesis' in window) {
+                try {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    if (mood === "Co-Creative") {
+                        utterance.pitch = 1.25;
+                        utterance.rate = 1.05;
+                    } else if (mood === "Playful Challenger") {
+                        utterance.pitch = 1.35;
+                        utterance.rate = 1.15;
+                    } else if (mood === "Contemplative") {
+                        utterance.pitch = 0.95;
+                        utterance.rate = 0.88;
+                    } else if (mood === "Celebratory") {
+                        utterance.pitch = 1.4;
+                        utterance.rate = 1.1;
+                    } else {
+                        utterance.pitch = 1.15;
+                        utterance.rate = 1.0;
+                    }
+                    const voices = window.speechSynthesis.getVoices();
+                    const naturalVoice = voices.find(v => v.lang.startsWith("en") && (v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Natural")));
+                    if (naturalVoice) {
+                        utterance.voice = naturalVoice;
+                    }
+                    window.speechSynthesis.speak(utterance);
+                } catch (e) {
+                    console.warn("TTS synthesis error:", e);
+                }
             }
         }
 

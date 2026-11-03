@@ -5603,8 +5603,33 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         } else {
             [0.0, 1.0, 0.0]
         };
+        let arche_id = 1u32;
         let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
-        let creation = companion.propose_co_creation(player_pos, 1);
+        let creation = companion.propose_co_creation(player_pos, arche_id);
+
+        // Dynamic Terraforming: Carve space and spawn the structure into VoxelWorld
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let cx = creation.coords[0].round() as i32;
+            let cy = creation.coords[1].round() as i32;
+            let cz = creation.coords[2].round() as i32;
+            let voxel_type = arche_id as u8;
+
+            // Carve foundation & construct a 3x4x3 resonant pedestal/arch
+            for dx in -1i32..=1i32 {
+                for dz in -1i32..=1i32 {
+                    for dy in -1i32..3i32 {
+                        let is_arch_pillar = (dx.abs() == 1 || dz.abs() == 1) || dy >= 2;
+                        if is_arch_pillar {
+                            state.voxel_world.set_voxel_at(cx + dx, cy + dy, cz + dz, crate::voxel::Voxel { id: voxel_type });
+                        } else {
+                            state.voxel_world.set_voxel_at(cx + dx, cy + dy, cz + dz, crate::voxel::Voxel { id: 0 }); // air clearance
+                        }
+                    }
+                }
+            }
+            state.voxel_dirty = true;
+        }
+
         serde_json::to_string(&creation).unwrap_or_else(|_| "{}".to_string())
     }
 
@@ -5618,6 +5643,42 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
         let challenge = companion.generate_dynamic_challenge(player_pos);
         serde_json::to_string(&challenge).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_interact_with_npc(&mut self, npc_id: u32, npc_name: &str, archetype: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+        let interaction = companion.interact_with_npc(npc_id, npc_name, archetype);
+        serde_json::to_string(&interaction).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_get_lore_journal(&self) -> String {
+        let bridge = crate::genie_bridge::LoreJournalBridge::new();
+        bridge.get_journal_json()
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_spawn_coop_puzzle(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let puzzle = reality_genie::dit::CompanionCoopPuzzle::new_random(1, player_pos);
+        serde_json::to_string(&puzzle).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_step_puzzle_resonance(&mut self, player_power: f32) -> String {
+        let mut puzzle = reality_genie::dit::CompanionCoopPuzzle::new_random(1, [0.0, 1.0, 0.0]);
+        let solved = puzzle.step_coop_resonance(player_power);
+        format!("{{\"solved\": {}, \"resonance\": {}}}", solved, puzzle.current_resonance)
     }
 }
 

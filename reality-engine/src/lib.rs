@@ -1805,6 +1805,24 @@ impl State {
             self.voxel_dirty = true;
         }
 
+        // Generate Samantha's dynamic 4D orbital Gaussian Splats
+        let player_eye = [self.engine.camera.eye.x, self.engine.camera.eye.y, self.engine.camera.eye.z];
+        self.engine.companion_manager.companion.update_presence(player_eye, 0.016);
+        let companion_splats = self.engine.companion_manager.companion.generate_avatar_splats(self.engine.time);
+        for s in companion_splats.chunks_exact(14) {
+            self.npc_splats.push(crate::splat::SplatVertex {
+                position: [s[0], s[1], s[2]],
+                rotation: [s[3], s[4], s[5], s[6]],
+                scale: [s[7], s[8], s[9]],
+                color: [s[10], s[11], s[12], s[13]],
+                previous_position: [s[0], s[1], s[2]],
+                archetype_id: 2,
+                target_archetype_id: 2,
+                morph_weight: 0.0,
+                bone_index: -1,
+            });
+        }
+
         // Step latent physics simulation
         let latents_snapshot: Vec<f32> = self.voxel_world.genie.rolling_context.lock().ok().and_then(|ctx| {
             ctx.frames.last().and_then(|t| t.flatten_all().ok()?.to_vec1::<f32>().ok())
@@ -3877,6 +3895,10 @@ impl GameClient {
                                         if palm_pressed && !last_palm_pressed[idx] {
                                             state.engine.camera_controller.process_action(input::Action::Inscribe, true);
                                             state.engine.camera_controller.process_action(input::Action::Inscribe, false);
+
+                                            // Bimanual Companion Gesture: High-Five / Beckon Samantha
+                                            state.engine.companion_manager.companion.personality.current_mood = "Celebratory".to_string();
+                                            state.engine.companion_manager.companion.current_dialogue = Some("Samantha: *High-five!* Our resonance is perfectly synchronized!".to_string());
                                         }
                                         last_palm_pressed[idx] = palm_pressed;
 
@@ -5679,6 +5701,30 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         let mut puzzle = reality_genie::dit::CompanionCoopPuzzle::new_random(1, [0.0, 1.0, 0.0]);
         let solved = puzzle.step_coop_resonance(player_power);
         format!("{{\"solved\": {}, \"resonance\": {}}}", solved, puzzle.current_resonance)
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_scout_frontier(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+        let scout = companion.scout_latent_frontier(player_pos);
+        serde_json::to_string(&scout).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_generate_procedural_trial(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+        let trial = companion.author_procedural_trial(player_pos);
+        serde_json::to_string(&trial).unwrap_or_else(|_| "{}".to_string())
     }
 }
 

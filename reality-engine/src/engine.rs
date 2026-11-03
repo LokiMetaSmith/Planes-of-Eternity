@@ -97,6 +97,7 @@ pub struct Engine {
     pub active_action_buffer: Vec<usize>,
     pub pending_mouse_delta: [f32; 2],
     pub active_narrative_prompt: String,
+    pub companion_manager: crate::genie_bridge::EngineCompanionManager,
 }
 
 pub struct CollisionResult {
@@ -278,6 +279,7 @@ impl Engine {
             active_action_buffer: Vec::new(),
             pending_mouse_delta: [0.0, 0.0],
             active_narrative_prompt: String::new(),
+            companion_manager: crate::genie_bridge::EngineCompanionManager::default(),
         }
     }
 

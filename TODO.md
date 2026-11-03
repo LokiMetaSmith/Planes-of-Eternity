@@ -151,3 +151,45 @@
 - [x] **Expanding Host Test Coverage**: Added tests in `reality-engine/tests/render_test.rs` to verify that platform-specific rendering logic (`shader_voxel.wgsl`, `shader_splat.wgsl`, `shader_sort.wgsl`) compile perfectly and map correctly to WGPU pipeline definitions natively on the host.
 - [x] Implement WebXR hand tracking and pinch, palm, fist gestures.
 - [x] Fix Trunk build error 'cargo artifacts not found for target crate' during E2E verification.
+
+## Spatiotemporal World Model & Generative Neural Engine
+- [x] **Action-Conditioned DiT**: Implemented Candle-based Diffusion Transformer with causal temporal attention, AdaLN action conditioning, and continuous 5D ego-motion support.
+- [x] **Long-Horizon Drift Control**: Frame anchor buffer (`FrameAnchorBuffer`) and `TrajectoryDirector` with spatial loop-closure memory.
+- [x] **Direct 3DGS Latent Decoder**: Continuous latent projection directly to 14-float 3D Gaussian Splats.
+- [x] **Fracture-DiT & Visual Odometry**: Neural volumetric fracture solver and continuous 6DoF ego-motion estimation.
+- [x] **Multi-Model Latent MoE**: Top-2 Softmax mixture-of-experts routing across specialized domains (Terrain, Physics, Fauna, Atmosphere).
+- [x] **World Model MCTS & Gym RL**: Monte Carlo Tree Search trajectory planning and headless Gymnasium RL benchmark environment.
+- [x] **Audio-DiT Co-Diffusion & Spatial Audio**: Acoustic co-diffusion with Web Audio HRTF positioning.
+- [x] **WebRTC Latent Streaming**: Delta-compressed continuous latent chunk synchronization.
+
+## Agentic Companion System ("Her" / Samantha)
+- [x] **Dynamic Personality & Mood System**: Adventurous, Contemplative, Co-Creative, Playful Challenger, and Celebratory mood profiles.
+- [x] **3D Orbital Presence & 4D Splat Avatar**: Dynamic Gaussian Splat physical representation with mood-parameterized particle pulsation.
+- [x] **Expressive Neural Voice Synthesis**: Formant vibrato acoustic bursts with pitch/rate-modulated Web Speech API synthesis and visual speech envelope morphing.
+- [x] **Real-Time Procedural Terraforming**: Dynamic foundation clearance and architectural arch/pedestal generation in `VoxelWorld`.
+- [x] **Shared Lore Journal & Episodic Diary**: Long-horizon milestone tracking and reflective diary entries indexed in `EpisodicMemoryGraph`.
+- [x] **Cooperative Mini-Games & Physics Puzzles**: Collaborative resonance alignment and gravity platform balance mechanics.
+- [x] **Autonomous Frontier Scouting**: Off-screen latent exploration yielding discovered landmarks, relics, and hazard alerts.
+- [x] **Companion-Authored Procedural Trials**: Multi-room dungeon trials (CyberLabyrinth, ResonanceCathedral, EldritchVault).
+- [x] **WebXR Gestural Bimanual High-Five**: Open-palm gestural recognition in VR triggering celebratory resonance.
+
+## Future Roadmap & Long-Term Enhancements
+- [ ] **On-Device Neural Quantization (INT4 / AWQ / GPTQ)**:
+  - Implement 4-bit block-wise weight quantization (AWQ/GPTQ) for `ActionConditionedDiT` to reduce model memory footprint from ~600MB down to <150MB, enabling ultra-fast execution on consumer mobile WebGPU devices and standalone VR headsets (e.g. Meta Quest 3, Apple Vision Pro).
+- [ ] **Temporal FlashAttention-3 Kernel for WebGPU WGSL**:
+  - Implement a tiled FlashAttention-3 compute shader in `shader_dit_compute.wgsl` using workgroup shared memory (`var<workgroup>`) and subgroup matrix extensions to accelerate causal temporal cross-attention beyond 60 FPS on high-DPI displays.
+- [ ] **Companion Neural Voice Cloning & Latent TTS (Kokoro / StyleTTS-2 WASM)**:
+  - Integrate an embedded, local ONNX/Candle-based neural TTS model (such as Kokoro-82M or mini-StyleTTS2) compiled to WebAssembly with SIMD, replacing browser Web Speech fallback with naturalistic, emotionally expressive speech audio.
+- [ ] **Multi-Agent Companion Swarms & Autonomous Ecosystem**:
+  - Allow spawning multiple agentic companions with distinct roles (e.g., Samantha the Architect, Leo the Pathfinder, Aria the Lore-Keeper) coordinating via `MultiAgentCoDiffusion` swarm attention.
+  - Implement emergent companion-to-companion dialogue and collaborative multi-agent world building.
+- [ ] **Volumetric Neural Radiance Caching (NRC)**:
+  - Cache dynamic indirect lighting and global illumination radiance in a low-resolution 3D latent clipmap volume to allow dynamic day-night transitions with bounce lighting on procedural voxels.
+- [ ] **Continuous Latent Ragdolls & Inverse Kinematics**:
+  - Expand `LatentPhysicsEngine` with 14-bone humanoid skeletal rigs, allowing NPC splats and companions to conform to sloping terrain and climb procedural obstacles.
+- [ ] **Decentralized P2P World State Sharding via libp2p**:
+  - Replace single-channel WebRTC streaming with distributed Kademlia DHT peer discovery and zero-knowledge validity proofs for trustless peer-to-peer infinite procedural worlds.
+- [ ] **Voice-Driven Neural World Sculpting (Real-Time Voice-to-3DGS)**:
+  - Stream real-time microphone spectrograms through Whisper / Wav2Vec latent encodings directly into the DiT cross-attention layer, letting players mold terrain and sculpt objects in real-time as they speak.
+- [ ] **Differentiable Camera Trajectory Optimization for VR Locomotion**:
+  - Use `VisualOdometryEstimator` gradients to dynamically smooth and neutralize vestibular motion-sickness during rapid VR camera acceleration.

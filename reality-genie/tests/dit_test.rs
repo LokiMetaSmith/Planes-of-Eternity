@@ -763,3 +763,97 @@ fn test_multi_agent_co_diffusion_swarm() {
     assert!(cohesion > 0.0 && cohesion <= 1.0);
     assert!(drift >= 0.0);
 }
+
+#[test]
+fn test_fracture_dit_destruction_simulation() {
+    use reality_genie::dit::FractureDitSolver;
+
+    let mut solver = FractureDitSolver::new(2.0, 0.5);
+    let latents = vec![0.5f32; 32];
+
+    // Trigger below threshold -> 0 shards
+    solver.trigger_fracture([0.0, 1.0, 0.0], [0.5, 0.0, 0.0], &latents, 16);
+    assert_eq!(solver.shards.len(), 0);
+
+    // Trigger above threshold -> 16 shards
+    solver.trigger_fracture([0.0, 1.0, 0.0], [3.0, 2.0, 1.0], &latents, 16);
+    assert_eq!(solver.shards.len(), 16);
+
+    // Step physics with floor collision at y = 0.0
+    solver.step(0.1, 0.0);
+    assert_eq!(solver.shards.len(), 16);
+    assert!(solver.shards[0].position[1] >= 0.0);
+}
+
+#[test]
+fn test_visual_odometry_estimation() {
+    use reality_genie::dit::VisualOdometryEstimator;
+
+    let estimator = VisualOdometryEstimator::new(64, 1.0);
+    let prev = vec![0.1f32; 64];
+    let mut curr = vec![0.1f32; 64];
+
+    // Identical latents -> near 0 delta
+    let delta_static = estimator.estimate_camera_delta(&prev, &curr);
+    assert_eq!(delta_static.translation_delta, [0.0, 0.0, 0.0]);
+    assert!(delta_static.confidence > 0.9);
+
+    // Shift latents (motion)
+    for i in 0..64 {
+        curr[i] += 0.5;
+    }
+    let delta_motion = estimator.estimate_camera_delta(&prev, &curr);
+    assert!(delta_motion.translation_delta[0] != 0.0);
+    assert!(delta_motion.confidence < delta_static.confidence);
+}
+
+#[test]
+fn test_latent_moe_routing() {
+    use reality_genie::dit::{LatentMoeBlock, ExpertDomain};
+
+    let moe = LatentMoeBlock::default();
+    let tokens = vec![0.5f32; 16];
+
+    // Terrain and Physics have high logits
+    let gate_logits = vec![5.0, 4.0, 1.0, 0.0];
+    let (output, selections) = moe.forward_moe(&tokens, &gate_logits);
+
+    assert_eq!(output.len(), 16);
+    assert_eq!(selections.len(), 2);
+    assert_eq!(selections[0].0, ExpertDomain::Terrain);
+    assert_eq!(selections[1].0, ExpertDomain::Physics);
+    assert!(selections[0].1 > selections[1].1);
+}
+
+#[test]
+fn test_agentic_companion_cocreation_and_challenges() {
+    use reality_genie::dit::AgenticCompanion;
+
+    let mut companion = AgenticCompanion::new("Samantha", [0.0, 1.0, 0.0]);
+    assert_eq!(companion.personality.name, "Samantha");
+    assert!(companion.current_dialogue.is_some());
+
+    // Update presence floating near player at [10.0, 2.0, 5.0]
+    companion.update_presence([10.0, 2.0, 5.0], 0.1);
+    assert!(companion.position[0] > 0.0);
+
+    // Companion proposes co-creation
+    let creation = companion.propose_co_creation([10.0, 2.0, 5.0], 1);
+    assert!(!creation.structure_name.is_empty());
+    assert_eq!(companion.past_co_creations.len(), 1);
+
+    // Companion generates dynamic challenge
+    let challenge = companion.generate_dynamic_challenge([10.0, 2.0, 5.0]);
+    assert_eq!(companion.active_challenges.len(), 1);
+    assert!(!challenge.completed);
+
+    // Player far away -> not completed
+    let completed_none = companion.check_challenge_completion([0.0, 0.0, 0.0], 2.0);
+    assert!(completed_none.is_none());
+
+    // Player moves to target coordinates -> completed!
+    let completed_some = companion.check_challenge_completion(challenge.target_coords, 2.0);
+    assert!(completed_some.is_some());
+    assert!(companion.active_challenges[0].completed);
+    assert_eq!(companion.personality.current_mood, "Celebratory");
+}

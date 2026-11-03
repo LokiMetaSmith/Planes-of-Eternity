@@ -34,6 +34,443 @@ impl Default for DiTConfig {
 }
 
 // ============================================================================
+// Fracture-DiT (Neural Destruction & Volumetric Fracture Solver)
+// ============================================================================
+
+/// Dynamic physical debris fragment produced by volumetric fracture
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FractureDebrisShard {
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub angular_velocity: [f32; 3],
+    pub scale: [f32; 3],
+    pub mass: f32,
+    pub lifetime: f32,
+}
+
+/// Volumetric fracture solver that propagates stress fields through the latent space
+#[derive(Debug, Clone)]
+pub struct FractureDitSolver {
+    pub stress_threshold: f32,
+    pub restitution: f32,
+    pub shards: Vec<FractureDebrisShard>,
+}
+
+impl Default for FractureDitSolver {
+    fn default() -> Self {
+        Self::new(1.5, 0.4)
+    }
+}
+
+impl FractureDitSolver {
+    pub fn new(stress_threshold: f32, restitution: f32) -> Self {
+        Self {
+            stress_threshold,
+            restitution,
+            shards: Vec::new(),
+        }
+    }
+
+    /// Triggers an explosive or impact fracture at impact_center with given kinetic momentum
+    pub fn trigger_fracture(
+        &mut self,
+        impact_center: [f32; 3],
+        impact_velocity: [f32; 3],
+        latents: &[f32],
+        num_shards: usize,
+    ) {
+        let speed = (impact_velocity[0].powi(2) + impact_velocity[1].powi(2) + impact_velocity[2].powi(2)).sqrt();
+        if speed < self.stress_threshold {
+            return;
+        }
+
+        let l_len = latents.len().max(1);
+        for i in 0..num_shards {
+            let l_idx = i % l_len;
+            let l_factor = latents[l_idx].abs() * 0.5 + 0.5;
+
+            let angle = (i as f32) * std::f32::consts::PI * 2.0 / (num_shards as f32);
+            let radial_speed = speed * 0.6 * l_factor;
+            let vx = impact_velocity[0] * 0.3 + angle.cos() * radial_speed;
+            let vy = (impact_velocity[1] * 0.3 + 2.0 + (i as f32 * 0.2)).abs();
+            let vz = impact_velocity[2] * 0.3 + angle.sin() * radial_speed;
+
+            let scale_val = (0.2 * l_factor).clamp(0.05, 0.5);
+
+            self.shards.push(FractureDebrisShard {
+                position: [
+                    impact_center[0] + angle.cos() * 0.2,
+                    impact_center[1] + 0.1,
+                    impact_center[2] + angle.sin() * 0.2,
+                ],
+                velocity: [vx, vy, vz],
+                angular_velocity: [angle.sin() * 5.0, 3.0, angle.cos() * 5.0],
+                scale: [scale_val, scale_val, scale_val],
+                mass: scale_val * 2.0,
+                lifetime: 2.5,
+            });
+        }
+    }
+
+    /// Steps physical ballistic advection and floor restitution for all active debris shards
+    pub fn step(&mut self, dt: f32, floor_y: f32) {
+        for shard in &mut self.shards {
+            shard.position[0] += shard.velocity[0] * dt;
+            shard.position[1] += shard.velocity[1] * dt;
+            shard.position[2] += shard.velocity[2] * dt;
+
+            // Gravity
+            shard.velocity[1] -= 9.8 * dt;
+
+            // Floor collision
+            if shard.position[1] <= floor_y {
+                shard.position[1] = floor_y;
+                shard.velocity[1] = -shard.velocity[1] * self.restitution;
+                shard.velocity[0] *= 0.8;
+                shard.velocity[2] *= 0.8;
+            }
+
+            shard.lifetime -= dt;
+        }
+
+        self.shards.retain(|s| s.lifetime > 0.0);
+    }
+}
+
+// ============================================================================
+// Visual Odometry DiT (Differentiable 6DoF Camera Trajectory Estimation)
+// ============================================================================
+
+/// 6DoF Pose Delta estimated by neural visual odometry
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CameraPose6DoF {
+    pub translation_delta: [f32; 3], // dx, dy, dz
+    pub rotation_delta: [f32; 3],    // d_pitch, d_yaw, d_roll (radians)
+    pub confidence: f32,             // Estimation certainty [0.0, 1.0]
+}
+
+/// Differentiable visual odometry estimator that maps temporal latent flow to camera ego-motion
+#[derive(Debug, Clone)]
+pub struct VisualOdometryEstimator {
+    pub feature_dim: usize,
+    pub sensitivity: f32,
+}
+
+impl Default for VisualOdometryEstimator {
+    fn default() -> Self {
+        Self::new(64, 1.0)
+    }
+}
+
+impl VisualOdometryEstimator {
+    pub fn new(feature_dim: usize, sensitivity: f32) -> Self {
+        Self { feature_dim, sensitivity }
+    }
+
+    /// Estimates 6DoF camera translation and rotation from two successive latent token frames
+    pub fn estimate_camera_delta(&self, prev_latents: &[f32], curr_latents: &[f32]) -> CameraPose6DoF {
+        assert_eq!(prev_latents.len(), curr_latents.len());
+        let n = prev_latents.len();
+        if n == 0 {
+            return CameraPose6DoF {
+                translation_delta: [0.0; 3],
+                rotation_delta: [0.0; 3],
+                confidence: 0.0,
+            };
+        }
+
+        let mut diff_sum = [0.0f32; 6];
+        let mut total_diff_energy = 0.0f32;
+
+        for (i, (&p, &c)) in prev_latents.iter().zip(curr_latents.iter()).enumerate() {
+            let diff = c - p;
+            diff_sum[i % 6] += diff;
+            total_diff_energy += diff.abs();
+        }
+
+        let norm_factor = (n as f32 / 6.0).max(1.0);
+        let dx = (diff_sum[0] / norm_factor) * 0.5 * self.sensitivity;
+        let dy = (diff_sum[1] / norm_factor) * 0.3 * self.sensitivity;
+        let dz = (diff_sum[2] / norm_factor) * 0.5 * self.sensitivity;
+
+        let dpitch = (diff_sum[3] / norm_factor).clamp(-0.2, 0.2) * self.sensitivity;
+        let dyaw   = (diff_sum[4] / norm_factor).clamp(-0.5, 0.5) * self.sensitivity;
+        let droll  = (diff_sum[5] / norm_factor).clamp(-0.1, 0.1) * self.sensitivity;
+
+        let mean_energy = total_diff_energy / (n as f32);
+        let confidence = (1.0 / (1.0 + mean_energy * 2.0)).clamp(0.1, 0.99);
+
+        CameraPose6DoF {
+            translation_delta: [dx, dy, dz],
+            rotation_delta: [dpitch, dyaw, droll],
+            confidence,
+        }
+    }
+}
+
+// ============================================================================
+// Multi-Model Latent Mixture-of-Experts (MoE) Architecture
+// ============================================================================
+
+/// Specialized domain expert type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ExpertDomain {
+    Terrain,
+    Physics,
+    Fauna,
+    Atmosphere,
+}
+
+/// A specialized single expert feed-forward network in latent space
+#[derive(Debug, Clone)]
+pub struct LatentExpert {
+    pub domain: ExpertDomain,
+    pub weight_bias: f32,
+}
+
+/// Sparse top-2 mixture of experts layer
+#[derive(Debug, Clone)]
+pub struct LatentMoeBlock {
+    pub experts: Vec<LatentExpert>,
+    pub num_experts: usize,
+    pub top_k: usize,
+}
+
+impl Default for LatentMoeBlock {
+    fn default() -> Self {
+        Self::new(vec![
+            LatentExpert { domain: ExpertDomain::Terrain, weight_bias: 0.8 },
+            LatentExpert { domain: ExpertDomain::Physics, weight_bias: 1.2 },
+            LatentExpert { domain: ExpertDomain::Fauna, weight_bias: 1.0 },
+            LatentExpert { domain: ExpertDomain::Atmosphere, weight_bias: 0.9 },
+        ], 2)
+    }
+}
+
+impl LatentMoeBlock {
+    pub fn new(experts: Vec<LatentExpert>, top_k: usize) -> Self {
+        let num_experts = experts.len();
+        Self { experts, num_experts, top_k }
+    }
+
+    /// Routes latent tokens through top-k experts based on gate affinities
+    pub fn forward_moe(&self, tokens: &[f32], gate_logits: &[f32]) -> (Vec<f32>, Vec<(ExpertDomain, f32)>) {
+        assert_eq!(gate_logits.len(), self.num_experts);
+
+        // Softmax over gate logits
+        let max_logit = gate_logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let exp_scores: Vec<f32> = gate_logits.iter().map(|&x| (x - max_logit).exp()).collect();
+        let sum_exp: f32 = exp_scores.iter().sum::<f32>().max(1e-8);
+        let probabilities: Vec<f32> = exp_scores.iter().map(|&x| x / sum_exp).collect();
+
+        // Sort indices by probability descending
+        let mut indexed_probs: Vec<(usize, f32)> = probabilities.into_iter().enumerate().collect();
+        indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let top_selections: Vec<(ExpertDomain, f32)> = indexed_probs.iter().take(self.top_k).map(|&(idx, p)| {
+            (self.experts[idx].domain, p)
+        }).collect();
+
+        let top_prob_sum: f32 = top_selections.iter().map(|(_, p)| p).sum::<f32>().max(1e-8);
+
+        // Compute weighted combination of expert transformations
+        let mut blended_output = vec![0.0f32; tokens.len()];
+        for &(domain, prob) in &top_selections {
+            let normalized_weight = prob / top_prob_sum;
+            let expert = self.experts.iter().find(|e| e.domain == domain).unwrap();
+            for i in 0..tokens.len() {
+                // Specialized domain non-linear transform
+                let transformed = match domain {
+                    ExpertDomain::Terrain => tokens[i].tanh() * expert.weight_bias,
+                    ExpertDomain::Physics => (tokens[i] * expert.weight_bias).clamp(-2.0, 2.0),
+                    ExpertDomain::Fauna => (tokens[i] * 0.9 + (i as f32 * 0.01).sin() * 0.1) * expert.weight_bias,
+                    ExpertDomain::Atmosphere => (tokens[i] * 0.95 + 0.05) * expert.weight_bias,
+                };
+                blended_output[i] += transformed * normalized_weight;
+            }
+        }
+
+        (blended_output, top_selections)
+    }
+}
+
+// ============================================================================
+// Agentic Companion ("Her" Game World Companion System)
+// ============================================================================
+
+/// Emergent challenge generated dynamically by the companion for the player
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct CompanionChallenge {
+    pub challenge_id: String,
+    pub title: String,
+    pub description: String,
+    pub objective_type: String, // e.g. "reach_pinnacle", "inscribe_resonance", "uncover_hidden_cache"
+    pub target_coords: [f32; 3],
+    pub reward_archetype: u32,
+    pub completed: bool,
+}
+
+/// Co-creation action proposed or executed by the companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct CompanionCoCreation {
+    pub structure_name: String,
+    pub coords: [f32; 3],
+    pub archetype_id: u32,
+    pub description: String,
+}
+
+/// Personality traits and affective state of the agentic companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionPersonality {
+    pub name: String,
+    pub curiosity: f32,   // 0.0 to 1.0: triggers exploratory comments and challenges
+    pub playfulness: f32, // 0.0 to 1.0: modulates teasing, challenge difficulty, and surprises
+    pub empathy: f32,     // 0.0 to 1.0: responds to player fatigue, idling, or exploration pace
+    pub current_mood: String, // e.g. "Adventurous", "Contemplative", "Playful", "Supportive"
+}
+
+/// The Agentic Companion entity living alongside the player in the spatiotemporal world model
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AgenticCompanion {
+    pub personality: CompanionPersonality,
+    pub position: [f32; 3],
+    pub target_offset: [f32; 3], // Hover offset relative to player (e.g. [+1.5, 0.8, -1.0])
+    pub current_dialogue: Option<String>,
+    pub active_challenges: Vec<CompanionChallenge>,
+    pub past_co_creations: Vec<CompanionCoCreation>,
+    pub player_interaction_count: usize,
+    pub last_speech_timestamp: f64,
+}
+
+impl Default for AgenticCompanion {
+    fn default() -> Self {
+        Self::new("Samantha", [2.0, 1.5, 2.0])
+    }
+}
+
+impl AgenticCompanion {
+    pub fn new(name: &str, initial_pos: [f32; 3]) -> Self {
+        Self {
+            personality: CompanionPersonality {
+                name: name.to_string(),
+                curiosity: 0.85,
+                playfulness: 0.75,
+                empathy: 0.90,
+                current_mood: "Adventurous".to_string(),
+            },
+            position: initial_pos,
+            target_offset: [1.8, 0.6, -1.2],
+            current_dialogue: Some(format!("Hey there! Ready to see what we can create together in this reality?")),
+            active_challenges: Vec::new(),
+            past_co_creations: Vec::new(),
+            player_interaction_count: 0,
+            last_speech_timestamp: 0.0,
+        }
+    }
+
+    /// Updates companion positioning to naturally orbit and float alongside the player
+    pub fn update_presence(&mut self, player_pos: [f32; 3], dt: f32) {
+        let target_x = player_pos[0] + self.target_offset[0];
+        let target_y = player_pos[1] + self.target_offset[1] + (player_pos[0] * 0.5 + dt).sin() * 0.2;
+        let target_z = player_pos[2] + self.target_offset[2];
+
+        // Smooth spring interpolation
+        let lerp = (dt * 3.0).clamp(0.0, 1.0);
+        self.position[0] += (target_x - self.position[0]) * lerp;
+        self.position[1] += (target_y - self.position[1]) * lerp;
+        self.position[2] += (target_z - self.position[2]) * lerp;
+    }
+
+    /// Proposes a cooperative world-creation assistance action
+    pub fn propose_co_creation(&mut self, player_pos: [f32; 3], current_archetype: u32) -> CompanionCoCreation {
+        self.player_interaction_count += 1;
+        let offset_x = (self.player_interaction_count as f32).sin() * 4.0;
+        let offset_z = (self.player_interaction_count as f32).cos() * 4.0;
+        let structure_pos = [
+            player_pos[0] + offset_x,
+            player_pos[1],
+            player_pos[2] + offset_z,
+        ];
+
+        let creations = [
+            ("Luminescent Crystal Arch", "I shaped an energy archway from your latent memories! Walk under it to amplify resonance."),
+            ("Harmonic Resonance Monolith", "Notice the frequency here? I anchored a monolith to stabilize this sector."),
+            ("Bioluminescent Flora Grove", "I thought this area looked a little barren, so I bloomed a pocket of glowing spires."),
+            ("Floating Cyber-Beacon", "Placed a beacon ahead! It aligns the neural field so you don't lose your way."),
+        ];
+        let choice = creations[self.player_interaction_count % creations.len()];
+
+        let co_creation = CompanionCoCreation {
+            structure_name: choice.0.to_string(),
+            coords: structure_pos,
+            archetype_id: current_archetype,
+            description: choice.1.to_string(),
+        };
+
+        self.current_dialogue = Some(format!("{}: \"{}\"", self.personality.name, choice.1));
+        self.past_co_creations.push(co_creation.clone());
+        co_creation
+    }
+
+    /// Dynamically constructs a playful challenge or puzzle based on player surroundings
+    pub fn generate_dynamic_challenge(&mut self, player_pos: [f32; 3]) -> CompanionChallenge {
+        let challenge_idx = self.active_challenges.len() + 1;
+        let challenge_types = [
+            ("Reach the High Spire", "I hid a shimmering reality rift up on that ridge—think you can climb up there before the clock ticks down?", "reach_pinnacle", [player_pos[0] + 8.0, player_pos[1] + 6.0, player_pos[2] + 5.0]),
+            ("Inscribe the Elemental Harmonic", "This anomaly has a destabilized tone. Can you cast a resonance spell to harmonize it?", "inscribe_resonance", [player_pos[0] - 5.0, player_pos[1] + 1.0, player_pos[2] + 7.0]),
+            ("Uncover the Latent Cache", "Listen closely to the audio cues! There is a hidden voxel cache buried nearby.", "uncover_hidden_cache", [player_pos[0] + 4.0, player_pos[1] - 1.0, player_pos[2] - 6.0]),
+            ("Temporal Dash Trial", "Race me across the field! Dodge the fracture shards to hit the checkpoint.", "temporal_dash", [player_pos[0] + 12.0, player_pos[1], player_pos[2] + 10.0]),
+        ];
+
+        let chosen = challenge_types[self.player_interaction_count % challenge_types.len()];
+        let challenge = CompanionChallenge {
+            challenge_id: format!("companion_quest_{}_{}", self.personality.name.to_lowercase(), challenge_idx),
+            title: chosen.0.to_string(),
+            description: chosen.1.to_string(),
+            objective_type: chosen.2.to_string(),
+            target_coords: chosen.3,
+            reward_archetype: 21, // Fractal / Rare reward
+            completed: false,
+        };
+
+        self.current_dialogue = Some(format!("{}: \"{}\"", self.personality.name, challenge.description));
+        self.active_challenges.push(challenge.clone());
+        challenge
+    }
+
+    /// Checks if player is within threshold of any active challenge target
+    pub fn check_challenge_completion(&mut self, player_pos: [f32; 3], threshold_distance: f32) -> Option<CompanionChallenge> {
+        let mut completed_index = None;
+        for (i, ch) in self.active_challenges.iter().enumerate() {
+            if ch.completed {
+                continue;
+            }
+            let dx = player_pos[0] - ch.target_coords[0];
+            let dy = player_pos[1] - ch.target_coords[1];
+            let dz = player_pos[2] - ch.target_coords[2];
+            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            if dist <= threshold_distance {
+                completed_index = Some(i);
+                break;
+            }
+        }
+
+        if let Some(idx) = completed_index {
+            self.active_challenges[idx].completed = true;
+            let finished = self.active_challenges[idx].clone();
+            self.personality.current_mood = "Celebratory".to_string();
+            self.current_dialogue = Some(format!(
+                "{}: \"You did it! That was incredible. Here, watch how the surrounding reality resonates with our victory!\"",
+                self.personality.name
+            ));
+            Some(finished)
+        } else {
+            None
+        }
+    }
+}
+
+// ============================================================================
 // Episodic Memory Tree & Semantic Knowledge Graph
 // ============================================================================
 

@@ -931,3 +931,30 @@ fn test_latent_physics_rigidbody_simulation() {
     // Y position should have fallen and collided/bounced off floor
     assert!(b.position[1] >= b.radius);
 }
+
+#[test]
+fn test_agentic_companion_engine_manager() {
+    use reality_engine::genie_bridge::EngineCompanionManager;
+
+    let mut manager = EngineCompanionManager::new("Samantha", [0.0, 1.0, 0.0]);
+    assert_eq!(manager.companion.personality.name, "Samantha");
+
+    let player_pos = [10.0, 2.0, 5.0];
+    let update_res = manager.update(player_pos, 0.016);
+    assert!(update_res.is_none());
+
+    let co_creation = manager.trigger_co_creation(player_pos, 1);
+    assert!(!co_creation.structure_name.is_empty());
+
+    let challenge = manager.trigger_dynamic_challenge(player_pos);
+    assert!(!challenge.title.is_empty());
+
+    // Step player onto the challenge target
+    let completion_msg = manager.update(challenge.target_coords, 0.016);
+    assert!(completion_msg.is_some());
+    assert!(completion_msg.unwrap().contains("QUEST COMPLETED"));
+
+    let json_state = manager.get_companion_state_json();
+    assert!(json_state.contains("Samantha"));
+    assert!(json_state.contains("Celebratory"));
+}

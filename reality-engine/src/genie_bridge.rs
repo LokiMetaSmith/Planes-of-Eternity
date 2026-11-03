@@ -619,6 +619,112 @@ impl GenieBridge {
 }
 
 // ============================================================================
+// Agentic Companion Bridge Integration
+// ============================================================================
+
+/// Manages runtime companion interactions, challenges, and co-creation events
+pub struct EngineCompanionManager {
+    pub companion: reality_genie::dit::AgenticCompanion,
+}
+
+impl Default for EngineCompanionManager {
+    fn default() -> Self {
+        Self {
+            companion: reality_genie::dit::AgenticCompanion::default(),
+        }
+    }
+}
+
+impl EngineCompanionManager {
+    pub fn new(name: &str, initial_pos: [f32; 3]) -> Self {
+        Self {
+            companion: reality_genie::dit::AgenticCompanion::new(name, initial_pos),
+        }
+    }
+
+    pub fn update(&mut self, player_pos: [f32; 3], dt: f32) -> Option<String> {
+        self.companion.update_presence(player_pos, dt);
+        // Check for challenge completion within 3 meters
+        if let Some(challenge) = self.companion.check_challenge_completion(player_pos, 3.0) {
+            Some(format!("QUEST COMPLETED: {} (+Resonance)", challenge.title))
+        } else {
+            None
+        }
+    }
+
+    pub fn trigger_co_creation(&mut self, player_pos: [f32; 3], archetype: u32) -> reality_genie::dit::CompanionCoCreation {
+        self.companion.propose_co_creation(player_pos, archetype)
+    }
+
+    pub fn trigger_dynamic_challenge(&mut self, player_pos: [f32; 3]) -> reality_genie::dit::CompanionChallenge {
+        self.companion.generate_dynamic_challenge(player_pos)
+    }
+
+    pub fn get_companion_state_json(&self) -> String {
+        serde_json::to_string(&self.companion).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+// ============================================================================
+// Counterfactual Multiverse Branch Simulator
+// ============================================================================
+
+/// Outcome of simulating a counterfactual branch from a base world model state
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CounterfactualBranchResult {
+    pub branch_id: String,
+    pub base_checkpoint_id: String,
+    pub applied_actions: Vec<crate::input::Action>,
+    pub final_simulated_position: [f32; 3],
+    pub final_simulated_latents: Vec<f32>,
+    pub cumulative_drift: f32,
+}
+
+/// Simulates a counterfactual branch given a base state and alternate action sequences
+pub fn simulate_counterfactual_branch(
+    branch_id: &str,
+    base_checkpoint_id: &str,
+    initial_pos: [f32; 3],
+    initial_latents: &[f32],
+    candidate_actions: &[crate::input::Action],
+) -> CounterfactualBranchResult {
+    let mut pos = initial_pos;
+    let mut latents = initial_latents.to_vec();
+    let mut total_drift = 0.0f32;
+
+    for &act in candidate_actions {
+        let (dx, dy, dz) = match act {
+            crate::input::Action::MoveForward => (0.0, 0.0, -1.0),
+            crate::input::Action::MoveBackward => (0.0, 0.0, 1.0),
+            crate::input::Action::MoveLeft => (-1.0, 0.0, 0.0),
+            crate::input::Action::MoveRight => (1.0, 0.0, 0.0),
+            crate::input::Action::Jump => (0.0, 1.2, 0.0),
+            _ => (0.0, 0.0, 0.0),
+        };
+
+        pos[0] += dx * 0.5;
+        pos[1] += dy * 0.5;
+        pos[2] += dz * 0.5;
+
+        // Perturb latents according to simulated dynamics
+        for i in 0..latents.len() {
+            let shift = (dx + dy + dz) * 0.05 * ((i as f32).sin());
+            latents[i] += shift;
+            total_drift += shift.abs();
+        }
+    }
+
+    CounterfactualBranchResult {
+        branch_id: branch_id.to_string(),
+        base_checkpoint_id: base_checkpoint_id.to_string(),
+        applied_actions: candidate_actions.to_vec(),
+        final_simulated_position: pos,
+        final_simulated_latents: latents,
+        cumulative_drift: total_drift,
+    }
+}
+
+// ============================================================================
 // Cross-Reality Holographic Teleportation (AR/VR Neural Avatars)
 // ============================================================================
 

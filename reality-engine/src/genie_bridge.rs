@@ -618,6 +618,51 @@ impl GenieBridge {
     }
 }
 
+pub struct LoreJournalBridge {
+    pub episodic_graph: reality_genie::dit::EpisodicMemoryGraph,
+}
+
+impl Default for LoreJournalBridge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LoreJournalBridge {
+    pub fn new() -> Self {
+        let mut graph = reality_genie::dit::EpisodicMemoryGraph::new();
+        graph.add_journal_entry(
+            "Genesis in the Lattice",
+            "We stepped across the latent boundary together. The air felt charged with possibility.",
+            "Adventurous",
+            [0.0, 1.0, 0.0],
+            1700000000,
+        );
+        Self { episodic_graph: graph }
+    }
+
+    pub fn record_entry(&mut self, title: &str, reflection: &str, mood: &str, pos: [f32; 3], time_ms: u64) -> u64 {
+        self.episodic_graph.add_journal_entry(title, reflection, mood, pos, time_ms)
+    }
+
+    pub fn get_journal_json(&self) -> String {
+        serde_json::to_string(&self.episodic_graph.journal_entries).unwrap_or_else(|_| "[]".to_string())
+    }
+}
+
+impl EngineCompanionManager {
+    /// Dispatches companion interaction with a specified NPC ID
+    pub fn companion_talk_with_npc(&mut self, npc_id: u32, npc_name: &str, archetype: &str) -> String {
+        let interaction = self.companion.interact_with_npc(npc_id, npc_name, archetype);
+        serde_json::to_string(&interaction).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// Spawns a cooperative mini-game puzzle between Samantha and the player
+    pub fn spawn_coop_puzzle(&mut self, player_pos: [f32; 3]) -> reality_genie::dit::CompanionCoopPuzzle {
+        reality_genie::dit::CompanionCoopPuzzle::new_random(1, player_pos)
+    }
+}
+
 // ============================================================================
 // Agentic Companion Bridge Integration
 // ============================================================================

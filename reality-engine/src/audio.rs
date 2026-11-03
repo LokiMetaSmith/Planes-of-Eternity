@@ -184,6 +184,51 @@ impl AudioManager {
         }
     }
 
+    /// Plays expressive companion speech chime / formant audio burst parameterized by mood
+    pub fn play_companion_vocal_tone(&self, mood: &str) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(ctx) = &self.ctx {
+            let sample_rate = 22050u32;
+            let duration_sec = 0.35f32;
+            let num_samples = (sample_rate as f32 * duration_sec) as usize;
+            let mut samples = vec![0.0f32; num_samples];
+
+            // Mood-dependent fundamental pitch and formant resonance
+            let (f0, vibrato_rate, vibrato_depth) = match mood {
+                "Adventurous" => (380.0f32, 7.0f32, 25.0f32),
+                "Contemplative" => (260.0f32, 4.0f32, 12.0f32),
+                "Co-Creative" => (330.0f32, 6.0f32, 18.0f32),
+                "Playful Challenger" => (440.0f32, 9.0f32, 35.0f32),
+                "Celebratory" => (523.25f32, 8.0f32, 40.0f32),
+                _ => (320.0f32, 5.0f32, 15.0f32),
+            };
+
+            for i in 0..num_samples {
+                let t = i as f32 / sample_rate as f32;
+                let env = (-(t - duration_sec * 0.1).powi(2) / (2.0 * 0.08 * 0.08)).exp().min(1.0)
+                    * (1.0 - t / duration_sec);
+                let current_f0 = f0 + vibrato_depth * (2.0 * std::f32::consts::PI * vibrato_rate * t).sin();
+                let formant1 = 0.6 * (2.0 * std::f32::consts::PI * current_f0 * t).sin();
+                let formant2 = 0.3 * (2.0 * std::f32::consts::PI * current_f0 * 2.05 * t).sin();
+                let formant3 = 0.1 * (2.0 * std::f32::consts::PI * current_f0 * 3.1 * t).sin();
+                samples[i] = (formant1 + formant2 + formant3) * env * 0.25;
+            }
+
+            if let Ok(audio_buf) = ctx.create_buffer(1, num_samples as u32, sample_rate as f32) {
+                let _ = audio_buf.copy_to_channel(&mut samples, 0);
+                if let Ok(source) = ctx.create_buffer_source() {
+                    source.set_buffer(Some(&audio_buf));
+                    let _ = source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
+                    let _ = source.start();
+                }
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = mood;
+        }
+    }
+
     /// Plays stereo multi-channel PCM audio packet from Audio-DiT co-diffuser
     pub fn play_audio_dit_packet(&self, left_channel: &[f32], right_channel: &[f32], sample_rate: u32) {
         #[cfg(target_arch = "wasm32")]

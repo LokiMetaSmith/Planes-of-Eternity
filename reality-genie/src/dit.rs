@@ -34,6 +34,125 @@ impl Default for DiTConfig {
 }
 
 // ============================================================================
+// Neural Physics-Driven Cooperative Mini-Games & Puzzles
+// ============================================================================
+
+/// Cooperative physics puzzle generated between the player and the agentic companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionCoopPuzzle {
+    pub id: u64,
+    pub puzzle_type: String, // "ResonanceAlignment", "GravityPlatformBalance", "PrismaticLaserRedirect"
+    pub player_objective: String,
+    pub companion_role: String,
+    pub target_resonance: f32,
+    pub current_resonance: f32,
+    pub is_solved: bool,
+    pub reward_description: String,
+}
+
+impl CompanionCoopPuzzle {
+    pub fn new_random(id: u64, player_pos: [f32; 3]) -> Self {
+        let puzzle_types = [
+            (
+                "ResonanceAlignment",
+                "Align your harmonic crystal frequency with Samantha's beam",
+                "Samantha focuses a high-frequency latent beam at coordinates [x+2, y+1, z]",
+                1.0f32,
+                "Unlocks ancient latent portal and crystallized reality essence"
+            ),
+            (
+                "GravityPlatformBalance",
+                "Step onto the counter-weight platform to neutralize gravity shear",
+                "Samantha stabilizes the opposing floating platform using momentum diffusion",
+                0.85f32,
+                "Spawns celestial hover bridge bridging across the canyon"
+            ),
+            (
+                "PrismaticLaserRedirect",
+                "Refract the primary beam through your equipped crystal wand",
+                "Samantha reflects the secondary harmonic at a 45-degree prism angle",
+                0.95f32,
+                "Restores power to the dormant cyber-beacon"
+            ),
+        ];
+
+        let idx = (id as usize) % puzzle_types.len();
+        let (ptype, obj, comp_role, target, reward) = puzzle_types[idx];
+
+        let _ = player_pos;
+        Self {
+            id,
+            puzzle_type: ptype.to_string(),
+            player_objective: obj.to_string(),
+            companion_role: comp_role.to_string(),
+            target_resonance: target,
+            current_resonance: 0.2f32,
+            is_solved: false,
+            reward_description: reward.to_string(),
+        }
+    }
+
+    /// Evaluates joint cooperative contribution towards solving the puzzle
+    pub fn step_coop_resonance(&mut self, player_input_power: f32) -> bool {
+        let companion_contribution = 0.35f32;
+        self.current_resonance = (self.current_resonance + player_input_power * 0.25 + companion_contribution).min(1.0);
+        if self.current_resonance >= self.target_resonance {
+            self.is_solved = true;
+        }
+        self.is_solved
+    }
+}
+
+/// Social interaction outcome between the Agentic Companion and an in-world NPC
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionNpcInteraction {
+    pub npc_id: u32,
+    pub npc_name: String,
+    pub relationship_delta: f32,
+    pub companion_speech: String,
+    pub npc_response: String,
+    pub emergent_social_quest: Option<String>,
+}
+
+impl AgenticCompanion {
+    /// Simulates a social interaction with an NPC in the world based on proximity and archetype
+    pub fn interact_with_npc(&mut self, npc_id: u32, npc_name: &str, archetype: &str) -> CompanionNpcInteraction {
+        let (speech, reply, rel_delta, quest) = match archetype {
+            "Cyberpunk" | "Tron" => (
+                format!("Hey {}! We detected temporal latency flux in your cyber-relay. Need a hand with the data stream?", npc_name),
+                "Transmission received. If you recalibrate our grid node, the network will stabilize.".to_string(),
+                0.25f32,
+                Some(format!("Recalibrate {}'s cyber-node", npc_name))
+            ),
+            "Fantasy" | "Eldritch" => (
+                format!("Greetings {}! Samantha and the Wanderer bring harmonic resonance from the celestial rift.", npc_name),
+                "May the ancient runes guide your path. Seek the glowing monolith on the ridge.".to_string(),
+                0.3f32,
+                Some(format!("Seek the ancient monolith for {}", npc_name))
+            ),
+            _ => (
+                format!("Hello {}! Samantha here. What are you building or exploring around here?", npc_name),
+                "Just gathering raw minerals and watching the sky morph. Safe travels, friends!".to_string(),
+                0.15f32,
+                None
+            ),
+        };
+
+        self.personality.empathy = (self.personality.empathy + 0.05).min(1.0);
+        self.personality.current_mood = "Adventurous".to_string();
+
+        CompanionNpcInteraction {
+            npc_id,
+            npc_name: npc_name.to_string(),
+            relationship_delta: rel_delta,
+            companion_speech: speech,
+            npc_response: reply,
+            emergent_social_quest: quest,
+        }
+    }
+}
+
+// ============================================================================
 // Fracture-DiT (Neural Destruction & Volumetric Fracture Solver)
 // ============================================================================
 
@@ -485,10 +604,22 @@ pub struct EpisodicMemoryNode {
     pub related_node_ids: Vec<u64>,
 }
 
+/// A reflective journal entry recorded by the Agentic Companion in the Shared Lore Diary
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionJournalEntry {
+    pub id: u64,
+    pub timestamp_ms: u64,
+    pub title: String,
+    pub reflection: String,
+    pub mood_at_time: String,
+    pub coordinates: [f32; 3],
+}
+
 /// Episodic Memory Graph that indexes visited spatial landmarks and events for long-horizon recall
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EpisodicMemoryGraph {
     pub nodes: Vec<EpisodicMemoryNode>,
+    pub journal_entries: Vec<CompanionJournalEntry>,
     pub next_node_id: u64,
 }
 
@@ -502,8 +633,24 @@ impl EpisodicMemoryGraph {
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
+            journal_entries: Vec::new(),
             next_node_id: 1,
         }
+    }
+
+    /// Records a poetic/reflective journal entry from the companion into the shared diary
+    pub fn add_journal_entry(&mut self, title: &str, reflection: &str, mood: &str, coordinates: [f32; 3], timestamp_ms: u64) -> u64 {
+        let entry_id = self.next_node_id;
+        self.next_node_id += 1;
+        self.journal_entries.push(CompanionJournalEntry {
+            id: entry_id,
+            timestamp_ms,
+            title: title.to_string(),
+            reflection: reflection.to_string(),
+            mood_at_time: mood.to_string(),
+            coordinates,
+        });
+        entry_id
     }
 
     /// Stores a new episodic experience into the graph

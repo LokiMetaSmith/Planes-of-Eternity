@@ -789,7 +789,7 @@ impl LambdaSystem {
     }
 
     pub fn intersect(&self, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) -> Option<usize> {
-        let mut closest_dist = std::f32::MAX;
+        let mut closest_dist = f32::MAX;
         let mut closest_idx = None;
 
         for (i, node) in self.nodes.iter().enumerate() {
@@ -821,7 +821,7 @@ impl LambdaSystem {
     }
 
     pub fn intersect_edge(&self, ray_origin: Point3<f32>, ray_dir: Vector3<f32>) -> Option<usize> {
-        let mut closest_dist = std::f32::MAX;
+        let mut closest_dist = f32::MAX;
         let mut closest_idx = None;
         let threshold = 0.2;
 

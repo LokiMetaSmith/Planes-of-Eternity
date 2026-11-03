@@ -6,7 +6,7 @@ use image::GenericImageView;
 fn hash(x: i32, y: i32) -> f32 {
     let mut n = x.wrapping_mul(374761393) ^ y.wrapping_mul(668265263);
     n = (n ^ (n >> 13)).wrapping_mul(1274126177);
-    (n as f32) / (std::i32::MAX as f32)
+    (n as f32) / (i32::MAX as f32)
 }
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {

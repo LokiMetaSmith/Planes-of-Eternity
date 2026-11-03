@@ -172,6 +172,10 @@
 - [x] **Autonomous Frontier Scouting**: Off-screen latent exploration yielding discovered landmarks, relics, and hazard alerts.
 - [x] **Companion-Authored Procedural Trials**: Multi-room dungeon trials (CyberLabyrinth, ResonanceCathedral, EldritchVault).
 - [x] **WebXR Gestural Bimanual High-Five**: Open-palm gestural recognition in VR triggering celebratory resonance.
+- [ ] **Custom Companion Persona Generator & User-Tailored Generalization**:
+  - Provide an in-game "Create / Inscribe Companion" interface allowing the player to spawn a new agentic companion customized to their preferences, generalizing beyond "Samantha".
+  - Allow user configuration of persona name, core psychological sliders (Curiosity, Playfulness, Empathy, Pragmatism, Stoicism vs. Exuberance), voice timbre (pitch, speed, formant resonance), and initial relationship backstory.
+  - Implement dynamic prompt conditioning in `ActionConditionedDiT` and conversational adapters so the generated companion tailors their co-creation architectural styles and trial themes directly to the player's personality and play preferences.
 
 ## Future Roadmap & Long-Term Enhancements
 - [ ] **On-Device Neural Quantization (INT4 / AWQ / GPTQ)**:

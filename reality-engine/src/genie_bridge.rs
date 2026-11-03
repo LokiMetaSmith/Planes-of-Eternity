@@ -661,6 +661,12 @@ impl EngineCompanionManager {
     pub fn spawn_coop_puzzle(&mut self, player_pos: [f32; 3]) -> reality_genie::dit::CompanionCoopPuzzle {
         reality_genie::dit::CompanionCoopPuzzle::new_random(1, player_pos)
     }
+
+    /// Dispatches companion to scout ahead into off-screen frontier
+    pub fn scout_frontier(&mut self, player_pos: [f32; 3]) -> String {
+        let discovery = self.companion.scout_latent_frontier(player_pos);
+        serde_json::to_string(&discovery).unwrap_or_else(|_| "{}".to_string())
+    }
 }
 
 // ============================================================================

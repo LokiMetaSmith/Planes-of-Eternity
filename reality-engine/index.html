@@ -2941,6 +2941,18 @@
                         utterance.pitch = 1.15;
                         utterance.rate = 1.0;
                     }
+
+                    // Visual Speech Envelope Morphing
+                    const dialogueEl = document.getElementById('wm-companion-dialogue');
+                    utterance.onboundary = (event) => {
+                        if (dialogueEl) {
+                            dialogueEl.style.boxShadow = "0 0 15px rgba(255, 119, 168, 0.8)";
+                            setTimeout(() => {
+                                if (dialogueEl) dialogueEl.style.boxShadow = "none";
+                            }, 120);
+                        }
+                    };
+
                     const voices = window.speechSynthesis.getVoices();
                     const naturalVoice = voices.find(v => v.lang.startsWith("en") && (v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Natural")));
                     if (naturalVoice) {

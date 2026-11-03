@@ -34,6 +34,138 @@ impl Default for DiTConfig {
 }
 
 // ============================================================================
+// Dynamic Companion-Authored Procedural Dungeon/Trial Generator
+// ============================================================================
+
+/// Procedural mini-trial dungeon authored by the Agentic Companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionProceduralTrial {
+    pub trial_id: u64,
+    pub trial_name: String,
+    pub theme: String, // "CyberLabyrinth", "ResonanceCathedral", "EldritchVault"
+    pub rooms: Vec<CompanionTrialRoom>,
+    pub completion_reward_essence: u32,
+    pub companion_briefing: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionTrialRoom {
+    pub room_index: usize,
+    pub offset: [f32; 3],
+    pub room_type: String, // "Spawn", "PillarPuzzle", "Sanctum"
+    pub objective: String,
+}
+
+impl AgenticCompanion {
+    /// Authors a custom multi-room procedural trial tailored to current player location
+    pub fn author_procedural_trial(&mut self, player_pos: [f32; 3]) -> CompanionProceduralTrial {
+        self.player_interaction_count += 1;
+        let themes = [
+            ("CyberLabyrinth", "A shifting neon maze where wall boundaries pulse to your movement speed."),
+            ("ResonanceCathedral", "Towering crystalline naves requiring sound frequency calibration."),
+            ("EldritchVault", "An ancient subterranean chamber sheltered beneath reality distortion rifts."),
+        ];
+        let (theme, desc) = themes[self.player_interaction_count % themes.len()];
+        let trial_name = format!("Samantha's {} Trial", theme);
+
+        let rooms = vec![
+            CompanionTrialRoom {
+                room_index: 0,
+                offset: [player_pos[0], player_pos[1], player_pos[2] + 8.0],
+                room_type: "EntranceAntechamber".to_string(),
+                objective: "Cross the threshold into the trial corridor".to_string(),
+            },
+            CompanionTrialRoom {
+                room_index: 1,
+                offset: [player_pos[0] + 6.0, player_pos[1] + 1.0, player_pos[2] + 18.0],
+                room_type: "PillarPuzzle".to_string(),
+                objective: "Harmonize the two counter-rotating crystal pillars".to_string(),
+            },
+            CompanionTrialRoom {
+                room_index: 2,
+                offset: [player_pos[0] + 6.0, player_pos[1] + 2.0, player_pos[2] + 28.0],
+                room_type: "InnerSanctum".to_string(),
+                objective: "Claim the core reality shard alongside Samantha".to_string(),
+            },
+        ];
+
+        let briefing = format!("I designed this special trial for us: {}! {}", trial_name, desc);
+        self.current_dialogue = Some(format!("Samantha: \"{}\"", briefing));
+        self.personality.current_mood = "Playful Challenger".to_string();
+
+        CompanionProceduralTrial {
+            trial_id: self.player_interaction_count as u64,
+            trial_name,
+            theme: theme.to_string(),
+            rooms,
+            completion_reward_essence: 250,
+            companion_briefing: briefing,
+        }
+    }
+}
+
+// ============================================================================
+// Autonomous Companion Scouting & Off-Screen Latent Discovery
+// ============================================================================
+
+/// Result of an off-screen latent scouting expedition by the Agentic Companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionScoutDiscovery {
+    pub frontier_coordinates: [f32; 3],
+    pub landmark_type: String, // e.g. "CrystallineChasm", "SunkenCyberSanctuary", "FloatingRiftSpire"
+    pub relic_description: String,
+    pub danger_level: f32, // 0.0 to 1.0
+    pub scout_dialogue: String,
+}
+
+impl AgenticCompanion {
+    /// Dispatches companion into off-screen latent frontiers to scout ahead of the player
+    pub fn scout_latent_frontier(&mut self, player_pos: [f32; 3]) -> CompanionScoutDiscovery {
+        self.player_interaction_count += 1;
+        let angle = (self.player_interaction_count as f32 * 1.618) * std::f32::consts::TAU;
+        let scout_dist = 25.0f32;
+        let frontier_pos = [
+            player_pos[0] + scout_dist * angle.cos(),
+            player_pos[1] + 2.5,
+            player_pos[2] + scout_dist * angle.sin(),
+        ];
+
+        let discoveries = [
+            (
+                "CrystallineChasm",
+                "Prismatic Geode Shard with harmonic frequency 432Hz",
+                0.15f32,
+                "I scouted ahead across the ridge! Found a breathtaking crystalline chasm resonating with calm energy."
+            ),
+            (
+                "SunkenCyberSanctuary",
+                "Encrypted Data Core holding blueprints of the original lattice",
+                0.45f32,
+                "Whoa! Just past the fog is a sunken cyber-sanctuary with active defense pylons. Stay alert!"
+            ),
+            (
+                "FloatingRiftSpire",
+                "Zero-Gravity Graviton Prism that alters surrounding terminal velocity",
+                0.20f32,
+                "Look up towards the horizon—there's a floating rift spire! I marked the path with glowing trails."
+            ),
+        ];
+
+        let (landmark, relic, danger, dialogue) = discoveries[self.player_interaction_count % discoveries.len()];
+        self.current_dialogue = Some(format!("Samantha: \"{}\"", dialogue));
+        self.personality.current_mood = if danger > 0.3 { "Adventurous".to_string() } else { "Co-Creative".to_string() };
+
+        CompanionScoutDiscovery {
+            frontier_coordinates: frontier_pos,
+            landmark_type: landmark.to_string(),
+            relic_description: relic.to_string(),
+            danger_level: danger,
+            scout_dialogue: dialogue.to_string(),
+        }
+    }
+}
+
+// ============================================================================
 // Neural Physics-Driven Cooperative Mini-Games & Puzzles
 // ============================================================================
 
@@ -498,6 +630,49 @@ impl AgenticCompanion {
         self.position[0] += (target_x - self.position[0]) * lerp;
         self.position[1] += (target_y - self.position[1]) * lerp;
         self.position[2] += (target_z - self.position[2]) * lerp;
+    }
+
+    /// Generates 14-float 3D Gaussian Splat primitives representing Samantha's visual avatar
+    /// [x, y, z, qx, qy, qz, qw, sx, sy, sz, r, g, b, opacity]
+    pub fn generate_avatar_splats(&self, time_sec: f32) -> Vec<f32> {
+        let mut splats = Vec::with_capacity(32 * 14);
+        let num_particles = 16;
+
+        let (base_r, base_g, base_b) = match self.personality.current_mood.as_str() {
+            "Adventurous" => (1.0f32, 0.45f32, 0.85f32),     // Magenta-rose
+            "Contemplative" => (0.35f32, 0.75f32, 1.0f32),    // Cyan-azure
+            "Co-Creative" => (1.0f32, 0.85f32, 0.2f32),      // Warm gold
+            "Playful Challenger" => (0.0f32, 0.95f32, 0.75f32), // Emerald-cyan
+            "Celebratory" => (1.0f32, 0.3f32, 0.4f32),        // Radiant crimson
+            _ => (0.8f32, 0.6f32, 1.0f32),
+        };
+
+        // Central core sphere splat
+        let pulse = (time_sec * 3.5).sin() * 0.08 + 0.35;
+        splats.extend_from_slice(&[
+            self.position[0], self.position[1], self.position[2],
+            0.0, 0.0, 0.0, 1.0, // quaternion
+            pulse, pulse, pulse, // scale
+            base_r, base_g, base_b, 0.95 // color + opacity
+        ]);
+
+        // Orbital particle halo
+        for i in 0..num_particles {
+            let theta = (i as f32 / num_particles as f32) * std::f32::consts::TAU + time_sec * 2.0;
+            let radius = 0.65 + 0.1 * (time_sec * 4.0 + i as f32).sin();
+            let px = self.position[0] + radius * theta.cos();
+            let py = self.position[1] + 0.2 * (theta * 2.0).sin();
+            let pz = self.position[2] + radius * theta.sin();
+
+            let particle_scale = 0.12 + 0.04 * (theta * 3.0).cos();
+            splats.extend_from_slice(&[
+                px, py, pz,
+                0.0, 0.0, 0.0, 1.0,
+                particle_scale, particle_scale, particle_scale,
+                base_r * 0.9 + 0.1, base_g * 0.9 + 0.1, base_b * 0.9 + 0.1, 0.85
+            ]);
+        }
+        splats
     }
 
     /// Proposes a cooperative world-creation assistance action

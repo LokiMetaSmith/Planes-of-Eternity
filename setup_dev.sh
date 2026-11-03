@@ -12,6 +12,18 @@ fi
 
 echo "Rust is installed."
 
+if command -v rustup &> /dev/null; then
+    if ! rustup target list --installed | grep -q "^wasm32-unknown-unknown$"; then
+        echo "Installing wasm32-unknown-unknown target..."
+        rustup target add wasm32-unknown-unknown
+        echo "wasm32-unknown-unknown target installed successfully!"
+    else
+        echo "wasm32-unknown-unknown target is already installed."
+    fi
+else
+    echo "Warning: rustup is not available. Please ensure wasm32-unknown-unknown target is installed."
+fi
+
 if ! command -v trunk &> /dev/null; then
     echo "trunk is missing. Downloading pre-compiled release..."
     TRUNK_VERSION="v0.21.14"

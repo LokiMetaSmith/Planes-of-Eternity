@@ -26,6 +26,19 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 
 Write-Host "Rust is installed."
 
+if (Get-Command rustup -ErrorAction SilentlyContinue) {
+    $installedTargets = rustup target list --installed
+    if ($installedTargets -notcontains "wasm32-unknown-unknown") {
+        Write-Host "Installing wasm32-unknown-unknown target..."
+        rustup target add wasm32-unknown-unknown
+        Write-Host "wasm32-unknown-unknown target installed successfully!"
+    } else {
+        Write-Host "wasm32-unknown-unknown target is already installed."
+    }
+} else {
+    Write-Warning "rustup is not in your PATH. Please ensure the wasm32-unknown-unknown target is installed."
+}
+
 if (-not (Get-Command trunk -ErrorAction SilentlyContinue)) {
     Write-Host "trunk is missing. Downloading pre-compiled release..."
 

@@ -26,6 +26,8 @@ pub struct GameState {
     pub input_config: InputConfig,
     #[serde(default)]
     pub voxel_world: Option<crate::voxel::VoxelWorld>,
+    #[serde(default)]
+    pub companion_state_json: Option<String>,
     pub timestamp: u64,
     #[serde(default)]
     pub version: u32,

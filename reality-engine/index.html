@@ -1118,7 +1118,12 @@
 
                     <div style="display: flex; gap: 6px; margin-top: 6px;">
                         <button id="btn-generate-new-companion" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8;">GENERATE COMPANION</button>
+                        <button id="btn-recruit-companion" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ffd700; border-color: #ffd700;">RECRUIT TO SWARM</button>
                         <button id="btn-spawn-personalized-npc" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00ffaa; border-color: #00ffaa;">SPAWN WORLD NPC</button>
+                    </div>
+                    <div style="display: flex; gap: 6px; margin-top: 6px;">
+                        <button id="btn-party-banter" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff00ff; border-color: #ff00ff;">SWARM BANTER</button>
+                        <button id="btn-voice-sculpt-trigger" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00f0ff; border-color: #00f0ff;">VOICE SCULPT ARCH</button>
                     </div>
                 </div>
 
@@ -1865,6 +1870,79 @@
                         log(`> COMPANION INITIALIZED: Generated "${name}" [${archetype}]`);
                         btnGenCompanion.textContent = "INITIALIZED!";
                         setTimeout(() => { btnGenCompanion.textContent = "GENERATE COMPANION"; }, 1500);
+                    });
+                }
+
+                // Recruit to Swarm
+                const btnRecruitCompanion = document.getElementById('btn-recruit-companion');
+                if (btnRecruitCompanion) {
+                    btnRecruitCompanion.addEventListener('click', () => {
+                        const name = document.getElementById('gen-companion-name').value.trim() || "Samantha";
+                        const archetype = document.getElementById('gen-companion-archetype').value;
+                        const curiosity = parseFloat(sliderCuriosity.value) / 100.0;
+                        const empathy = parseFloat(sliderEmpathy.value) / 100.0;
+                        const playfulness = parseFloat(sliderPlayfulness.value) / 100.0;
+                        const visual_hue_shift = parseFloat(sliderHue.value) / 100.0;
+
+                        const profile = {
+                            companion_name: name,
+                            personality_archetype: archetype,
+                            tone_prompt: `Recruited swarm ally`,
+                            curiosity,
+                            playfulness,
+                            empathy,
+                            analytical_depth: 0.8,
+                            speech_voice_style: "Warm",
+                            visual_hue_shift
+                        };
+                        if (gameClient && gameClient.companion_recruit_to_party) {
+                            try {
+                                gameClient.companion_recruit_to_party(JSON.stringify(profile));
+                            } catch (e) {}
+                        }
+                        log(`> SWARM RECRUIT: Added "${name}" into companion party!`);
+                        btnRecruitCompanion.textContent = "RECRUITED!";
+                        setTimeout(() => { btnRecruitCompanion.textContent = "RECRUIT TO SWARM"; }, 1500);
+                    });
+                }
+
+                // Swarm Banter
+                const btnPartyBanter = document.getElementById('btn-party-banter');
+                if (btnPartyBanter) {
+                    btnPartyBanter.addEventListener('click', () => {
+                        let banter = "Samantha: \"Our resonance aligns with the voxel mesh!\"";
+                        if (gameClient && gameClient.companion_trigger_party_banter) {
+                            try {
+                                banter = gameClient.companion_trigger_party_banter();
+                            } catch (e) {}
+                        }
+                        if (companionDialogue) {
+                            companionDialogue.textContent = banter;
+                        }
+                        speakCompanionLine(banter, "Playful Challenger");
+                        log(`> SWARM BANTER: ${banter}`);
+                        btnPartyBanter.textContent = "BANTERING!";
+                        setTimeout(() => { btnPartyBanter.textContent = "SWARM BANTER"; }, 1500);
+                    });
+                }
+
+                // Voice Sculpt Trigger
+                const btnVoiceSculptTrigger = document.getElementById('btn-voice-sculpt-trigger');
+                if (btnVoiceSculptTrigger) {
+                    btnVoiceSculptTrigger.addEventListener('click', () => {
+                        const prompt = "build a crystalline archway";
+                        if (gameClient && gameClient.companion_voice_sculpt_world) {
+                            try {
+                                gameClient.companion_voice_sculpt_world(prompt);
+                            } catch (e) {}
+                        }
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"${currentCompanionName}: Sculpted voxel architecture from acoustic intent '${prompt}'!"`;
+                        }
+                        speakCompanionLine(`Sculpting resonant archway from your vocal intent!`, "Co-Creative");
+                        log(`> VOICE SCULPT: Generated architecture from speech intent!`);
+                        btnVoiceSculptTrigger.textContent = "SCULPTED!";
+                        setTimeout(() => { btnVoiceSculptTrigger.textContent = "VOICE SCULPT ARCH"; }, 1500);
                     });
                 }
 

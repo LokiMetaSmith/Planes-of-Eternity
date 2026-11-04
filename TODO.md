@@ -172,13 +172,15 @@
 - [x] **Autonomous Frontier Scouting**: Off-screen latent exploration yielding discovered landmarks, relics, and hazard alerts.
 - [x] **Companion-Authored Procedural Trials**: Multi-room dungeon trials (CyberLabyrinth, ResonanceCathedral, EldritchVault).
 - [x] **WebXR Gestural Bimanual High-Five**: Open-palm gestural recognition in VR triggering celebratory resonance.
+- [x] **User-Personalized Companion & Dynamic NPC Personality Generator**: Dynamic companion generation (custom names, archetypes, and aura hue shifts), interactive personality sliders, multi-turn conversational memory with sentiment scoring, and generalized dynamic NPC profile generation.
+- [ ] **Long-Horizon Personality Co-Evolution & Save Persistence**: Persist companion memory logs, relationship depth, and adaptive trait evolution across game saves in `GameState`.
+- [ ] **Multi-Agent Companion Swarms & Social Party System**: Support recruiting and maintaining multiple active companions simultaneously coordinating via `MultiAgentCoDiffusion` swarm attention.
+- [ ] **Voice-Driven Neural World Sculpting**: Interpret real-time voice speech commands to direct companion terraforming and procedural architectural generation.
+- [ ] **Emotional Parametric Neural TTS Voice Modeling**: Parametric formant acoustic modeling and timbre synthesis tuned to distinct companion archetypes.
 
 ## Future Roadmap & Long-Term Enhancements
-- [ ] **User-Personalized Companion & Dynamic NPC Personality Generator**:
-  - Dynamically generate and customize new companions (e.g. Samantha, or tailored companions with distinct names, vocal profiles, and visual splat auras) generalized to the user's personality and preferences.
-  - Interactive questionnaire and seed-based personality profiler (curiosity, empathy, playfulness, analytical depth) adapting to user playstyle.
-  - Multi-turn conversational memory graph and dialogue history tracking emotional valence and past interactions.
-  - Generalize personality generation to world NPCs, enabling any NPC to be initialized with emergent traits, goals, memories, and adaptive dialogue.
+- [ ] **Adaptive Long-Horizon User Personality Co-Evolution**:
+  - Continuous online learning of user behavioral archetypes through episodic memory graph consolidation, adapting companion cognitive styles autonomously over extended play sessions.
 - [ ] **On-Device Neural Quantization (INT4 / AWQ / GPTQ)**:
   - Implement 4-bit block-wise weight quantization (AWQ/GPTQ) for `ActionConditionedDiT` to reduce model memory footprint from ~600MB down to <150MB, enabling ultra-fast execution on consumer mobile WebGPU devices and standalone VR headsets (e.g. Meta Quest 3, Apple Vision Pro).
 - [ ] **Temporal FlashAttention-3 Kernel for WebGPU WGSL**:

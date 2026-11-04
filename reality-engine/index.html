@@ -166,6 +166,54 @@
             pointer-events: none; /* Let clicks pass through empty areas */
         }
 
+        #ui-sidebar {
+            position: fixed;
+            top: 55px;
+            right: 15px;
+            width: 380px;
+            max-width: calc(100vw - 30px);
+            max-height: calc(100vh - 70px);
+            overflow-y: auto;
+            overflow-x: hidden;
+            pointer-events: auto;
+            z-index: 15;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-right: 4px;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+        }
+
+        #ui-sidebar.collapsed {
+            transform: translateX(calc(100% + 20px));
+            pointer-events: none;
+            opacity: 0;
+        }
+
+        #sidebar-toggle-btn {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            z-index: 20;
+            background: rgba(10, 10, 15, 0.85);
+            color: var(--theme-primary);
+            border: 1px solid var(--theme-primary);
+            padding: 8px 14px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            font-weight: bold;
+            letter-spacing: 1px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(var(--theme-primary-rgb), 0.3);
+            pointer-events: auto;
+            transition: all 0.2s;
+        }
+
+        #sidebar-toggle-btn:hover {
+            background: var(--theme-primary);
+            color: #000;
+            box-shadow: 0 0 15px var(--theme-primary);
+        }
 
         .cyber-card {
             pointer-events: auto;
@@ -567,7 +615,7 @@
             width: 100vw;
             height: 100vh;
             background: rgba(0, 0, 0, 0.4);
-            z-index: 5000;
+            z-index: 5;
             display: none;
             justify-content: center;
             align-items: center;
@@ -615,7 +663,9 @@
 
 
     <div id="ui-layer">
-    <div id="player-coordinates" aria-hidden="true" style="position: fixed; bottom: 30px; right: 10px; color: #0f0; background: rgba(0,0,0,0.5); padding: 5px; font-family: monospace; z-index: 1000; border: 1px solid #0f0; border-radius: 3px;">X: 0.00 Y: 0.00 Z: 0.00</div>
+    <div id="player-coordinates" aria-hidden="true" style="position: fixed; bottom: 10px; left: 10px; color: #0f0; background: rgba(0,0,0,0.7); padding: 5px 8px; font-family: monospace; z-index: 1000; border: 1px solid #0f0; border-radius: 3px;">X: 0.00 Y: 0.00 Z: 0.00</div>
+    <button id="sidebar-toggle-btn" aria-expanded="true" aria-controls="ui-sidebar">HUD MENU [TOGGLE]</button>
+
     <div id="log-area" class="draggable-window" aria-live="polite" role="log" tabindex="0" aria-label="System Log" style="pointer-events: auto;">
         <div class="cyber-header" style="background: rgba(5,255,161,0.2); margin-bottom: 10px; padding: 5px;">System Log</div>
         <div class="draggable-content" style="padding: 0;">
@@ -625,7 +675,8 @@
         </div>
     </div>
 
-        <div class="cyber-card draggable-window">
+    <aside id="ui-sidebar" aria-label="Reality Engine HUD Controls">
+        <div class="cyber-card">
             <div class="cyber-header" role="heading" aria-level="2">Anomaly Projector</div>
 
             <div class="control-group">
@@ -1041,6 +1092,8 @@
             <div style="font-size: 0.85rem; color: #aaa; line-height: 1.4;">
                 [WASD] Move Camera<br>
                 [Mouse] Click to Move Anomaly<br>
+                [Esc] Free Cursor to Click Menus<br>
+                [Click World] Resume Camera Controls<br>
                 [Click Node] Reduce Lambda<br>
                 [F] Cast Spell (Lambda)<br>
                 [Tab] Toggle 3D Inventory<br>
@@ -1048,9 +1101,10 @@
                 [O] Toggle 4D Playback<br>
                 [M] Toggle Minimap<br>
                 [Sliders] Adjust Reality Params<br>
-                [H] Toggle UI
+                [H] Toggle UI Overlay
             </div>
         </div>
+    </aside>
     </div>
 
     <!-- Keybinds Overlay -->
@@ -3149,6 +3203,18 @@
                         window.aiInterval = null;
                     }
                 }
+            });
+        }
+
+        // Sidebar Collapse/Expand Toggle
+        const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+        const uiSidebar = document.getElementById('ui-sidebar');
+        if (sidebarToggleBtn && uiSidebar) {
+            sidebarToggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isCollapsed = uiSidebar.classList.toggle('collapsed');
+                sidebarToggleBtn.setAttribute('aria-expanded', !isCollapsed);
+                sidebarToggleBtn.innerText = isCollapsed ? 'HUD MENU [EXPAND]' : 'HUD MENU [COLLAPSE]';
             });
         }
     });

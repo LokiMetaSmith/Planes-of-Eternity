@@ -90,6 +90,35 @@ def test_gui_features(page: Page, dev_server):
     save_btn.click()
     time.sleep(1.0)
 
+    # 6. Verify Desktop Sidebar layout and menu interactions
+    print("Verifying desktop sidebar bounding and clickability...")
+    sidebar = page.locator("#ui-sidebar")
+    expect(sidebar).to_be_visible()
+    sidebar_box = sidebar.bounding_box()
+    assert sidebar_box is not None, "Sidebar bounding box should not be null"
+    # Verify it does not occupy full screen width in desktop mode
+    viewport_width = page.viewport_size["width"] if page.viewport_size else 1280
+    assert sidebar_box["width"] <= 420, f"Sidebar width ({sidebar_box['width']}) should be compact and not fill desktop screen ({viewport_width})"
+
+    # Verify toggle button collapses and expands the HUD menu cleanly
+    toggle_btn = page.locator("#sidebar-toggle-btn")
+    expect(toggle_btn).to_be_visible()
+    toggle_btn.dispatch_event("click")
+    time.sleep(0.5)
+    expect(sidebar).to_have_class("collapsed")
+
+    # Expand again
+    toggle_btn.dispatch_event("click")
+    time.sleep(0.5)
+    expect(sidebar).not_to_have_class("collapsed")
+
+    # Verify Archetype dropdown selection is directly clickable and responsive
+    archetype_select = page.locator("#param-archetype")
+    expect(archetype_select).to_be_visible()
+    archetype_select.select_option("0") # Select Fantasy
+    time.sleep(0.5)
+    assert archetype_select.input_value() == "0"
+
     # Take screenshot of the Fallback wireframe + UI state
     screenshot_path = "verification/gui_features_verification.png"
     print(f"Taking E2E verification screenshot to {screenshot_path}...")

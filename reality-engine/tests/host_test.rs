@@ -957,4 +957,27 @@ fn test_agentic_companion_engine_manager() {
     let json_state = manager.get_companion_state_json();
     assert!(json_state.contains("Samantha"));
     assert!(json_state.contains("Celebratory"));
+
+    // Test customizing personality and dynamic generation
+    let profile = reality_genie::dit::UserProfileConfig {
+        companion_name: "Lyra".to_string(),
+        personality_archetype: "Whimsical Mystic".to_string(),
+        tone_prompt: Some("Dreamy and attuned to the voxel ley lines".to_string()),
+        curiosity: 0.9,
+        playfulness: 0.8,
+        empathy: 0.95,
+        analytical_depth: 0.85,
+        speech_voice_style: "Warm".to_string(),
+        visual_hue_shift: 0.7,
+    };
+    manager.customize_personality(profile, [0.0, 1.0, 0.0]);
+    assert_eq!(manager.companion.personality.name, "Lyra");
+    assert_eq!(manager.companion.personality.personality_archetype, "Whimsical Mystic");
+
+    // Test chat interaction and memory history
+    let reply = manager.chat_interact("Hello Lyra, what can we do here?", 5000);
+    assert!(reply.contains("Lyra"));
+    let history_json = manager.get_conversation_history_json();
+    assert!(history_json.contains("Lyra"));
+    assert!(history_json.contains("User"));
 }

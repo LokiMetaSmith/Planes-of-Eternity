@@ -5619,6 +5619,104 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
     }
 
     #[wasm_bindgen]
+    pub fn companion_customize_personality(&mut self, config_json: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+
+        let profile: reality_genie::dit::UserProfileConfig = serde_json::from_str(config_json)
+            .unwrap_or_default();
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.customize_personality(profile, player_pos);
+            state.engine.companion_manager.get_companion_state_json()
+        } else {
+            "{}".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_chat_interact(&mut self, user_message: &str) -> String {
+        let timestamp = crate::projector::get_current_timestamp();
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.chat_interact(user_message, timestamp)
+        } else {
+            "I hear you through the static.".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_get_conversation_history(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.companion_manager.get_conversation_history_json()
+        } else {
+            "[]".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_get_state(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.companion_manager.get_companion_state_json()
+        } else {
+            "{}".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn spawn_personalized_npc(&mut self, config_json: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+
+        let parsed: serde_json::Value = serde_json::from_str(config_json).unwrap_or_default();
+        let name = parsed.get("name").and_then(|v| v.as_str()).unwrap_or("Wanderer");
+        let role = parsed.get("role").and_then(|v| v.as_str()).unwrap_or("Guide");
+        let archetype_str = parsed.get("archetype").and_then(|v| v.as_str()).unwrap_or("Fantasy");
+
+        let npc_id = (crate::projector::get_current_timestamp() % 10000) as u32;
+        let dynamic_profile = reality_genie::dit::DynamicNpcProfile::new_procedural(npc_id, name, role, archetype_str);
+
+        let archetype = match archetype_str {
+            "SciFi" => reality_types::RealityArchetype::SciFi,
+            "Horror" => reality_types::RealityArchetype::Horror,
+            "Tron" => reality_types::RealityArchetype::Tron,
+            "Biopunk" => reality_types::RealityArchetype::Biopunk,
+            "Fractal" => reality_types::RealityArchetype::Fractal,
+            "Cottagecore" => reality_types::RealityArchetype::Cottagecore,
+            "SolarPunk" => reality_types::RealityArchetype::SolarPunk,
+            "LiminalSpace" => reality_types::RealityArchetype::LiminalSpace,
+            _ => reality_types::RealityArchetype::Fantasy,
+        };
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let offset_x = (npc_id as f32 * 0.1).sin() * 5.0;
+            let offset_z = (npc_id as f32 * 0.1).cos() * 5.0;
+            let loc = cgmath::Point3::new(player_pos[0] + offset_x, player_pos[1], player_pos[2] + offset_z);
+            let mut signature = reality_types::RealitySignature::default();
+            signature.active_style.archetype = archetype;
+            let mut projector = crate::projector::RealityProjector::new(loc, signature);
+            projector.chat_message = Some((format!("[{}] \"Greetings wanderer!\"", name), crate::projector::get_current_timestamp()));
+            projector.behavior = Some(crate::projector::NpcBehavior {
+                preferred_archetype: archetype,
+                energy: 1.0,
+                mutation_progress: 0.0,
+                health: 100.0,
+                hostile: false,
+                goal_stack: vec![crate::projector::Goal::Wander],
+                animation_playback: None,
+            });
+            state.engine.world_state.npcs.push(projector);
+        }
+
+        serde_json::to_string(&dynamic_profile).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
     pub fn companion_propose_cocreation(&mut self) -> String {
         let player_pos = if let Ok(state) = self.state.try_borrow() {
             [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
@@ -5626,8 +5724,13 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
             [0.0, 1.0, 0.0]
         };
         let arche_id = 1u32;
-        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
-        let creation = companion.propose_co_creation(player_pos, arche_id);
+
+        let creation = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.companion.propose_co_creation(player_pos, arche_id)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.propose_co_creation(player_pos, arche_id)
+        };
 
         // Dynamic Terraforming: Carve space and spawn the structure into VoxelWorld
         if let Ok(mut state) = self.state.try_borrow_mut() {
@@ -5662,8 +5765,12 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         } else {
             [0.0, 1.0, 0.0]
         };
-        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
-        let challenge = companion.generate_dynamic_challenge(player_pos);
+        let challenge = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.companion.generate_dynamic_challenge(player_pos)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.generate_dynamic_challenge(player_pos)
+        };
         serde_json::to_string(&challenge).unwrap_or_else(|_| "{}".to_string())
     }
 
@@ -5674,8 +5781,12 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         } else {
             [0.0, 1.0, 0.0]
         };
-        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
-        let interaction = companion.interact_with_npc(npc_id, npc_name, archetype);
+        let interaction = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.companion.interact_with_npc(npc_id, npc_name, archetype)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.interact_with_npc(npc_id, npc_name, archetype)
+        };
         serde_json::to_string(&interaction).unwrap_or_else(|_| "{}".to_string())
     }
 
@@ -5710,8 +5821,12 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         } else {
             [0.0, 1.0, 0.0]
         };
-        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
-        let scout = companion.scout_latent_frontier(player_pos);
+        let scout = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.companion.scout_latent_frontier(player_pos)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.scout_latent_frontier(player_pos)
+        };
         serde_json::to_string(&scout).unwrap_or_else(|_| "{}".to_string())
     }
 
@@ -5722,8 +5837,12 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         } else {
             [0.0, 1.0, 0.0]
         };
-        let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
-        let trial = companion.author_procedural_trial(player_pos);
+        let trial = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.companion.author_procedural_trial(player_pos)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.author_procedural_trial(player_pos)
+        };
         serde_json::to_string(&trial).unwrap_or_else(|_| "{}".to_string())
     }
 }

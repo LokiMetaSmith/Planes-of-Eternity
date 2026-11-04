@@ -857,3 +857,52 @@ fn test_agentic_companion_cocreation_and_challenges() {
     assert!(companion.active_challenges[0].completed);
     assert_eq!(companion.personality.current_mood, "Celebratory");
 }
+
+#[test]
+fn test_personalized_companion_generation_and_conversation() {
+    use reality_genie::dit::{AgenticCompanion, UserProfileConfig, DynamicNpcProfile};
+
+    let profile = UserProfileConfig {
+        companion_name: "Aria".to_string(),
+        personality_archetype: "Playful Challenger".to_string(),
+        tone_prompt: Some("Witty, provocative, sharp".to_string()),
+        curiosity: 0.95,
+        playfulness: 0.90,
+        empathy: 0.70,
+        analytical_depth: 0.65,
+        speech_voice_style: "Crisp".to_string(),
+        visual_hue_shift: 0.4,
+    };
+
+    let mut companion = AgenticCompanion::generate_personalized(profile, [0.0, 2.0, 0.0]);
+    assert_eq!(companion.personality.name, "Aria");
+    assert_eq!(companion.personality.personality_archetype, "Playful Challenger");
+    assert_eq!(companion.personality.current_mood, "Playful Challenger");
+    assert!(companion.current_dialogue.as_ref().unwrap().contains("Aria"));
+
+    // Visual splat generation with personalized hue shift
+    let splats = companion.generate_avatar_splats(1.0);
+    assert!(!splats.is_empty());
+    assert_eq!(splats.len() % 14, 0);
+
+    // Converse with user and test conversation memory
+    let reply1 = companion.respond_to_user("Hello Aria, who are you?", 1000);
+    assert!(reply1.contains("Aria"));
+    assert_eq!(companion.conversation_memory.len(), 2); // 1 User turn, 1 Aria turn
+    assert_eq!(companion.personality.conversational_turns_count, 1);
+
+    // Positive sentiment interaction
+    let reply2 = companion.respond_to_user("I love exploring this awesome world with you!", 2000);
+    assert!(!reply2.is_empty());
+    assert_eq!(companion.conversation_memory.len(), 4);
+    assert_eq!(companion.conversation_memory[2].sentiment_score > 0.0, true);
+
+    // Procedural Dynamic NPC generalization
+    let mut npc = DynamicNpcProfile::new_procedural(101, "Caspian", "Void-Weaver", "Fantasy");
+    assert_eq!(npc.name, "Caspian");
+    assert_eq!(npc.personality.current_mood, "Adventurous");
+
+    let npc_reply = npc.converse("What mysteries lie beyond this ridge?", 3000);
+    assert!(npc_reply.contains("Caspian"));
+    assert_eq!(npc.memory_log.len(), 2);
+}

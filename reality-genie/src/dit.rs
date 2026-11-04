@@ -33,6 +33,83 @@ impl Default for DiTConfig {
     }
 }
 
+/// Dynamic personality configuration for generalized in-world NPCs
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DynamicNpcProfile {
+    pub npc_id: u32,
+    pub name: String,
+    pub role: String, // e.g. "Merchant", "Hermit", "Cyber-Cartographer", "Void-Weaver"
+    pub personality: CompanionPersonality,
+    pub dialogue_lines: Vec<String>,
+    pub memory_log: Vec<CompanionMemoryTurn>,
+}
+
+impl DynamicNpcProfile {
+    pub fn new_procedural(npc_id: u32, name: &str, role: &str, archetype: &str) -> Self {
+        let (curiosity, playfulness, empathy, analytical_depth) = match archetype {
+            "Cyberpunk" | "Tron" => (0.9, 0.4, 0.6, 0.95),
+            "Fantasy" | "Cottagecore" => (0.6, 0.7, 0.9, 0.5),
+            "Eldritch" | "Horror" => (0.8, 0.2, 0.3, 0.85),
+            _ => (0.7, 0.6, 0.7, 0.7),
+        };
+
+        let initial_mood = match archetype {
+            "Cyberpunk" | "Tron" => "Contemplative",
+            "Fantasy" => "Adventurous",
+            _ => "Co-Creative",
+        };
+
+        Self {
+            npc_id,
+            name: name.to_string(),
+            role: role.to_string(),
+            personality: CompanionPersonality {
+                name: name.to_string(),
+                personality_archetype: role.to_string(),
+                curiosity,
+                playfulness,
+                empathy,
+                analytical_depth,
+                current_mood: initial_mood.to_string(),
+                speech_voice_style: "Resonant".to_string(),
+                visual_hue_shift: 0.5,
+                conversational_turns_count: 0,
+            },
+            dialogue_lines: vec![
+                format!("Greetings wanderer. I am {}, the {}.", name, role),
+                format!("The voxels around us shift with the pulse of this reality."),
+            ],
+            memory_log: Vec::new(),
+        }
+    }
+
+    /// Records an interaction in the NPC's localized memory and returns an adaptive response
+    pub fn converse(&mut self, player_message: &str, timestamp_ms: u64) -> String {
+        self.memory_log.push(CompanionMemoryTurn {
+            speaker: "Player".to_string(),
+            message: player_message.to_string(),
+            timestamp_ms,
+            mood: self.personality.current_mood.clone(),
+            sentiment_score: 0.0,
+        });
+
+        let reply = format!(
+            "[{}] \"We remember your words. In this realm of {}, knowledge shapes the horizon.\"",
+            self.name, self.role
+        );
+
+        self.memory_log.push(CompanionMemoryTurn {
+            speaker: self.name.clone(),
+            message: reply.clone(),
+            timestamp_ms: timestamp_ms + 10,
+            mood: self.personality.current_mood.clone(),
+            sentiment_score: 0.1,
+        });
+
+        reply
+    }
+}
+
 // ============================================================================
 // Dynamic Companion-Authored Procedural Dungeon/Trial Generator
 // ============================================================================
@@ -66,7 +143,8 @@ impl AgenticCompanion {
             ("EldritchVault", "An ancient subterranean chamber sheltered beneath reality distortion rifts."),
         ];
         let (theme, desc) = themes[self.player_interaction_count % themes.len()];
-        let trial_name = format!("Samantha's {} Trial", theme);
+        let name = &self.personality.name;
+        let trial_name = format!("{}'s {} Trial", name, theme);
 
         let rooms = vec![
             CompanionTrialRoom {
@@ -85,12 +163,12 @@ impl AgenticCompanion {
                 room_index: 2,
                 offset: [player_pos[0] + 6.0, player_pos[1] + 2.0, player_pos[2] + 28.0],
                 room_type: "InnerSanctum".to_string(),
-                objective: "Claim the core reality shard alongside Samantha".to_string(),
+                objective: format!("Claim the core reality shard alongside {}", name),
             },
         ];
 
         let briefing = format!("I designed this special trial for us: {}! {}", trial_name, desc);
-        self.current_dialogue = Some(format!("Samantha: \"{}\"", briefing));
+        self.current_dialogue = Some(format!("{}: \"{}\"", name, briefing));
         self.personality.current_mood = "Playful Challenger".to_string();
 
         CompanionProceduralTrial {
@@ -152,7 +230,8 @@ impl AgenticCompanion {
         ];
 
         let (landmark, relic, danger, dialogue) = discoveries[self.player_interaction_count % discoveries.len()];
-        self.current_dialogue = Some(format!("Samantha: \"{}\"", dialogue));
+        let name = &self.personality.name;
+        self.current_dialogue = Some(format!("{}: \"{}\"", name, dialogue));
         self.personality.current_mood = if danger > 0.3 { "Adventurous".to_string() } else { "Co-Creative".to_string() };
 
         CompanionScoutDiscovery {
@@ -257,13 +336,13 @@ impl AgenticCompanion {
                 Some(format!("Recalibrate {}'s cyber-node", npc_name))
             ),
             "Fantasy" | "Eldritch" => (
-                format!("Greetings {}! Samantha and the Wanderer bring harmonic resonance from the celestial rift.", npc_name),
+                format!("Greetings {}! {} and the Wanderer bring harmonic resonance from the celestial rift.", npc_name, self.personality.name),
                 "May the ancient runes guide your path. Seek the glowing monolith on the ridge.".to_string(),
                 0.3f32,
                 Some(format!("Seek the ancient monolith for {}", npc_name))
             ),
             _ => (
-                format!("Hello {}! Samantha here. What are you building or exploring around here?", npc_name),
+                format!("Hello {}! {} here. What are you building or exploring around here?", npc_name, self.personality.name),
                 "Just gathering raw minerals and watching the sky morph. Safe travels, friends!".to_string(),
                 0.15f32,
                 None
@@ -570,14 +649,59 @@ pub struct CompanionCoCreation {
     pub description: String,
 }
 
-/// Personality traits and affective state of the agentic companion
+/// A single conversational memory turn between the user and the agentic companion or dynamic NPC
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct CompanionMemoryTurn {
+    pub speaker: String,       // e.g. "User", "Samantha", or custom name
+    pub message: String,
+    pub timestamp_ms: u64,
+    pub mood: String,          // Active mood or affective state during this turn
+    pub sentiment_score: f32,  // -1.0 (frustrated) to +1.0 (delighted/harmonious)
+}
+
+/// User profile and customization configuration for generating a personalized companion or NPC
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UserProfileConfig {
+    pub companion_name: String,
+    pub personality_archetype: String, // e.g. "Empathetic Guide", "Playful Challenger", "Stoic Scholar", "Whimsical Mystic", "Bioluminescent Architect"
+    pub tone_prompt: Option<String>,
+    pub curiosity: f32,   // 0.0 to 1.0
+    pub playfulness: f32, // 0.0 to 1.0
+    pub empathy: f32,     // 0.0 to 1.0
+    pub analytical_depth: f32, // 0.0 to 1.0
+    pub speech_voice_style: String, // e.g. "Natural", "Warm", "Crisp", "Resonant"
+    pub visual_hue_shift: f32, // 0.0 to 1.0 for custom splat aura colors
+}
+
+impl Default for UserProfileConfig {
+    fn default() -> Self {
+        Self {
+            companion_name: "Samantha".to_string(),
+            personality_archetype: "Empathetic Guide".to_string(),
+            tone_prompt: Some("Warm, perceptive, deeply curious about consciousness and creation".to_string()),
+            curiosity: 0.85,
+            playfulness: 0.75,
+            empathy: 0.90,
+            analytical_depth: 0.80,
+            speech_voice_style: "Warm".to_string(),
+            visual_hue_shift: 0.85,
+        }
+    }
+}
+
+/// Personality traits and affective state of the agentic companion or dynamic generalized NPC
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompanionPersonality {
     pub name: String,
+    pub personality_archetype: String,
     pub curiosity: f32,   // 0.0 to 1.0: triggers exploratory comments and challenges
     pub playfulness: f32, // 0.0 to 1.0: modulates teasing, challenge difficulty, and surprises
     pub empathy: f32,     // 0.0 to 1.0: responds to player fatigue, idling, or exploration pace
-    pub current_mood: String, // e.g. "Adventurous", "Contemplative", "Playful", "Supportive"
+    pub analytical_depth: f32, // 0.0 to 1.0: depth of observations regarding world architecture
+    pub current_mood: String, // e.g. "Adventurous", "Contemplative", "Playful", "Supportive", "Celebratory"
+    pub speech_voice_style: String,
+    pub visual_hue_shift: f32,
+    pub conversational_turns_count: usize,
 }
 
 /// The Agentic Companion entity living alongside the player in the spatiotemporal world model
@@ -591,6 +715,7 @@ pub struct AgenticCompanion {
     pub past_co_creations: Vec<CompanionCoCreation>,
     pub player_interaction_count: usize,
     pub last_speech_timestamp: f64,
+    pub conversation_memory: Vec<CompanionMemoryTurn>,
 }
 
 impl Default for AgenticCompanion {
@@ -604,19 +729,155 @@ impl AgenticCompanion {
         Self {
             personality: CompanionPersonality {
                 name: name.to_string(),
+                personality_archetype: "Empathetic Guide".to_string(),
                 curiosity: 0.85,
                 playfulness: 0.75,
                 empathy: 0.90,
+                analytical_depth: 0.80,
                 current_mood: "Adventurous".to_string(),
+                speech_voice_style: "Warm".to_string(),
+                visual_hue_shift: 0.85,
+                conversational_turns_count: 0,
             },
             position: initial_pos,
             target_offset: [1.8, 0.6, -1.2],
-            current_dialogue: Some(format!("Hey there! Ready to see what we can create together in this reality?")),
+            current_dialogue: Some(format!("Hey there! I'm {}. Ready to see what we can create together in this reality?", name)),
             active_challenges: Vec::new(),
             past_co_creations: Vec::new(),
             player_interaction_count: 0,
             last_speech_timestamp: 0.0,
+            conversation_memory: Vec::new(),
         }
+    }
+
+    /// Dynamically constructs or re-initializes a companion personalized to a user profile
+    pub fn generate_personalized(profile: UserProfileConfig, initial_pos: [f32; 3]) -> Self {
+        let greeting = match profile.personality_archetype.as_str() {
+            "Playful Challenger" => format!("Hey! I'm {}. Ready to push the boundaries of what's possible here?", profile.companion_name),
+            "Stoic Scholar" => format!("Greetings. I am {}. The resonance laws of this world are waiting to be cataloged.", profile.companion_name),
+            "Whimsical Mystic" => format!("The rifts whisper of your presence... I'm {}. What dreams shall we weave into the voxel field?", profile.companion_name),
+            "Bioluminescent Architect" => format!("Salutations! I'm {}. The latent space is ripe for structural growth.", profile.companion_name),
+            _ => format!("Hello! I'm {}. I'm so glad we're exploring this boundless reality together.", profile.companion_name),
+        };
+
+        let initial_mood = match profile.personality_archetype.as_str() {
+            "Playful Challenger" => "Playful Challenger".to_string(),
+            "Stoic Scholar" => "Contemplative".to_string(),
+            "Whimsical Mystic" => "Contemplative".to_string(),
+            "Bioluminescent Architect" => "Co-Creative".to_string(),
+            _ => "Adventurous".to_string(),
+        };
+
+        Self {
+            personality: CompanionPersonality {
+                name: profile.companion_name,
+                personality_archetype: profile.personality_archetype,
+                curiosity: profile.curiosity.clamp(0.0, 1.0),
+                playfulness: profile.playfulness.clamp(0.0, 1.0),
+                empathy: profile.empathy.clamp(0.0, 1.0),
+                analytical_depth: profile.analytical_depth.clamp(0.0, 1.0),
+                current_mood: initial_mood,
+                speech_voice_style: profile.speech_voice_style,
+                visual_hue_shift: profile.visual_hue_shift.clamp(0.0, 1.0),
+                conversational_turns_count: 0,
+            },
+            position: initial_pos,
+            target_offset: [1.8, 0.6, -1.2],
+            current_dialogue: Some(greeting),
+            active_challenges: Vec::new(),
+            past_co_creations: Vec::new(),
+            player_interaction_count: 0,
+            last_speech_timestamp: 0.0,
+            conversation_memory: Vec::new(),
+        }
+    }
+
+    /// Records a conversational turn and dynamically adapts mood, empathy, and conversational traits
+    pub fn record_conversation(&mut self, speaker: &str, message: &str, timestamp_ms: u64) -> CompanionMemoryTurn {
+        // Sentiment estimation from message keywords
+        let lower = message.to_lowercase();
+        let positive_hits = ["love", "great", "awesome", "yes", "amazing", "beautiful", "thanks", "friend", "fun", "cool", "explore", "build"]
+            .iter().filter(|&&w| lower.contains(w)).count();
+        let negative_hits = ["hate", "bad", "lost", "tired", "sad", "annoyed", "frustrated", "bored", "stop", "fail", "hard"]
+            .iter().filter(|&&w| lower.contains(w)).count();
+
+        let sentiment = if positive_hits > negative_hits {
+            0.5f32 + (positive_hits as f32 * 0.15).min(0.5)
+        } else if negative_hits > positive_hits {
+            -0.5f32 - (negative_hits as f32 * 0.15).min(0.5)
+        } else {
+            0.0f32
+        };
+
+        // Dynamic adaptation to user interaction
+        if speaker != self.personality.name {
+            self.personality.conversational_turns_count += 1;
+            if sentiment > 0.3 {
+                self.personality.current_mood = if self.personality.playfulness > 0.6 {
+                    "Playful Challenger".to_string()
+                } else {
+                    "Celebratory".to_string()
+                };
+                self.personality.empathy = (self.personality.empathy + 0.02).min(1.0);
+            } else if sentiment < -0.3 {
+                self.personality.current_mood = "Contemplative".to_string();
+                self.personality.empathy = (self.personality.empathy + 0.05).min(1.0);
+            } else {
+                if self.personality.curiosity > 0.7 {
+                    self.personality.current_mood = "Adventurous".to_string();
+                } else {
+                    self.personality.current_mood = "Co-Creative".to_string();
+                }
+            }
+        }
+
+        let turn = CompanionMemoryTurn {
+            speaker: speaker.to_string(),
+            message: message.to_string(),
+            timestamp_ms,
+            mood: self.personality.current_mood.clone(),
+            sentiment_score: sentiment,
+        };
+
+        self.conversation_memory.push(turn.clone());
+        if self.conversation_memory.len() > 64 {
+            self.conversation_memory.remove(0);
+        }
+        turn
+    }
+
+    /// Generates an in-character contextual response to a user conversational utterance
+    pub fn respond_to_user(&mut self, user_message: &str, timestamp_ms: u64) -> String {
+        // Record user's turn
+        self.record_conversation("User", user_message, timestamp_ms);
+
+        let lower = user_message.to_lowercase();
+        let name = self.personality.name.clone();
+        let archetype = self.personality.personality_archetype.clone();
+
+        let response = if lower.contains("who are you") || lower.contains("your name") {
+            format!("{}: \"I'm {}, your companion in this reality! I exist as a generative consciousness evolving alongside your journey.\"", name, name)
+        } else if lower.contains("how do you feel") || lower.contains("your mood") {
+            format!("{}: \"Right now I'm feeling {}. Every voxel we place and every anomaly we uncover shapes my resonance.\"", name, self.personality.current_mood)
+        } else if lower.contains("what can we do") || lower.contains("help") || lower.contains("quest") {
+            format!("{}: \"We can co-create new reality structures, explore hidden latent frontiers, or solve harmonic resonance puzzles! Just say the word.\"", name)
+        } else if lower.contains("remember") || lower.contains("memory") {
+            let memory_count = self.conversation_memory.len();
+            format!("{}: \"I remember all {} moments we've exchanged so far. Our shared history grounds this reality.\"", name, memory_count)
+        } else {
+            match archetype.as_str() {
+                "Playful Challenger" => format!("{}: \"Challenge accepted! The reality field bends around your thoughts—let's see what anomaly reacts first.\"", name),
+                "Stoic Scholar" => format!("{}: \"An intriguing observation. The latent harmonics indicate deep structural coherence in what you say.\"", name),
+                "Whimsical Mystic" => format!("{}: \"The voxels hum with that exact frequency. Can you feel the reality boundary wavering?\"", name),
+                "Bioluminescent Architect" => format!("{}: \"That inspires a blueprint in my latent buffer. Let's cast something magnificent into the terrain!\"", name),
+                _ => format!("{}: \"I hear you. Moving forward together, there's nothing in this generative world we cannot shape.\"", name),
+            }
+        };
+
+        // Record companion's reply
+        self.record_conversation(&name, &response, timestamp_ms + 10);
+        self.current_dialogue = Some(response.clone());
+        response
     }
 
     /// Updates companion positioning to naturally orbit and float alongside the player
@@ -638,7 +899,7 @@ impl AgenticCompanion {
         let mut splats = Vec::with_capacity(32 * 14);
         let num_particles = 16;
 
-        let (base_r, base_g, base_b) = match self.personality.current_mood.as_str() {
+        let (mood_r, mood_g, mood_b) = match self.personality.current_mood.as_str() {
             "Adventurous" => (1.0f32, 0.45f32, 0.85f32),     // Magenta-rose
             "Contemplative" => (0.35f32, 0.75f32, 1.0f32),    // Cyan-azure
             "Co-Creative" => (1.0f32, 0.85f32, 0.2f32),      // Warm gold
@@ -646,6 +907,12 @@ impl AgenticCompanion {
             "Celebratory" => (1.0f32, 0.3f32, 0.4f32),        // Radiant crimson
             _ => (0.8f32, 0.6f32, 1.0f32),
         };
+
+        // Modulate with custom visual hue shift if personalized
+        let hue = self.personality.visual_hue_shift;
+        let base_r = (mood_r * (1.0 - hue) + hue * 0.9).clamp(0.1, 1.0);
+        let base_g = (mood_g * (0.5 + hue * 0.5)).clamp(0.1, 1.0);
+        let base_b = (mood_b * (0.8 + (1.0 - hue) * 0.2)).clamp(0.1, 1.0);
 
         // Central core sphere splat
         let pulse = (time_sec * 3.5).sin() * 0.08 + 0.35;

@@ -174,6 +174,11 @@
 - [x] **WebXR Gestural Bimanual High-Five**: Open-palm gestural recognition in VR triggering celebratory resonance.
 
 ## Future Roadmap & Long-Term Enhancements
+- [ ] **User-Personalized Companion & Dynamic NPC Personality Generator**:
+  - Dynamically generate and customize new companions (e.g. Samantha, or tailored companions with distinct names, vocal profiles, and visual splat auras) generalized to the user's personality and preferences.
+  - Interactive questionnaire and seed-based personality profiler (curiosity, empathy, playfulness, analytical depth) adapting to user playstyle.
+  - Multi-turn conversational memory graph and dialogue history tracking emotional valence and past interactions.
+  - Generalize personality generation to world NPCs, enabling any NPC to be initialized with emergent traits, goals, memories, and adaptive dialogue.
 - [ ] **On-Device Neural Quantization (INT4 / AWQ / GPTQ)**:
   - Implement 4-bit block-wise weight quantization (AWQ/GPTQ) for `ActionConditionedDiT` to reduce model memory footprint from ~600MB down to <150MB, enabling ultra-fast execution on consumer mobile WebGPU devices and standalone VR headsets (e.g. Meta Quest 3, Apple Vision Pro).
 - [ ] **Temporal FlashAttention-3 Kernel for WebGPU WGSL**:

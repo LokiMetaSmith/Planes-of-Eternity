@@ -1645,6 +1645,7 @@ impl State {
                         lambda_layout: self.engine.lambda_system.get_layout(),
                         input_config: self.engine.input_config.clone(),
                         voxel_world: Some(self.voxel_world.clone()),
+                        companion_state_json: Some(self.engine.companion_manager.get_companion_state_json()),
                         timestamp: js_sys::Date::now() as u64,
                         version: persistence::SAVE_VERSION,
                     };
@@ -1677,6 +1678,7 @@ impl State {
                 lambda_layout: self.engine.lambda_system.get_layout(),
                 input_config: self.engine.input_config.clone(),
                 voxel_world: Some(self.voxel_world.clone()),
+                companion_state_json: Some(self.engine.companion_manager.get_companion_state_json()),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
             };
@@ -3530,6 +3532,53 @@ impl GameClient {
         }
     }
 
+    #[wasm_bindgen]
+    pub fn companion_recruit_to_party(&mut self, config_json: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+
+        let profile: reality_genie::dit::UserProfileConfig = serde_json::from_str(config_json)
+            .unwrap_or_default();
+        let new_companion = reality_genie::dit::AgenticCompanion::generate_personalized(profile, player_pos);
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.recruit_companion(new_companion);
+            state.engine.companion_manager.get_party_roster_json()
+        } else {
+            "[]".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_switch_active(&mut self, name: &str) -> bool {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.switch_active_companion(name)
+        } else {
+            false
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_trigger_party_banter(&mut self) -> String {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.simulate_party_banter().unwrap_or_else(|| "No other companions in party yet.".to_string())
+        } else {
+            "".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_get_party_roster(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.companion_manager.get_party_roster_json()
+        } else {
+            "[]".to_string()
+        }
+    }
+
     pub fn save_game(&self, slot_name: js_sys::JsString) {
         // Security Enhancement: Prevent DoS by limiting save slot name length
         const MAX_SLOT_NAME_LEN: u32 = 64;
@@ -3607,6 +3656,13 @@ impl GameClient {
                         state.update_lods(true);
                     }
 
+                    // Restore Companion State & Long-Horizon Memory
+                    if let Some(comp_json) = loaded_state.companion_state_json {
+                        if let Ok(deserialized) = serde_json::from_str::<reality_genie::dit::AgenticCompanion>(&comp_json) {
+                            state.engine.companion_manager.companion = deserialized;
+                        }
+                    }
+
                     // Restore Lambda State
                     let source = if loaded_state.lambda_source.is_empty() {
                         "FIRE".to_string()
@@ -3676,6 +3732,7 @@ impl GameClient {
             lambda_layout: state.engine.lambda_system.get_layout(),
             input_config: state.engine.input_config.clone(),
             voxel_world: Some(state.voxel_world.clone()),
+            companion_state_json: Some(state.engine.companion_manager.get_companion_state_json()),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
@@ -4845,6 +4902,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
                 lambda_layout: state.engine.lambda_system.get_layout(),
                 input_config: state.engine.input_config.clone(),
                 voxel_world: Some(state.voxel_world.clone()),
+                companion_state_json: Some(state.engine.companion_manager.get_companion_state_json()),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
             };
@@ -5714,6 +5772,56 @@ pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) ->
         }
 
         serde_json::to_string(&dynamic_profile).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_voice_sculpt_world(&mut self, speech_prompt: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [state.engine.camera.eye.x, state.engine.camera.eye.y, state.engine.camera.eye.z]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+
+        let prompt_lower = speech_prompt.to_lowercase();
+        let (structure_name, voxel_type, radius) = if prompt_lower.contains("pillar") || prompt_lower.contains("tower") {
+            ("Harmonic Spire", 2u8, 2i32)
+        } else if prompt_lower.contains("clear") || prompt_lower.contains("trench") || prompt_lower.contains("hollow") {
+            ("Excavated Sanctuary", 0u8, 3i32)
+        } else if prompt_lower.contains("crystal") || prompt_lower.contains("beacon") {
+            ("Crystalline Beacon", 3u8, 2i32)
+        } else {
+            ("Resonant Archway", 1u8, 2i32)
+        };
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let cx = (player_pos[0] + 4.0).round() as i32;
+            let cy = player_pos[1].round() as i32;
+            let cz = player_pos[2].round() as i32;
+
+            for dx in -radius..=radius {
+                for dz in -radius..=radius {
+                    for dy in 0..=(radius * 2) {
+                        let is_wall = dx.abs() == radius || dz.abs() == radius || dy == radius * 2;
+                        let id = if voxel_type == 0 {
+                            0
+                        } else if is_wall {
+                            voxel_type
+                        } else {
+                            0
+                        };
+                        state.voxel_world.set_voxel_at(cx + dx, cy + dy, cz + dz, crate::voxel::Voxel { id });
+                    }
+                }
+            }
+            state.voxel_dirty = true;
+            state.engine.companion_manager.register_player_activity("voxel_build");
+        }
+
+        serde_json::json!({
+            "structure": structure_name,
+            "prompt": speech_prompt,
+            "status": "Voice sculpt generated"
+        }).to_string()
     }
 
     #[wasm_bindgen]

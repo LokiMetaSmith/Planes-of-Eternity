@@ -673,33 +673,111 @@ impl EngineCompanionManager {
 // Agentic Companion Bridge Integration
 // ============================================================================
 
-/// Manages runtime companion interactions, challenges, and co-creation events
+/// Manages runtime companion interactions, party swarms, challenges, and co-creation events
 pub struct EngineCompanionManager {
     pub companion: reality_genie::dit::AgenticCompanion,
+    pub companion_party: Vec<reality_genie::dit::AgenticCompanion>,
 }
 
 impl Default for EngineCompanionManager {
     fn default() -> Self {
         Self {
             companion: reality_genie::dit::AgenticCompanion::default(),
+            companion_party: Vec::new(),
         }
     }
 }
 
 impl EngineCompanionManager {
     pub fn new(name: &str, initial_pos: [f32; 3]) -> Self {
+        let primary = reality_genie::dit::AgenticCompanion::new(name, initial_pos);
         Self {
-            companion: reality_genie::dit::AgenticCompanion::new(name, initial_pos),
+            companion: primary.clone(),
+            companion_party: vec![primary],
+        }
+    }
+
+    /// Adds a newly personalized or recruited companion into the party swarm
+    pub fn recruit_companion(&mut self, companion: reality_genie::dit::AgenticCompanion) {
+        self.companion_party.push(companion);
+        if self.companion_party.len() > 8 {
+            self.companion_party.remove(0);
+        }
+    }
+
+    /// Switches the primary active companion in the party by name
+    pub fn switch_active_companion(&mut self, name: &str) -> bool {
+        if let Some(pos) = self.companion_party.iter().position(|c| c.personality.name == name) {
+            self.companion = self.companion_party[pos].clone();
+            true
+        } else {
+            false
         }
     }
 
     pub fn update(&mut self, player_pos: [f32; 3], dt: f32) -> Option<String> {
         self.companion.update_presence(player_pos, dt);
+
+        // Update all party members with spaced orbital angles
+        let party_count = self.companion_party.len();
+        for (i, member) in self.companion_party.iter_mut().enumerate() {
+            let angle = (i as f32 / party_count.max(1) as f32) * std::f32::consts::TAU;
+            member.target_offset = [
+                angle.cos() * 2.2,
+                0.8 + (i as f32 * 0.2),
+                angle.sin() * 2.2,
+            ];
+            member.update_presence(player_pos, dt);
+        }
+
+        // Long-Horizon Co-Evolution: Adapt curiosity based on player motion/displacement
+        let speed = ((player_pos[0] - self.companion.position[0]).powi(2)
+            + (player_pos[2] - self.companion.position[2]).powi(2)).sqrt();
+        if speed > 4.0 {
+            self.companion.personality.curiosity = (self.companion.personality.curiosity + 0.0005 * dt).min(1.0);
+        }
+
         // Check for challenge completion within 3 meters
         if let Some(challenge) = self.companion.check_challenge_completion(player_pos, 3.0) {
             Some(format!("QUEST COMPLETED: {} (+Resonance)", challenge.title))
         } else {
             None
+        }
+    }
+
+    /// Triggers social banter between two companions in the party
+    pub fn simulate_party_banter(&mut self) -> Option<String> {
+        if self.companion_party.len() < 2 {
+            return None;
+        }
+        let speaker_a = self.companion_party[0].personality.name.clone();
+        let speaker_b = self.companion_party[1].personality.name.clone();
+        let banter = format!("{}: \"Look at the latent resonance here, {}!\" -> {}: \"The voxel density is extraordinary!\"", speaker_a, speaker_b, speaker_b);
+        self.companion.current_dialogue = Some(banter.clone());
+        Some(banter)
+    }
+
+    /// Serializes entire party roster
+    pub fn get_party_roster_json(&self) -> String {
+        serde_json::to_string(&self.companion_party).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Adapts companion traits according to player gameplay activities
+    pub fn register_player_activity(&mut self, activity: &str) {
+        match activity {
+            "voxel_build" => {
+                self.companion.personality.playfulness = (self.companion.personality.playfulness + 0.02).min(1.0);
+                self.companion.personality.current_mood = "Co-Creative".to_string();
+            }
+            "spell_cast" => {
+                self.companion.personality.analytical_depth = (self.companion.personality.analytical_depth + 0.02).min(1.0);
+                self.companion.personality.current_mood = "Contemplative".to_string();
+            }
+            "high_speed_explore" => {
+                self.companion.personality.curiosity = (self.companion.personality.curiosity + 0.02).min(1.0);
+                self.companion.personality.current_mood = "Adventurous".to_string();
+            }
+            _ => {}
         }
     }
 

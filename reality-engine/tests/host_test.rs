@@ -592,6 +592,7 @@ fn test_lambda_layout_persistence() {
         lambda_layout: custom_layout,
         input_config: InputConfig::default(), // Default input config
         voxel_world: None,
+        companion_state_json: None,
         timestamp: 0,
         version: 1,
     };
@@ -980,4 +981,13 @@ fn test_agentic_companion_engine_manager() {
     let history_json = manager.get_conversation_history_json();
     assert!(history_json.contains("Lyra"));
     assert!(history_json.contains("User"));
+
+    // Test Multi-Agent Party Swarm & Banter
+    let companion_two = reality_genie::dit::AgenticCompanion::new("Leo", [5.0, 1.0, 0.0]);
+    manager.recruit_companion(companion_two);
+    assert_eq!(manager.companion_party.len(), 2);
+
+    let banter = manager.simulate_party_banter();
+    assert!(banter.is_some());
+    assert!(banter.unwrap().contains("Leo"));
 }

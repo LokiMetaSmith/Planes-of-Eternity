@@ -714,6 +714,21 @@ impl EngineCompanionManager {
     pub fn get_companion_state_json(&self) -> String {
         serde_json::to_string(&self.companion).unwrap_or_else(|_| "{}".to_string())
     }
+
+    /// Customizes or generates a personalized companion based on a user profile
+    pub fn customize_personality(&mut self, profile: reality_genie::dit::UserProfileConfig, initial_pos: [f32; 3]) {
+        self.companion = reality_genie::dit::AgenticCompanion::generate_personalized(profile, initial_pos);
+    }
+
+    /// Converses with the companion, recording memories and generating an adaptive in-character response
+    pub fn chat_interact(&mut self, user_message: &str, timestamp_ms: u64) -> String {
+        self.companion.respond_to_user(user_message, timestamp_ms)
+    }
+
+    /// Retrieves serialized conversation history
+    pub fn get_conversation_history_json(&self) -> String {
+        serde_json::to_string(&self.companion.conversation_memory).unwrap_or_else(|_| "[]".to_string())
+    }
 }
 
 // ============================================================================

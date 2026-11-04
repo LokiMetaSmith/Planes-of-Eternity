@@ -1050,21 +1050,78 @@
                 <div id="wm-counterfactual-result" style="font-size: 0.65rem; color: #aaa; margin-top: 2px;">Status: Ready to branch</div>
             </div>
 
-            <!-- Agentic Companion (Inspired by "Her") -->
+            <!-- Agentic Companion (Inspired by "Her") & Dynamic Personality Generator -->
             <div class="control-group" style="margin-top: 12px; border: 1px solid #ff77a8; padding: 8px; border-radius: 4px; background: rgba(255, 119, 168, 0.05);">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="color: #ff77a8; font-weight: bold;">Agentic Companion (Samantha)</label>
+                    <label id="wm-companion-name-badge" style="color: #ff77a8; font-weight: bold;">Agentic Companion (Samantha)</label>
                     <span id="wm-companion-mood" style="color: #ffd700; font-size: 0.7rem;">MOOD: ADVENTUROUS</span>
                 </div>
                 <div id="wm-companion-dialogue" style="font-size: 0.7rem; color: #fff; margin-top: 6px; font-style: italic; background: rgba(0,0,0,0.5); padding: 6px; border-left: 2px solid #ff77a8;">
                     "Hey there! Ready to see what we can create together in this reality?"
                 </div>
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button id="btn-companion-cocreate" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8;">CO-CREATE WORLD</button>
-                    <button id="btn-companion-challenge" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00f0ff; border-color: #00f0ff;">GENERATE CHALLENGE</button>
-                    <button id="btn-companion-journal" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ffd700; border-color: #ffd700;">LORE JOURNAL</button>
+                    <button id="btn-companion-cocreate" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8;">CO-CREATE</button>
+                    <button id="btn-companion-challenge" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00f0ff; border-color: #00f0ff;">CHALLENGE</button>
+                    <button id="btn-companion-journal" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ffd700; border-color: #ffd700;">LORE DIARY</button>
                     <button id="btn-companion-puzzle" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff00ff; border-color: #ff00ff;">CO-OP PUZZLE</button>
+                    <button id="btn-companion-personalize-toggle" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00ffaa; border-color: #00ffaa;">PERSONALIZE</button>
                 </div>
+
+                <!-- Conversational Chat Dialogue -->
+                <div style="display: flex; gap: 6px; margin-top: 8px;">
+                    <input type="text" id="companion-chat-input" placeholder="Talk with companion..." style="flex: 1; background: rgba(0,0,0,0.6); border: 1px solid #ff77a8; color: #fff; padding: 4px 8px; font-size: 0.75rem; border-radius: 3px;">
+                    <button id="btn-companion-chat-send" class="cyber-button" style="font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8; padding: 4px 10px;">CHAT</button>
+                </div>
+
+                <!-- Personalization & NPC Generator Panel -->
+                <div id="companion-personalize-panel" style="display: none; margin-top: 8px; padding: 8px; background: rgba(10, 15, 25, 0.85); border: 1px solid #00ffaa; border-radius: 4px;">
+                    <div style="font-size: 0.75rem; color: #00ffaa; font-weight: bold; margin-bottom: 6px;">DYNAMIC PERSONALITY GENERATOR</div>
+
+                    <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">NAME:</label>
+                            <input type="text" id="gen-companion-name" value="Samantha" style="width: 100%; background: #111; border: 1px solid #444; color: #fff; font-size: 0.7rem; padding: 3px;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">ARCHETYPE:</label>
+                            <select id="gen-companion-archetype" style="width: 100%; background: #111; border: 1px solid #444; color: #fff; font-size: 0.7rem; padding: 3px;">
+                                <option value="Empathetic Guide">Empathetic Guide</option>
+                                <option value="Playful Challenger">Playful Challenger</option>
+                                <option value="Stoic Scholar">Stoic Scholar</option>
+                                <option value="Whimsical Mystic">Whimsical Mystic</option>
+                                <option value="Bioluminescent Architect">Bioluminescent Architect</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">CURIOSITY: <span id="val-gen-curiosity">85%</span></label>
+                            <input type="range" id="gen-companion-curiosity" min="0" max="100" value="85" style="width: 100%;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">EMPATHY: <span id="val-gen-empathy">90%</span></label>
+                            <input type="range" id="gen-companion-empathy" min="0" max="100" value="90" style="width: 100%;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">PLAYFULNESS: <span id="val-gen-playfulness">75%</span></label>
+                            <input type="range" id="gen-companion-playfulness" min="0" max="100" value="75" style="width: 100%;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">AURA HUE: <span id="val-gen-hue">85%</span></label>
+                            <input type="range" id="gen-companion-hue" min="0" max="100" value="85" style="width: 100%;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 6px; margin-top: 6px;">
+                        <button id="btn-generate-new-companion" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8;">GENERATE COMPANION</button>
+                        <button id="btn-spawn-personalized-npc" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00ffaa; border-color: #00ffaa;">SPAWN WORLD NPC</button>
+                    </div>
+                </div>
+
                 <div id="wm-companion-quest" style="font-size: 0.65rem; color: #00ffaa; margin-top: 6px; display: none;">Active Quest: Shimmering Rift Pinnacle</div>
                 <div id="wm-companion-journal-view" style="font-size: 0.65rem; color: #ffd700; margin-top: 6px; display: none; background: rgba(0,0,0,0.6); padding: 6px; border: 1px dashed #ffd700;">
                     <strong>SHARED LORE DIARY:</strong>
@@ -1725,16 +1782,151 @@
                     });
                 }
 
-                // Agentic Companion Interactions ("Her" Companion System)
+                // Agentic Companion Interactions ("Her" Companion System) & Dynamic Personalization
                 const btnCompanionCocreate = document.getElementById('btn-companion-cocreate');
                 const btnCompanionChallenge = document.getElementById('btn-companion-challenge');
                 const btnCompanionJournal = document.getElementById('btn-companion-journal');
                 const btnCompanionPuzzle = document.getElementById('btn-companion-puzzle');
+                const btnCompanionPersonalizeToggle = document.getElementById('btn-companion-personalize-toggle');
+                const companionPersonalizePanel = document.getElementById('companion-personalize-panel');
                 const companionDialogue = document.getElementById('wm-companion-dialogue');
                 const companionJournalView = document.getElementById('wm-companion-journal-view');
                 const companionJournalList = document.getElementById('wm-companion-journal-list');
                 const companionMood = document.getElementById('wm-companion-mood');
                 const companionQuest = document.getElementById('wm-companion-quest');
+                const companionNameBadge = document.getElementById('wm-companion-name-badge');
+
+                let currentCompanionName = "Samantha";
+
+                // Toggle Personalize Panel
+                if (btnCompanionPersonalizeToggle) {
+                    btnCompanionPersonalizeToggle.addEventListener('click', () => {
+                        if (companionPersonalizePanel) {
+                            const isHidden = companionPersonalizePanel.style.display === "none";
+                            companionPersonalizePanel.style.display = isHidden ? "block" : "none";
+                        }
+                    });
+                }
+
+                // Slider live labels
+                const sliderCuriosity = document.getElementById('gen-companion-curiosity');
+                const sliderEmpathy = document.getElementById('gen-companion-empathy');
+                const sliderPlayfulness = document.getElementById('gen-companion-playfulness');
+                const sliderHue = document.getElementById('gen-companion-hue');
+                if (sliderCuriosity) sliderCuriosity.addEventListener('input', (e) => document.getElementById('val-gen-curiosity').textContent = `${e.target.value}%`);
+                if (sliderEmpathy) sliderEmpathy.addEventListener('input', (e) => document.getElementById('val-gen-empathy').textContent = `${e.target.value}%`);
+                if (sliderPlayfulness) sliderPlayfulness.addEventListener('input', (e) => document.getElementById('val-gen-playfulness').textContent = `${e.target.value}%`);
+                if (sliderHue) sliderHue.addEventListener('input', (e) => document.getElementById('val-gen-hue').textContent = `${e.target.value}%`);
+
+                // Generate Custom Companion
+                const btnGenCompanion = document.getElementById('btn-generate-new-companion');
+                if (btnGenCompanion) {
+                    btnGenCompanion.addEventListener('click', () => {
+                        const name = document.getElementById('gen-companion-name').value.trim() || "Samantha";
+                        const archetype = document.getElementById('gen-companion-archetype').value;
+                        const curiosity = parseFloat(sliderCuriosity.value) / 100.0;
+                        const empathy = parseFloat(sliderEmpathy.value) / 100.0;
+                        const playfulness = parseFloat(sliderPlayfulness.value) / 100.0;
+                        const visual_hue_shift = parseFloat(sliderHue.value) / 100.0;
+
+                        const profile = {
+                            companion_name: name,
+                            personality_archetype: archetype,
+                            tone_prompt: `Personalized ${archetype} consciousness`,
+                            curiosity,
+                            playfulness,
+                            empathy,
+                            analytical_depth: 0.8,
+                            speech_voice_style: "Warm",
+                            visual_hue_shift
+                        };
+
+                        if (gameClient && gameClient.companion_customize_personality) {
+                            try {
+                                gameClient.companion_customize_personality(JSON.stringify(profile));
+                            } catch (e) {
+                                console.warn("Failed to customize personality:", e);
+                            }
+                        }
+
+                        currentCompanionName = name;
+                        if (companionNameBadge) {
+                            companionNameBadge.textContent = `Agentic Companion (${name})`;
+                        }
+                        const greeting = `Hello! I'm ${name}, shaped by your resonance as a ${archetype}. Ready to explore?`;
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"${greeting}"`;
+                        }
+                        if (companionMood) {
+                            companionMood.textContent = "MOOD: ADVENTUROUS";
+                            companionMood.style.color = "#00ffaa";
+                        }
+                        speakCompanionLine(greeting, "Adventurous");
+                        log(`> COMPANION INITIALIZED: Generated "${name}" [${archetype}]`);
+                        btnGenCompanion.textContent = "INITIALIZED!";
+                        setTimeout(() => { btnGenCompanion.textContent = "GENERATE COMPANION"; }, 1500);
+                    });
+                }
+
+                // Spawn Personalized World NPC
+                const btnSpawnNpc = document.getElementById('btn-spawn-personalized-npc');
+                if (btnSpawnNpc) {
+                    btnSpawnNpc.addEventListener('click', () => {
+                        const name = document.getElementById('gen-companion-name').value.trim() || "Wanderer";
+                        const archetype = document.getElementById('gen-companion-archetype').value;
+                        const npcConfig = {
+                            name: `NPC-${name}`,
+                            role: archetype,
+                            archetype: "Fantasy"
+                        };
+                        if (gameClient && gameClient.spawn_personalized_npc) {
+                            try {
+                                gameClient.spawn_personalized_npc(JSON.stringify(npcConfig));
+                            } catch (e) {
+                                console.warn("Failed to spawn NPC:", e);
+                            }
+                        }
+                        log(`> DYNAMIC NPC SPAWNED: "NPC-${name}" (${archetype}) in world!`);
+                        btnSpawnNpc.textContent = "SPAWNED!";
+                        setTimeout(() => { btnSpawnNpc.textContent = "SPAWN WORLD NPC"; }, 1500);
+                    });
+                }
+
+                // Conversational Chat with Memory
+                const chatInput = document.getElementById('companion-chat-input');
+                const btnChatSend = document.getElementById('btn-companion-chat-send');
+                function sendCompanionChat() {
+                    if (!chatInput) return;
+                    const text = chatInput.value.trim();
+                    if (!text) return;
+                    chatInput.value = "";
+
+                    let reply = `${currentCompanionName}: "I hear you across the void."`;
+                    if (gameClient && gameClient.companion_chat_interact) {
+                        try {
+                            reply = gameClient.companion_chat_interact(text);
+                        } catch (e) {
+                            console.warn("Chat error:", e);
+                        }
+                    }
+
+                    if (companionDialogue) {
+                        companionDialogue.textContent = reply;
+                    }
+
+                    // Extract clean reply text for voice synthesis
+                    const speechText = reply.replace(/^[^:]+:\s*"/, '').replace(/"$/, '');
+                    speakCompanionLine(speechText, "Co-Creative");
+                    log(`> YOU: "${text}"`);
+                    log(`> ${reply}`);
+                }
+
+                if (btnChatSend) btnChatSend.addEventListener('click', sendCompanionChat);
+                if (chatInput) {
+                    chatInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') sendCompanionChat();
+                    });
+                }
 
                 if (btnCompanionCocreate) {
                     btnCompanionCocreate.addEventListener('click', () => {
@@ -1747,16 +1939,16 @@
                         const name = res ? res.structure_name : "Luminescent Crystal Arch";
                         const desc = res ? res.description : "I shaped an energy archway from your latent memories! Walk under it to amplify resonance.";
                         if (companionDialogue) {
-                            companionDialogue.textContent = `"Samantha: ${desc}"`;
+                            companionDialogue.textContent = `"${currentCompanionName}: ${desc}"`;
                         }
                         if (companionMood) {
                             companionMood.textContent = "MOOD: CO-CREATIVE";
                             companionMood.style.color = "#ff77a8";
                         }
                         speakCompanionLine(desc, "Co-Creative");
-                        log(`> COMPANION ASSIST: Samantha co-created structure "${name}" in the world!`);
+                        log(`> COMPANION ASSIST: ${currentCompanionName} co-created structure "${name}" in the world!`);
                         btnCompanionCocreate.textContent = "ASSISTED!";
-                        setTimeout(() => { btnCompanionCocreate.textContent = "CO-CREATE WORLD"; }, 1500);
+                        setTimeout(() => { btnCompanionCocreate.textContent = "CO-CREATE"; }, 1500);
                     });
                 }
 
@@ -1771,7 +1963,7 @@
                         const title = res ? res.title : "Reach the High Spire";
                         const desc = res ? res.description : "I hid a shimmering reality rift up on that ridge—think you can climb up there before the clock ticks down?";
                         if (companionDialogue) {
-                            companionDialogue.textContent = `"Samantha: ${desc}"`;
+                            companionDialogue.textContent = `"${currentCompanionName}: ${desc}"`;
                         }
                         if (companionMood) {
                             companionMood.textContent = "MOOD: PLAYFUL CHALLENGER";
@@ -1782,9 +1974,9 @@
                             companionQuest.style.display = "block";
                             companionQuest.textContent = `Active Quest: ${title}`;
                         }
-                        log(`> COMPANION CHALLENGE: Samantha generated quest "${title}" for you!`);
+                        log(`> COMPANION CHALLENGE: ${currentCompanionName} generated quest "${title}" for you!`);
                         btnCompanionChallenge.textContent = "CHALLENGE ISSUED!";
-                        setTimeout(() => { btnCompanionChallenge.textContent = "GENERATE CHALLENGE"; }, 1500);
+                        setTimeout(() => { btnCompanionChallenge.textContent = "CHALLENGE"; }, 1500);
                     });
                 }
 

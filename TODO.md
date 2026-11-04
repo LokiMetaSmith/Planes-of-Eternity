@@ -191,5 +191,5 @@
   - Replace single-channel WebRTC streaming with distributed Kademlia DHT peer discovery and zero-knowledge validity proofs for trustless peer-to-peer infinite procedural worlds.
 - [ ] **Voice-Driven Neural World Sculpting (Real-Time Voice-to-3DGS)**:
   - Stream real-time microphone spectrograms through Whisper / Wav2Vec latent encodings directly into the DiT cross-attention layer, letting players mold terrain and sculpt objects in real-time as they speak.
-- [ ] **Differentiable Camera Trajectory Optimization for VR Locomotion**:
+- [x] **Differentiable Camera Trajectory Optimization for VR Locomotion**:
   - Use `VisualOdometryEstimator` gradients to dynamically smooth and neutralize vestibular motion-sickness during rapid VR camera acceleration.

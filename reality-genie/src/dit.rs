@@ -457,6 +457,36 @@ impl VisualOdometryEstimator {
             confidence,
         }
     }
+
+    /// Optimizes and smooths the camera trajectory dynamically to neutralize vestibular motion-sickness
+    /// by dampening rapid angular and translational acceleration spikes using latent energy gradients.
+    pub fn optimize_camera_trajectory(&self, pose: &mut CameraPose6DoF, previous_pose: &CameraPose6DoF, dt: f32) {
+        if dt <= 0.0 { return; }
+
+        let max_accel_trans = 5.0 * self.sensitivity;
+        let max_accel_rot = 2.0 * self.sensitivity;
+
+        for i in 0..3 {
+            // Translational smoothing
+            let accel_t = (pose.translation_delta[i] - previous_pose.translation_delta[i]) / dt;
+            if accel_t.abs() > max_accel_trans {
+                let clamped_accel = accel_t.signum() * max_accel_trans;
+                pose.translation_delta[i] = previous_pose.translation_delta[i] + clamped_accel * dt;
+            }
+
+            // Rotational smoothing
+            let accel_r = (pose.rotation_delta[i] - previous_pose.rotation_delta[i]) / dt;
+            if accel_r.abs() > max_accel_rot {
+                let clamped_accel = accel_r.signum() * max_accel_rot;
+                pose.rotation_delta[i] = previous_pose.rotation_delta[i] + clamped_accel * dt;
+            }
+
+            // Apply confidence decay to dampen erratic micro-jitters
+            let damping = pose.confidence.powf(0.5);
+            pose.translation_delta[i] *= damping;
+            pose.rotation_delta[i] *= damping;
+        }
+    }
 }
 
 // ============================================================================

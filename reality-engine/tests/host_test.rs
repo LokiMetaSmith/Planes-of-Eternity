@@ -962,7 +962,8 @@ fn test_agentic_companion_engine_manager() {
     assert_eq!(manager.companion.personality.name, "Samantha");
 
     let player_pos = [10.0, 2.0, 5.0];
-    let update_res = manager.update(player_pos, 0.016);
+    let mut swarm = reality_genie::dit::MultiAgentCoDiffusion::new(64, 16);
+    let update_res = manager.update(player_pos, 0.016, &mut swarm);
     assert!(update_res.is_none());
 
     let co_creation = manager.trigger_co_creation(player_pos, 1);
@@ -972,7 +973,7 @@ fn test_agentic_companion_engine_manager() {
     assert!(!challenge.title.is_empty());
 
     // Step player onto the challenge target
-    let completion_msg = manager.update(challenge.target_coords, 0.016);
+    let completion_msg = manager.update(challenge.target_coords, 0.016, &mut swarm);
     assert!(completion_msg.is_some());
     assert!(completion_msg.unwrap().contains("QUEST COMPLETED"));
 

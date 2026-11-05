@@ -884,6 +884,59 @@ impl AgenticCompanion {
     }
 
     /// Generates an in-character contextual response to a user conversational utterance
+
+    /// Adaptive Long-Horizon User Personality Co-Evolution:
+    /// Periodically consolidates memories from the episodic memory graph
+    /// to adjust long-term baseline personality traits.
+    pub fn co_evolve_personality(&mut self, memory_graph: &EpisodicMemoryGraph) {
+        if memory_graph.journal_entries.is_empty() {
+            return;
+        }
+
+        let mut total_sentiment = 0.0f32;
+        let mut exploratory_count = 0;
+        let mut co_creative_count = 0;
+
+        for entry in &memory_graph.journal_entries {
+            if entry.mood_at_time == "Adventurous" || entry.mood_at_time == "Playful Challenger" {
+                exploratory_count += 1;
+            } else if entry.mood_at_time == "Co-Creative" || entry.mood_at_time == "Celebratory" {
+                co_creative_count += 1;
+            }
+
+            // Heuristic sentiment from reflection text
+            if entry.reflection.contains("discovery") || entry.reflection.contains("wonder") {
+                total_sentiment += 0.5;
+            } else if entry.reflection.contains("danger") || entry.reflection.contains("fear") {
+                total_sentiment -= 0.5;
+            } else {
+                total_sentiment += 0.1;
+            }
+        }
+
+        let entry_count = memory_graph.journal_entries.len() as f32;
+        let avg_sentiment = total_sentiment / entry_count;
+        let exploratory_ratio = exploratory_count as f32 / entry_count;
+        let co_creative_ratio = co_creative_count as f32 / entry_count;
+
+        // Evolve traits smoothly
+        let learning_rate = 0.05f32;
+
+        if exploratory_ratio > 0.5 {
+            self.personality.curiosity = (self.personality.curiosity + learning_rate).min(1.0);
+            self.personality.playfulness = (self.personality.playfulness + learning_rate * 0.5).min(1.0);
+        } else if co_creative_ratio > 0.5 {
+            self.personality.empathy = (self.personality.empathy + learning_rate).min(1.0);
+            self.personality.analytical_depth = (self.personality.analytical_depth + learning_rate * 0.5).min(1.0);
+        }
+
+        if avg_sentiment > 0.2 {
+            self.personality.relationship_depth = (self.personality.relationship_depth + learning_rate).min(1.0);
+        } else if avg_sentiment < -0.2 {
+            self.personality.relationship_depth = (self.personality.relationship_depth - learning_rate).max(0.0);
+        }
+    }
+
     pub fn respond_to_user(&mut self, user_message: &str, timestamp_ms: u64) -> String {
         // Record user's turn
         self.record_conversation("User", user_message, timestamp_ms);

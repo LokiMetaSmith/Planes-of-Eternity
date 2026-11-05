@@ -982,6 +982,20 @@ fn test_agentic_companion_engine_manager() {
     assert!(history_json.contains("Lyra"));
     assert!(history_json.contains("User"));
 
+    // Test Personality Evolution & Persistence
+    let initial_depth = manager.companion.personality.relationship_depth;
+    manager.chat_interact("I love this place, it's so beautiful and great!", 5010);
+    let new_depth = manager.companion.personality.relationship_depth;
+    assert!(new_depth > initial_depth);
+
+    let state_json = manager.get_companion_state_json();
+    let deserialized: reality_genie::dit::AgenticCompanion = serde_json::from_str(&state_json).unwrap();
+    assert_eq!(deserialized.personality.relationship_depth, new_depth);
+
+    manager.chat_interact("I hate this, it's bad and frustrating.", 5020);
+    let bad_depth = manager.companion.personality.relationship_depth;
+    assert!(bad_depth < new_depth); // Should decrease due to negative sentiment
+
     // Test Multi-Agent Party Swarm & Banter
     let companion_two = reality_genie::dit::AgenticCompanion::new("Leo", [5.0, 1.0, 0.0]);
     manager.recruit_companion(companion_two);

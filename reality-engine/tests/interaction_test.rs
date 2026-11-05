@@ -60,12 +60,6 @@ fn test_visual_lambda_interactions() {
     assert_eq!(engine.anchor_distance, 7.0);
 }
 
-
-
-
-
-
-
 #[test]
 fn test_trigger_world_model_inpaint_box() {
     let voxel_world = reality_engine::voxel::VoxelWorld::new();
@@ -74,7 +68,9 @@ fn test_trigger_world_model_inpaint_box() {
     // We are ensuring this function call executes cleanly without failure.
     // request_action_dit_rollout_multimodal doesn't inherently create a timeline if one doesn't exist,
     // so we'll test the rollout function can be invoked properly on the default struct.
-    voxel_world.genie.request_action_dit_rollout_multimodal(inpaint_actions.clone(), None, 2, 1.5);
+    voxel_world
+        .genie
+        .request_action_dit_rollout_multimodal(inpaint_actions.clone(), None, 2, 1.5);
 
     // Let's assert on the active timeline name, which defaults to "main"
     let name = voxel_world.genie.active_timeline.lock().unwrap().clone();
@@ -85,12 +81,17 @@ fn test_trigger_world_model_inpaint_box() {
 fn test_trigger_world_model_inpaint_sphere() {
     let voxel_world = reality_engine::voxel::VoxelWorld::new();
     let inpaint_actions = vec![9u32, 9u32];
-    voxel_world.genie.request_action_dit_rollout_multimodal(inpaint_actions.clone(), None, 2, 1.5);
+    voxel_world
+        .genie
+        .request_action_dit_rollout_multimodal(inpaint_actions.clone(), None, 2, 1.5);
 
     // Check that we can branch, the logic is that it creates an empty one if 'main' isn't initialized yet in VoxelWorld::new.
     // Wait, it actually *does* return true and succeeds. So assert!(branched).
     let branched = voxel_world.genie.branch_timeline("inpaint_sphere_branch");
-    assert!(branched, "Should return true, a timeline can be successfully branched.");
+    assert!(
+        branched,
+        "Should return true, a timeline can be successfully branched."
+    );
 }
 
 #[test]
@@ -98,7 +99,14 @@ fn test_set_archetype_lambda_side_effect() {
     let mut engine = Engine::new(800, 600, None);
 
     // Initial archetype is usually Void
-    assert_ne!(engine.player_projector.reality_signature.active_style.archetype, reality_engine::reality_types::RealityArchetype::SciFi);
+    assert_ne!(
+        engine
+            .player_projector
+            .reality_signature
+            .active_style
+            .archetype,
+        reality_engine::reality_types::RealityArchetype::SciFi
+    );
 
     // Process inscription which parses and sets current_lambda/root_term
     engine.process_inscription("(SET_ARCHETYPE SCIFI)");
@@ -108,5 +116,12 @@ fn test_set_archetype_lambda_side_effect() {
     engine.process_keyboard("KeyF", true);
 
     // It should have executed the side effect
-    assert_eq!(engine.player_projector.reality_signature.active_style.archetype, reality_engine::reality_types::RealityArchetype::SciFi);
+    assert_eq!(
+        engine
+            .player_projector
+            .reality_signature
+            .active_style
+            .archetype,
+        reality_engine::reality_types::RealityArchetype::SciFi
+    );
 }

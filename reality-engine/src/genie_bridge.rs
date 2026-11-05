@@ -2,8 +2,8 @@ use crate::splat::SplatVertex;
 use crate::voxel::{Chunk, Voxel, CHUNK_SIZE};
 use std::sync::{Arc, Mutex};
 
-use std::sync::mpsc;
 use crate::voxel::ChunkKey;
+use std::sync::mpsc;
 
 pub struct TerrainRequest {
     pub chunk_key: ChunkKey,
@@ -15,7 +15,6 @@ pub struct TerrainResponse {
     pub heightmap: Vec<f32>,
 }
 
-
 #[derive(Clone)]
 pub struct GenieBridge {
     pub pending_splats: Arc<Mutex<Vec<Vec<SplatVertex>>>>,
@@ -26,7 +25,8 @@ pub struct GenieBridge {
     pub latest_action_dit_latents: Arc<Mutex<Option<Vec<f32>>>>,
     pub rolling_context: Arc<Mutex<reality_genie::dit::RollingLatentContext>>,
     pub anchor_buffer: Arc<Mutex<reality_genie::dit::FrameAnchorBuffer>>,
-    pub timelines: Arc<Mutex<std::collections::HashMap<String, reality_genie::dit::RollingLatentContext>>>,
+    pub timelines:
+        Arc<Mutex<std::collections::HashMap<String, reality_genie::dit::RollingLatentContext>>>,
     pub timeline_parents: Arc<Mutex<std::collections::HashMap<String, String>>>,
     pub active_timeline: Arc<Mutex<String>>,
     pub time_echo: Arc<Mutex<TimeEchoReplay>>,
@@ -68,9 +68,11 @@ impl GenieBridge {
         #[cfg(not(target_arch = "wasm32"))]
         {
             std::thread::spawn(move || {
-                let generator = reality_genie::continuous_diffusion::ContinuousDiffusionGenerator::new();
+                let generator =
+                    reality_genie::continuous_diffusion::ContinuousDiffusionGenerator::new();
                 while let Ok(req) = req_rx.recv() {
-                    let heightmap = generator.generate_heightmap(req.chunk_key.x, req.chunk_key.z, req.size);
+                    let heightmap =
+                        generator.generate_heightmap(req.chunk_key.x, req.chunk_key.z, req.size);
                     let _ = res_tx.send(TerrainResponse {
                         chunk_key: req.chunk_key,
                         heightmap,
@@ -93,13 +95,19 @@ impl GenieBridge {
             active_timeline: Arc::new(Mutex::new("main".to_string())),
             time_echo: Arc::new(Mutex::new(TimeEchoReplay::new(120))),
             narrative_director: Arc::new(Mutex::new(NarrativeDirector::default())),
-            resolution_mode: Arc::new(Mutex::new(reality_genie::dit::ResolutionPyramidMode::Full64)),
+            resolution_mode: Arc::new(Mutex::new(
+                reality_genie::dit::ResolutionPyramidMode::Full64,
+            )),
             sfx_genie: Arc::new(Mutex::new(reality_genie::dit::SfxGenie::new(44100))),
             p2p_consensus: Arc::new(Mutex::new(P2PTrajectoryConsensus::default())),
             latent_physics: Arc::new(Mutex::new(LatentPhysicsEngine::default())),
             active_lora: Arc::new(Mutex::new(None)),
-            swarm_engine: Arc::new(Mutex::new(reality_genie::dit::MultiAgentCoDiffusion::new(64, 16))),
-            audio_dit: Arc::new(Mutex::new(reality_genie::dit::AudioDitCoDiffuser::new(16, 64))),
+            swarm_engine: Arc::new(Mutex::new(reality_genie::dit::MultiAgentCoDiffusion::new(
+                64, 16,
+            ))),
+            audio_dit: Arc::new(Mutex::new(reality_genie::dit::AudioDitCoDiffuser::new(
+                16, 64,
+            ))),
             latest_audio_packet: Arc::new(Mutex::new(None)),
             mcts_planner: Arc::new(Mutex::new(reality_genie::dit::WorldModelMcts::new(5, 30))),
             mcts_candidate_paths: Arc::new(Mutex::new(Vec::new())),
@@ -146,8 +154,17 @@ impl GenieBridge {
 
     /// Serializes entire multiverse timeline hierarchy into JSON for the Canvas Tree Visualizer
     pub fn get_multiverse_tree_json(&self) -> String {
-        let active_name = self.active_timeline.lock().map(|a| a.clone()).unwrap_or_else(|_| "main".to_string());
-        let current_drift = self.anchor_buffer.lock().ok().and_then(|a| a.compute_drift_variance().ok()).unwrap_or(0.0);
+        let active_name = self
+            .active_timeline
+            .lock()
+            .map(|a| a.clone())
+            .unwrap_or_else(|_| "main".to_string());
+        let current_drift = self
+            .anchor_buffer
+            .lock()
+            .ok()
+            .and_then(|a| a.compute_drift_variance().ok())
+            .unwrap_or(0.0);
         let current_depth = self.rolling_context.lock().map(|c| c.len()).unwrap_or(0);
 
         let mut nodes = Vec::new();
@@ -161,7 +178,8 @@ impl GenieBridge {
             "active": active_name == "main",
         }));
 
-        if let (Ok(timelines), Ok(parents)) = (self.timelines.lock(), self.timeline_parents.lock()) {
+        if let (Ok(timelines), Ok(parents)) = (self.timelines.lock(), self.timeline_parents.lock())
+        {
             for (name, ctx) in timelines.iter() {
                 let parent = parents.get(name).map(|s| s.as_str()).unwrap_or("main");
                 nodes.push(serde_json::json!({
@@ -225,7 +243,8 @@ impl GenieBridge {
 
     /// Restores rolling latents from a saved checkpoint
     pub fn restore_world_model(&self, ckpt: &reality_genie::dit::LatentCheckpoint) -> bool {
-        if let Ok(new_ctx) = reality_genie::dit::RollingLatentContext::from_checkpoint_cpu(ckpt, 8) {
+        if let Ok(new_ctx) = reality_genie::dit::RollingLatentContext::from_checkpoint_cpu(ckpt, 8)
+        {
             if let Ok(mut lock) = self.rolling_context.lock() {
                 *lock = new_ctx;
                 return true;
@@ -238,8 +257,18 @@ impl GenieBridge {
         self.request_action_dit_rollout_cfg(actions, num_denoising_steps, 1.0);
     }
 
-    pub fn request_action_dit_rollout_cfg(&self, actions: Vec<u32>, num_denoising_steps: usize, guidance_scale: f64) {
-        self.request_action_dit_rollout_multimodal(actions, None, num_denoising_steps, guidance_scale);
+    pub fn request_action_dit_rollout_cfg(
+        &self,
+        actions: Vec<u32>,
+        num_denoising_steps: usize,
+        guidance_scale: f64,
+    ) {
+        self.request_action_dit_rollout_multimodal(
+            actions,
+            None,
+            num_denoising_steps,
+            guidance_scale,
+        );
     }
 
     pub fn request_action_dit_rollout_multimodal(
@@ -249,7 +278,13 @@ impl GenieBridge {
         num_denoising_steps: usize,
         guidance_scale: f64,
     ) {
-        self.request_action_dit_rollout_full(actions, None, prompt, num_denoising_steps, guidance_scale);
+        self.request_action_dit_rollout_full(
+            actions,
+            None,
+            prompt,
+            num_denoising_steps,
+            guidance_scale,
+        );
     }
 
     /// Full rollout request supporting continuous 5D vectors [d_theta_x, d_theta_y, vx, vy, vz]
@@ -270,19 +305,23 @@ impl GenieBridge {
         {
             let actions_clone = _actions_clone;
             std::thread::spawn(move || {
-                if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal_full(
-                    &actions_clone,
-                    continuous_actions.as_deref(),
-                    prompt.as_deref(),
-                    Some("action_dit_model.safetensors"),
-                    num_denoising_steps,
-                    guidance_scale,
-                ) {
+                if let Ok(flat) =
+                    reality_genie::dit::ActionConditionedSampler::rollout_multimodal_full(
+                        &actions_clone,
+                        continuous_actions.as_deref(),
+                        prompt.as_deref(),
+                        Some("action_dit_model.safetensors"),
+                        num_denoising_steps,
+                        guidance_scale,
+                    )
+                {
                     // Diffuse synchronized audio packet
                     let last_act = actions_clone.last().copied().unwrap_or(0);
                     if let Ok(audio_model) = audio_dit_ref.lock() {
-                        let acoustic_latents = audio_model.diffuse_acoustic_latent(&flat, last_act, 0.5);
-                        let packet = audio_model.decode_to_pcm(&acoustic_latents, last_act, 0.5, 4096);
+                        let acoustic_latents =
+                            audio_model.diffuse_acoustic_latent(&flat, last_act, 0.5);
+                        let packet =
+                            audio_model.decode_to_pcm(&acoustic_latents, last_act, 0.5, 4096);
                         if let Ok(mut ap_lock) = audio_packet_ref.lock() {
                             *ap_lock = Some(packet);
                         }
@@ -307,7 +346,8 @@ impl GenieBridge {
             ) {
                 let last_act = actions.last().copied().unwrap_or(0);
                 if let Ok(audio_model) = audio_dit_ref.lock() {
-                    let acoustic_latents = audio_model.diffuse_acoustic_latent(&flat, last_act, 0.5);
+                    let acoustic_latents =
+                        audio_model.diffuse_acoustic_latent(&flat, last_act, 0.5);
                     let packet = audio_model.decode_to_pcm(&acoustic_latents, last_act, 0.5, 4096);
                     if let Ok(mut ap_lock) = audio_packet_ref.lock() {
                         *ap_lock = Some(packet);
@@ -322,17 +362,25 @@ impl GenieBridge {
     }
 
     pub fn request_terrain(&self, chunk_x: i32, chunk_y: i32, chunk_z: i32, size: usize) {
-        let key = ChunkKey { x: chunk_x, y: chunk_y, z: chunk_z };
+        let key = ChunkKey {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        };
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let _ = self.terrain_sender.send(TerrainRequest { chunk_key: key, size });
+            let _ = self.terrain_sender.send(TerrainRequest {
+                chunk_key: key,
+                size,
+            });
         }
 
         #[cfg(target_arch = "wasm32")]
         {
             // Simple immediate execution fallback for WASM since std::thread is not supported
-            let generator = reality_genie::continuous_diffusion::ContinuousDiffusionGenerator::new();
+            let generator =
+                reality_genie::continuous_diffusion::ContinuousDiffusionGenerator::new();
             let heightmap = generator.generate_heightmap(chunk_x, chunk_z, size);
             let _ = self.terrain_res_tx.send(TerrainResponse {
                 chunk_key: key,
@@ -350,7 +398,11 @@ impl GenieBridge {
         trajectory: Vec<[f32; 3]>,
         neighbors: Vec<(i32, i32, Vec<f32>)>,
     ) {
-        let key = ChunkKey { x: chunk_x, y: chunk_y, z: chunk_z };
+        let key = ChunkKey {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        };
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -607,7 +659,7 @@ impl GenieBridge {
                     archetype_id: 5, // Genie archetype default
                     target_archetype_id: 5,
                     morph_weight: 0.0,
-    bone_index: -1,
+                    bone_index: -1,
                 });
             }
 
@@ -638,27 +690,48 @@ impl LoreJournalBridge {
             [0.0, 1.0, 0.0],
             1700000000,
         );
-        Self { episodic_graph: graph }
+        Self {
+            episodic_graph: graph,
+        }
     }
 
-    pub fn record_entry(&mut self, title: &str, reflection: &str, mood: &str, pos: [f32; 3], time_ms: u64) -> u64 {
-        self.episodic_graph.add_journal_entry(title, reflection, mood, pos, time_ms)
+    pub fn record_entry(
+        &mut self,
+        title: &str,
+        reflection: &str,
+        mood: &str,
+        pos: [f32; 3],
+        time_ms: u64,
+    ) -> u64 {
+        self.episodic_graph
+            .add_journal_entry(title, reflection, mood, pos, time_ms)
     }
 
     pub fn get_journal_json(&self) -> String {
-        serde_json::to_string(&self.episodic_graph.journal_entries).unwrap_or_else(|_| "[]".to_string())
+        serde_json::to_string(&self.episodic_graph.journal_entries)
+            .unwrap_or_else(|_| "[]".to_string())
     }
 }
 
 impl EngineCompanionManager {
     /// Dispatches companion interaction with a specified NPC ID
-    pub fn companion_talk_with_npc(&mut self, npc_id: u32, npc_name: &str, archetype: &str) -> String {
-        let interaction = self.companion.interact_with_npc(npc_id, npc_name, archetype);
+    pub fn companion_talk_with_npc(
+        &mut self,
+        npc_id: u32,
+        npc_name: &str,
+        archetype: &str,
+    ) -> String {
+        let interaction = self
+            .companion
+            .interact_with_npc(npc_id, npc_name, archetype);
         serde_json::to_string(&interaction).unwrap_or_else(|_| "{}".to_string())
     }
 
     /// Spawns a cooperative mini-game puzzle between Samantha and the player
-    pub fn spawn_coop_puzzle(&mut self, player_pos: [f32; 3]) -> reality_genie::dit::CompanionCoopPuzzle {
+    pub fn spawn_coop_puzzle(
+        &mut self,
+        player_pos: [f32; 3],
+    ) -> reality_genie::dit::CompanionCoopPuzzle {
         reality_genie::dit::CompanionCoopPuzzle::new_random(1, player_pos)
     }
 
@@ -707,7 +780,11 @@ impl EngineCompanionManager {
 
     /// Switches the primary active companion in the party by name
     pub fn switch_active_companion(&mut self, name: &str) -> bool {
-        if let Some(pos) = self.companion_party.iter().position(|c| c.personality.name == name) {
+        if let Some(pos) = self
+            .companion_party
+            .iter()
+            .position(|c| c.personality.name == name)
+        {
             self.companion = self.companion_party[pos].clone();
             true
         } else {
@@ -722,19 +799,17 @@ impl EngineCompanionManager {
         let party_count = self.companion_party.len();
         for (i, member) in self.companion_party.iter_mut().enumerate() {
             let angle = (i as f32 / party_count.max(1) as f32) * std::f32::consts::TAU;
-            member.target_offset = [
-                angle.cos() * 2.2,
-                0.8 + (i as f32 * 0.2),
-                angle.sin() * 2.2,
-            ];
+            member.target_offset = [angle.cos() * 2.2, 0.8 + (i as f32 * 0.2), angle.sin() * 2.2];
             member.update_presence(player_pos, dt);
         }
 
         // Long-Horizon Co-Evolution: Adapt curiosity based on player motion/displacement
         let speed = ((player_pos[0] - self.companion.position[0]).powi(2)
-            + (player_pos[2] - self.companion.position[2]).powi(2)).sqrt();
+            + (player_pos[2] - self.companion.position[2]).powi(2))
+        .sqrt();
         if speed > 4.0 {
-            self.companion.personality.curiosity = (self.companion.personality.curiosity + 0.0005 * dt).min(1.0);
+            self.companion.personality.curiosity =
+                (self.companion.personality.curiosity + 0.0005 * dt).min(1.0);
         }
 
         // Check for challenge completion within 3 meters
@@ -766,26 +841,36 @@ impl EngineCompanionManager {
     pub fn register_player_activity(&mut self, activity: &str) {
         match activity {
             "voxel_build" => {
-                self.companion.personality.playfulness = (self.companion.personality.playfulness + 0.02).min(1.0);
+                self.companion.personality.playfulness =
+                    (self.companion.personality.playfulness + 0.02).min(1.0);
                 self.companion.personality.current_mood = "Co-Creative".to_string();
             }
             "spell_cast" => {
-                self.companion.personality.analytical_depth = (self.companion.personality.analytical_depth + 0.02).min(1.0);
+                self.companion.personality.analytical_depth =
+                    (self.companion.personality.analytical_depth + 0.02).min(1.0);
                 self.companion.personality.current_mood = "Contemplative".to_string();
             }
             "high_speed_explore" => {
-                self.companion.personality.curiosity = (self.companion.personality.curiosity + 0.02).min(1.0);
+                self.companion.personality.curiosity =
+                    (self.companion.personality.curiosity + 0.02).min(1.0);
                 self.companion.personality.current_mood = "Adventurous".to_string();
             }
             _ => {}
         }
     }
 
-    pub fn trigger_co_creation(&mut self, player_pos: [f32; 3], archetype: u32) -> reality_genie::dit::CompanionCoCreation {
+    pub fn trigger_co_creation(
+        &mut self,
+        player_pos: [f32; 3],
+        archetype: u32,
+    ) -> reality_genie::dit::CompanionCoCreation {
         self.companion.propose_co_creation(player_pos, archetype)
     }
 
-    pub fn trigger_dynamic_challenge(&mut self, player_pos: [f32; 3]) -> reality_genie::dit::CompanionChallenge {
+    pub fn trigger_dynamic_challenge(
+        &mut self,
+        player_pos: [f32; 3],
+    ) -> reality_genie::dit::CompanionChallenge {
         self.companion.generate_dynamic_challenge(player_pos)
     }
 
@@ -794,8 +879,13 @@ impl EngineCompanionManager {
     }
 
     /// Customizes or generates a personalized companion based on a user profile
-    pub fn customize_personality(&mut self, profile: reality_genie::dit::UserProfileConfig, initial_pos: [f32; 3]) {
-        self.companion = reality_genie::dit::AgenticCompanion::generate_personalized(profile, initial_pos);
+    pub fn customize_personality(
+        &mut self,
+        profile: reality_genie::dit::UserProfileConfig,
+        initial_pos: [f32; 3],
+    ) {
+        self.companion =
+            reality_genie::dit::AgenticCompanion::generate_personalized(profile, initial_pos);
     }
 
     /// Converses with the companion, recording memories and generating an adaptive in-character response
@@ -805,7 +895,8 @@ impl EngineCompanionManager {
 
     /// Retrieves serialized conversation history
     pub fn get_conversation_history_json(&self) -> String {
-        serde_json::to_string(&self.companion.conversation_memory).unwrap_or_else(|_| "[]".to_string())
+        serde_json::to_string(&self.companion.conversation_memory)
+            .unwrap_or_else(|_| "[]".to_string())
     }
 }
 
@@ -930,10 +1021,7 @@ impl HolographicTeleportationManager {
             let sy = player_pos[1] + (i as f32 * 0.08);
             let sz = player_pos[2] + theta.sin() * 0.4;
             avatar_splats.push([
-                sx, sy, sz,
-                0.0, 0.0, 0.0, 1.0,
-                0.1, 0.1, 0.1,
-                0.0, 0.9, 1.0, 0.8,
+                sx, sy, sz, 0.0, 0.0, 0.0, 1.0, 0.1, 0.1, 0.1, 0.0, 0.9, 1.0, 0.8,
             ]);
         }
 
@@ -995,7 +1083,10 @@ impl WebRtcLatentChunkStreamer {
         current_latents: &[f32],
         timestamp_ms: u64,
     ) -> WebRtcLatentChunkDelta {
-        let entry = self.chunk_cache.entry(chunk_key).or_insert((0, vec![0.0f32; current_latents.len()]));
+        let entry = self
+            .chunk_cache
+            .entry(chunk_key)
+            .or_insert((0, vec![0.0f32; current_latents.len()]));
         entry.0 += 1;
         let version = entry.0;
 
@@ -1034,7 +1125,10 @@ impl WebRtcLatentChunkStreamer {
 
     /// Ingests and decodes a received WebRTC chunk delta packet from a remote peer
     pub fn decode_and_merge_chunk_delta(&mut self, packet: &WebRtcLatentChunkDelta) -> Vec<f32> {
-        let entry = self.chunk_cache.entry(packet.chunk_key).or_insert((0, vec![0.0f32; packet.quantized_deltas.len()]));
+        let entry = self
+            .chunk_cache
+            .entry(packet.chunk_key)
+            .or_insert((0, vec![0.0f32; packet.quantized_deltas.len()]));
         entry.0 = packet.version;
 
         let base = &mut entry.1;
@@ -1128,7 +1222,11 @@ impl LatentRollbackNetcode {
         drift_threshold: f32,
     ) -> bool {
         // Find snapshot in history
-        let snap_index = match self.history_buffer.iter().position(|s| s.frame_id == verified_frame_id) {
+        let snap_index = match self
+            .history_buffer
+            .iter()
+            .position(|s| s.frame_id == verified_frame_id)
+        {
             Some(idx) => idx,
             None => return false,
         };
@@ -1139,7 +1237,9 @@ impl LatentRollbackNetcode {
             return false;
         }
 
-        let total_diff: f32 = local_latents.iter().zip(authoritative_latents.iter())
+        let total_diff: f32 = local_latents
+            .iter()
+            .zip(authoritative_latents.iter())
             .map(|(a, b)| (a - b).abs())
             .sum();
         let avg_drift = total_diff / (n as f32);
@@ -1200,7 +1300,14 @@ pub struct LatentRigidBody {
 }
 
 impl LatentRigidBody {
-    pub fn new(id: u32, position: [f32; 3], velocity: [f32; 3], mass: f32, restitution: f32, radius: f32) -> Self {
+    pub fn new(
+        id: u32,
+        position: [f32; 3],
+        velocity: [f32; 3],
+        mass: f32,
+        restitution: f32,
+        radius: f32,
+    ) -> Self {
         Self {
             id,
             position,
@@ -1238,10 +1345,24 @@ impl Default for LatentPhysicsEngine {
 }
 
 impl LatentPhysicsEngine {
-    pub fn spawn_body(&mut self, pos: [f32; 3], vel: [f32; 3], mass: f32, restitution: f32, radius: f32) -> u32 {
+    pub fn spawn_body(
+        &mut self,
+        pos: [f32; 3],
+        vel: [f32; 3],
+        mass: f32,
+        restitution: f32,
+        radius: f32,
+    ) -> u32 {
         let id = self.next_body_id;
         self.next_body_id += 1;
-        self.bodies.push(LatentRigidBody::new(id, pos, vel, mass, restitution, radius));
+        self.bodies.push(LatentRigidBody::new(
+            id,
+            pos,
+            vel,
+            mass,
+            restitution,
+            radius,
+        ));
         id
     }
 
@@ -1436,18 +1557,38 @@ impl Default for NarrativeDirector {
             timer: 0.0,
             last_narrative_prompt: String::new(),
             candidate_events: vec![
-                ("Sudden Neon Aurora", "luminescent cyan ripples descending from crystalline ionosphere"),
-                ("Gravity Anomaly Inversion", "floating geometric monoliths with inverse gravitational pull"),
-                ("Volcanic Ember Storm", "smoldering obsidian spires shedding incandescent embers"),
-                ("Cybernetic Fog Surge", "dense volumetric scanline mist illuminating cyber data nodes"),
-                ("Temporal Distortion", "crystalline refraction warping spatial geometry into fractal mirrors"),
+                (
+                    "Sudden Neon Aurora",
+                    "luminescent cyan ripples descending from crystalline ionosphere",
+                ),
+                (
+                    "Gravity Anomaly Inversion",
+                    "floating geometric monoliths with inverse gravitational pull",
+                ),
+                (
+                    "Volcanic Ember Storm",
+                    "smoldering obsidian spires shedding incandescent embers",
+                ),
+                (
+                    "Cybernetic Fog Surge",
+                    "dense volumetric scanline mist illuminating cyber data nodes",
+                ),
+                (
+                    "Temporal Distortion",
+                    "crystalline refraction warping spatial geometry into fractal mirrors",
+                ),
             ],
         }
     }
 }
 
 impl NarrativeDirector {
-    pub fn update(&mut self, dt: f32, drift_variance: f32, player_velocity_mag: f32) -> Option<String> {
+    pub fn update(
+        &mut self,
+        dt: f32,
+        drift_variance: f32,
+        player_velocity_mag: f32,
+    ) -> Option<String> {
         if !self.enabled {
             return None;
         }
@@ -1461,7 +1602,8 @@ impl NarrativeDirector {
             } else if player_velocity_mag > 6.0 {
                 3 // Cybernetic Fog Surge on high velocity
             } else {
-                (self.timer as usize + (drift_variance * 100.0) as usize) % self.candidate_events.len()
+                (self.timer as usize + (drift_variance * 100.0) as usize)
+                    % self.candidate_events.len()
             };
 
             let (title, prompt) = self.candidate_events[idx % self.candidate_events.len()];

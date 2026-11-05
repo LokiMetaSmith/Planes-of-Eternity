@@ -15,7 +15,10 @@ impl CFG {
 
     pub fn add_rule(&mut self, non_terminal: &str, production: Vec<&str>) {
         let prod_owned = production.iter().map(|s| s.to_string()).collect();
-        self.rules.entry(non_terminal.to_string()).or_insert_with(Vec::new).push(prod_owned);
+        self.rules
+            .entry(non_terminal.to_string())
+            .or_insert_with(Vec::new)
+            .push(prod_owned);
     }
 
     pub fn evaluate(&self, max_depth: usize, mut seed: u32) -> Vec<String> {

@@ -1,4 +1,4 @@
-use cgmath::{Matrix4, Quaternion, Vector3, SquareMatrix, One, Zero};
+use cgmath::{Matrix4, One, Quaternion, SquareMatrix, Vector3, Zero};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +31,11 @@ impl Bone {
     pub fn local_matrix(&self) -> Matrix4<f32> {
         let t = Matrix4::from_translation(self.local_translation);
         let r = Matrix4::from(self.local_rotation);
-        let s = Matrix4::from_nonuniform_scale(self.local_scale.x, self.local_scale.y, self.local_scale.z);
+        let s = Matrix4::from_nonuniform_scale(
+            self.local_scale.x,
+            self.local_scale.y,
+            self.local_scale.z,
+        );
         t * r * s
     }
 }

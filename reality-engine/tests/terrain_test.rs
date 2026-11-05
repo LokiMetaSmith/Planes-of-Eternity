@@ -13,14 +13,22 @@ fn test_terrain_continuity() {
             let h_z = Chunk::map_height(x as f32, z as f32 + 1.0);
 
             let diff_x = (h - h_x).abs();
-            if diff_x > max_diff { max_diff = diff_x; }
+            if diff_x > max_diff {
+                max_diff = diff_x;
+            }
 
             let diff_z = (h - h_z).abs();
-            if diff_z > max_diff { max_diff = diff_z; }
+            if diff_z > max_diff {
+                max_diff = diff_z;
+            }
         }
     }
 
-    assert!(max_diff <= 3, "Terrain has sharp jumps, max diff: {}", max_diff);
+    assert!(
+        max_diff <= 3,
+        "Terrain has sharp jumps, max diff: {}",
+        max_diff
+    );
 }
 
 #[test]
@@ -28,8 +36,12 @@ fn test_gct_iterative_extension() {
     let mut model = reality_genie::gct::SceneExtensionModel::new(32);
 
     // Add some trajectory
-    model.trajectory_memory.record([0.0, 1.0, 2.0], [0.0, 0.0, 0.0], 0.0);
-    model.trajectory_memory.record([5.0, 1.0, 5.0], [0.0, 0.0, 0.0], 0.1);
+    model
+        .trajectory_memory
+        .record([0.0, 1.0, 2.0], [0.0, 0.0, 0.0], 0.0);
+    model
+        .trajectory_memory
+        .record([5.0, 1.0, 5.0], [0.0, 0.0, 0.0], 0.1);
 
     // Create anchor context
     let mut anchor = reality_genie::gct::AnchorContext::new(32);
@@ -42,6 +54,11 @@ fn test_gct_iterative_extension() {
     // Verify left boundary is perfectly constrained/blended to 10.0
     // Left boundary in 32x32 heightmap is index: 0 + idx * 32
     for idx in 0..32 {
-        assert_eq!(heights[0 + idx * 32], 10.0, "GCT boundary constraint failed at left index {}", idx);
+        assert_eq!(
+            heights[0 + idx * 32],
+            10.0,
+            "GCT boundary constraint failed at left index {}",
+            idx
+        );
     }
 }

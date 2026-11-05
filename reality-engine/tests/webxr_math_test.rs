@@ -9,7 +9,12 @@ fn calc_dist_sq(finger: &Point3<f32>, wrist: &Point3<f32>) -> f32 {
 }
 
 fn simulate_xr_gesture(
-    thumb: Point3<f32>, index: Point3<f32>, middle: Point3<f32>, ring: Point3<f32>, pinky: Point3<f32>, wrist: Point3<f32>
+    thumb: Point3<f32>,
+    index: Point3<f32>,
+    middle: Point3<f32>,
+    ring: Point3<f32>,
+    pinky: Point3<f32>,
+    wrist: Point3<f32>,
 ) -> (bool, bool) {
     let d_thumb_sq = calc_dist_sq(&thumb, &wrist);
     let d_index_sq = calc_dist_sq(&index, &wrist);
@@ -20,15 +25,21 @@ fn simulate_xr_gesture(
     let mut palm_pressed = false;
     let mut fist_pressed = false;
 
-    if d_thumb_sq > 0.08 * 0.08 && d_index_sq > 0.11 * 0.11 &&
-       d_middle_sq > 0.11 * 0.11 && d_ring_sq > 0.10 * 0.10 &&
-       d_pinky_sq > 0.09 * 0.09 {
+    if d_thumb_sq > 0.08 * 0.08
+        && d_index_sq > 0.11 * 0.11
+        && d_middle_sq > 0.11 * 0.11
+        && d_ring_sq > 0.10 * 0.10
+        && d_pinky_sq > 0.09 * 0.09
+    {
         palm_pressed = true;
     }
 
-    if d_thumb_sq < 0.08 * 0.08 && d_index_sq < 0.08 * 0.08 &&
-       d_middle_sq < 0.08 * 0.08 && d_ring_sq < 0.08 * 0.08 &&
-       d_pinky_sq < 0.08 * 0.08 {
+    if d_thumb_sq < 0.08 * 0.08
+        && d_index_sq < 0.08 * 0.08
+        && d_middle_sq < 0.08 * 0.08
+        && d_ring_sq < 0.08 * 0.08
+        && d_pinky_sq < 0.08 * 0.08
+    {
         fist_pressed = true;
     }
 
@@ -39,11 +50,11 @@ fn simulate_xr_gesture(
 fn test_open_palm_gesture() {
     let wrist = Point3::new(0.0, 0.0, 0.0);
     // Simulate fingers fully extended away from wrist
-    let thumb = Point3::new(0.09, 0.0, 0.0);   // > 0.08
-    let index = Point3::new(0.0, 0.12, 0.0);   // > 0.11
-    let middle = Point3::new(0.0, 0.12, 0.0);  // > 0.11
-    let ring = Point3::new(0.0, 0.11, 0.0);    // > 0.10
-    let pinky = Point3::new(0.0, 0.10, 0.0);   // > 0.09
+    let thumb = Point3::new(0.09, 0.0, 0.0); // > 0.08
+    let index = Point3::new(0.0, 0.12, 0.0); // > 0.11
+    let middle = Point3::new(0.0, 0.12, 0.0); // > 0.11
+    let ring = Point3::new(0.0, 0.11, 0.0); // > 0.10
+    let pinky = Point3::new(0.0, 0.10, 0.0); // > 0.09
 
     let (is_palm, is_fist) = simulate_xr_gesture(thumb, index, middle, ring, pinky, wrist);
     assert!(is_palm, "Expected Open Palm gesture");
@@ -54,11 +65,11 @@ fn test_open_palm_gesture() {
 fn test_fist_gesture() {
     let wrist = Point3::new(0.0, 0.0, 0.0);
     // Simulate fingers curled closely to the wrist
-    let thumb = Point3::new(0.05, 0.0, 0.0);   // < 0.08
-    let index = Point3::new(0.0, 0.05, 0.0);   // < 0.08
-    let middle = Point3::new(0.0, 0.05, 0.0);  // < 0.08
-    let ring = Point3::new(0.0, 0.05, 0.0);    // < 0.08
-    let pinky = Point3::new(0.0, 0.05, 0.0);   // < 0.08
+    let thumb = Point3::new(0.05, 0.0, 0.0); // < 0.08
+    let index = Point3::new(0.0, 0.05, 0.0); // < 0.08
+    let middle = Point3::new(0.0, 0.05, 0.0); // < 0.08
+    let ring = Point3::new(0.0, 0.05, 0.0); // < 0.08
+    let pinky = Point3::new(0.0, 0.05, 0.0); // < 0.08
 
     let (is_palm, is_fist) = simulate_xr_gesture(thumb, index, middle, ring, pinky, wrist);
     assert!(!is_palm, "Did not expect Open Palm gesture");
@@ -95,7 +106,10 @@ fn test_gesture_debouncing_logic() {
     last_palm_pressed[idx] = is_palm_frame1;
 
     // Ensure it fired
-    assert_eq!(action_inscribe_count, 1, "Action should fire on initial press");
+    assert_eq!(
+        action_inscribe_count, 1,
+        "Action should fire on initial press"
+    );
 
     // Frame 2: Still Open Palm (held down)
     let is_palm_frame2 = true;
@@ -105,7 +119,10 @@ fn test_gesture_debouncing_logic() {
     last_palm_pressed[idx] = is_palm_frame2;
 
     // Ensure it was debounced
-    assert_eq!(action_inscribe_count, 1, "Action should be debounced on hold");
+    assert_eq!(
+        action_inscribe_count, 1,
+        "Action should be debounced on hold"
+    );
 
     // Frame 3: Relax hand
     let is_palm_frame3 = false;
@@ -122,5 +139,8 @@ fn test_gesture_debouncing_logic() {
     last_palm_pressed[idx] = is_palm_frame4;
 
     // Ensure it fired again after resetting
-    assert_eq!(action_inscribe_count, 2, "Action should fire again after reset");
+    assert_eq!(
+        action_inscribe_count, 2,
+        "Action should fire again after reset"
+    );
 }

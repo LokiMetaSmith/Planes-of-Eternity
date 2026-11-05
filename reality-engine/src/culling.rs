@@ -71,7 +71,8 @@ impl SoftwareOcclusionCuller {
 
         let mut projected = Vec::with_capacity(8);
         for &corner in &corners {
-            if let Some(p) = Self::transform(corner, view_rot, view_trans, focal_len_px, near_plane) {
+            if let Some(p) = Self::transform(corner, view_rot, view_trans, focal_len_px, near_plane)
+            {
                 projected.push(p);
             } else {
                 // If any corner is behind the camera, we conservatively assume we can't reliably occlusion test it
@@ -92,7 +93,8 @@ impl SoftwareOcclusionCuller {
         focal_len_px: &Vector2<f32>,
         near_plane: f32,
     ) {
-        let projected_opt = self.project_aabb(min, max, view_rot, view_trans, focal_len_px, near_plane);
+        let projected_opt =
+            self.project_aabb(min, max, view_rot, view_trans, focal_len_px, near_plane);
         if projected_opt.is_none() {
             return;
         }
@@ -104,9 +106,15 @@ impl SoftwareOcclusionCuller {
         let mut max_depth = f32::NEG_INFINITY;
 
         for &(_px, py, pz) in &projected {
-            if py < min_y_f { min_y_f = py; }
-            if py > max_y_f { max_y_f = py; }
-            if pz > max_depth { max_depth = pz; }
+            if py < min_y_f {
+                min_y_f = py;
+            }
+            if py > max_y_f {
+                max_y_f = py;
+            }
+            if pz > max_depth {
+                max_depth = pz;
+            }
         }
 
         // Add conservative 1 pixel inset on the Y bounds
@@ -127,9 +135,18 @@ impl SoftwareOcclusionCuller {
 
         // 12 edges of the cube
         let edges = [
-            (0, 1), (1, 3), (3, 2), (2, 0), // front face
-            (4, 5), (5, 7), (7, 6), (6, 4), // back face
-            (0, 4), (1, 5), (2, 6), (3, 7), // connecting edges
+            (0, 1),
+            (1, 3),
+            (3, 2),
+            (2, 0), // front face
+            (4, 5),
+            (5, 7),
+            (7, 6),
+            (6, 4), // back face
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7), // connecting edges
         ];
 
         for &(i, j) in &edges {
@@ -154,8 +171,12 @@ impl SoftwareOcclusionCuller {
 
             for y in start_y..=end_y {
                 let x = x0 + (y as f32 - y0) * inv_slope;
-                if x < row_min_x[y as usize] { row_min_x[y as usize] = x; }
-                if x > row_max_x[y as usize] { row_max_x[y as usize] = x; }
+                if x < row_min_x[y as usize] {
+                    row_min_x[y as usize] = x;
+                }
+                if x > row_max_x[y as usize] {
+                    row_max_x[y as usize] = x;
+                }
             }
         }
 
@@ -195,7 +216,8 @@ impl SoftwareOcclusionCuller {
         focal_len_px: &Vector2<f32>,
         near_plane: f32,
     ) -> bool {
-        let projected_opt = self.project_aabb(min, max, view_rot, view_trans, focal_len_px, near_plane);
+        let projected_opt =
+            self.project_aabb(min, max, view_rot, view_trans, focal_len_px, near_plane);
         if projected_opt.is_none() {
             // Intersects near plane, assume visible
             return false;
@@ -209,11 +231,21 @@ impl SoftwareOcclusionCuller {
         let mut min_depth = f32::INFINITY;
 
         for &(px, py, pz) in &projected {
-            if px < min_x_f { min_x_f = px; }
-            if px > max_x_f { max_x_f = px; }
-            if py < min_y_f { min_y_f = py; }
-            if py > max_y_f { max_y_f = py; }
-            if pz < min_depth { min_depth = pz; } // Closest part of the chunk
+            if px < min_x_f {
+                min_x_f = px;
+            }
+            if px > max_x_f {
+                max_x_f = px;
+            }
+            if py < min_y_f {
+                min_y_f = py;
+            }
+            if py > max_y_f {
+                max_y_f = py;
+            }
+            if pz < min_depth {
+                min_depth = pz;
+            } // Closest part of the chunk
         }
 
         // Apply 1-pixel conservative OUTSET for queries

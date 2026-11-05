@@ -1,6 +1,6 @@
-use cgmath::{Point3, Vector3, InnerSpace};
+use cgmath::{InnerSpace, Point3, Vector3};
 use reality_engine::engine::Engine;
-use reality_engine::voxel::{VoxelWorld, ChunkKey, Voxel};
+use reality_engine::voxel::{ChunkKey, Voxel, VoxelWorld};
 
 #[test]
 fn test_camera_look_and_tracking() {
@@ -20,7 +20,9 @@ fn test_camera_look_and_tracking() {
     assert_ne!(engine.camera.pitch, -0.4636);
 
     // Update camera controller and verify target tracks correctly
-    engine.camera_controller.update_camera_target(&mut engine.camera);
+    engine
+        .camera_controller
+        .update_camera_target(&mut engine.camera);
 
     let forward = (engine.camera.target - engine.camera.eye).normalize();
     // Forward vector should not be the original forward
@@ -101,12 +103,15 @@ fn test_object_physics_collisions_destruction() {
         chunk.set(0, 0, 0, Voxel { id: 1 }); // Solid block
     }
 
-    println!("Voxel at (0,0,0) before: {:?}", voxel_world.get_voxel_at(0, 0, 0));
+    println!(
+        "Voxel at (0,0,0) before: {:?}",
+        voxel_world.get_voxel_at(0, 0, 0)
+    );
 
     // 1. High velocity item thrown at solid block should smash/destroy it
     let dropped_item = reality_engine::reality_types::DroppedItem::new_cube(
         "test_projectile".to_string(),
-        Point3::new(0.5, 1.6, 0.5), // directly above (0,0,0)
+        Point3::new(0.5, 1.6, 0.5),    // directly above (0,0,0)
         Vector3::new(0.0, -12.0, 0.0), // high downward velocity (> smash_threshold 8.0)
         0.2,
         [1.0, 1.0, 1.0, 1.0],
@@ -117,17 +122,27 @@ fn test_object_physics_collisions_destruction() {
 
     let dt = 0.05_f32;
     let next_pos_y_est: f32 = 1.6 - 12.0 * dt;
-    println!("Estimated next pos y: {}, vy: {}", next_pos_y_est, (next_pos_y_est - 0.5).floor() as i32);
+    println!(
+        "Estimated next pos y: {}, vy: {}",
+        next_pos_y_est,
+        (next_pos_y_est - 0.5).floor() as i32
+    );
 
     // Run engine update with voxel_world
     let voxel_destroyed = engine.update(dt, Some(&mut voxel_world));
 
-    println!("Voxel at (0,0,0) after: {:?}", voxel_world.get_voxel_at(0, 0, 0));
+    println!(
+        "Voxel at (0,0,0) after: {:?}",
+        voxel_world.get_voxel_at(0, 0, 0)
+    );
     println!("Voxel destroyed value: {}", voxel_destroyed);
 
     // Verify block at (0,0,0) is destroyed (should be Air id=0)
     let voxel_after = voxel_world.get_voxel_at(0, 0, 0).unwrap();
-    assert_eq!(voxel_after.id, 0, "Solid block should have been smashed to Air!");
+    assert_eq!(
+        voxel_after.id, 0,
+        "Solid block should have been smashed to Air!"
+    );
     // assert!(voxel_destroyed, "update should report voxel_destroyed true!");
 }
 
@@ -140,7 +155,12 @@ fn test_spell_casting_and_environment_reaction() {
     engine.lambda_system.set_term(term);
 
     // Count initial anomalies in the world state chunks
-    let initial_anomalies: usize = engine.world_state.chunks.values().map(|c| c.anomalies.len()).sum();
+    let initial_anomalies: usize = engine
+        .world_state
+        .chunks
+        .values()
+        .map(|c| c.anomalies.len())
+        .sum();
     assert_eq!(initial_anomalies, 0);
     assert_eq!(engine.spell_effects.len(), 0);
 
@@ -148,7 +168,12 @@ fn test_spell_casting_and_environment_reaction() {
     engine.process_keyboard("KeyF", true);
 
     // Check that an anomaly projector of Horror archetype has been spawned
-    let final_anomalies: usize = engine.world_state.chunks.values().map(|c| c.anomalies.len()).sum();
+    let final_anomalies: usize = engine
+        .world_state
+        .chunks
+        .values()
+        .map(|c| c.anomalies.len())
+        .sum();
     assert_eq!(final_anomalies, 1);
 
     // Verify a spell particle effect (SpellEffect) was created

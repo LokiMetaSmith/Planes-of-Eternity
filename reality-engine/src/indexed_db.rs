@@ -1,8 +1,8 @@
+use js_sys::Promise;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{IdbDatabase, IdbFactory, IdbOpenDbRequest, IdbTransactionMode, IdbRequest};
-use js_sys::Promise;
 use wasm_bindgen_futures::JsFuture;
+use web_sys::{IdbDatabase, IdbFactory, IdbOpenDbRequest, IdbRequest, IdbTransactionMode};
 
 const DB_NAME: &str = "RealityEngineDB";
 const STORE_NAME: &str = "saves";
@@ -60,7 +60,9 @@ impl IndexedDb {
     }
 
     pub async fn save(&self, key: &str, value: &str) -> Result<(), JsValue> {
-        let transaction = self.db.transaction_with_str_and_mode(STORE_NAME, IdbTransactionMode::Readwrite)?;
+        let transaction = self
+            .db
+            .transaction_with_str_and_mode(STORE_NAME, IdbTransactionMode::Readwrite)?;
         let store = transaction.object_store(STORE_NAME)?;
         let request = store.put_with_key(&JsValue::from_str(value), &JsValue::from_str(key))?;
         Self::wait_for_request(request).await?;
@@ -81,7 +83,9 @@ impl IndexedDb {
     }
 
     pub async fn delete(&self, key: &str) -> Result<(), JsValue> {
-        let transaction = self.db.transaction_with_str_and_mode(STORE_NAME, IdbTransactionMode::Readwrite)?;
+        let transaction = self
+            .db
+            .transaction_with_str_and_mode(STORE_NAME, IdbTransactionMode::Readwrite)?;
         let store = transaction.object_store(STORE_NAME)?;
         let request = store.delete(&JsValue::from_str(key))?;
         Self::wait_for_request(request).await?;

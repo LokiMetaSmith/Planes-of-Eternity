@@ -21,7 +21,11 @@ impl AudioManager {
             // Expose to window for UI resume hook
             if let Some(ref c) = ctx {
                 if let Some(window) = web_sys::window() {
-                    let _ = js_sys::Reflect::set(&window, &wasm_bindgen::JsValue::from_str("audioContext"), c);
+                    let _ = js_sys::Reflect::set(
+                        &window,
+                        &wasm_bindgen::JsValue::from_str("audioContext"),
+                        c,
+                    );
                 }
             }
 
@@ -127,7 +131,8 @@ impl AudioManager {
                 let _ = audio_buf.copy_to_channel(&mut buf_copy, 0);
                 if let Ok(source) = ctx.create_buffer_source() {
                     source.set_buffer(Some(&audio_buf));
-                    let _ = source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
+                    let _ =
+                        source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
                     let _ = source.start();
                 }
             }
@@ -145,8 +150,12 @@ impl AudioManager {
             let listener = ctx.listener();
             listener.set_position(pos[0] as f64, pos[1] as f64, pos[2] as f64);
             listener.set_orientation(
-                forward[0] as f64, forward[1] as f64, forward[2] as f64,
-                up[0] as f64, up[1] as f64, up[2] as f64,
+                forward[0] as f64,
+                forward[1] as f64,
+                forward[2] as f64,
+                up[0] as f64,
+                up[1] as f64,
+                up[2] as f64,
             );
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -163,17 +172,23 @@ impl AudioManager {
                 let mut buf_copy = buffer.to_vec();
                 let _ = audio_buf.copy_to_channel(&mut buf_copy, 0);
 
-                if let (Ok(source), Ok(panner)) = (ctx.create_buffer_source(), ctx.create_panner()) {
+                if let (Ok(source), Ok(panner)) = (ctx.create_buffer_source(), ctx.create_panner())
+                {
                     source.set_buffer(Some(&audio_buf));
                     panner.set_panning_model(web_sys::PanningModelType::Hrtf);
                     panner.set_distance_model(web_sys::DistanceModelType::Inverse);
                     panner.set_ref_distance(1.0);
                     panner.set_max_distance(50.0);
                     panner.set_rolloff_factor(1.5);
-                    panner.set_position(source_pos[0] as f64, source_pos[1] as f64, source_pos[2] as f64);
+                    panner.set_position(
+                        source_pos[0] as f64,
+                        source_pos[1] as f64,
+                        source_pos[2] as f64,
+                    );
 
                     let _ = source.connect_with_audio_node(panner.as_ref() as &AudioNode);
-                    let _ = panner.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
+                    let _ =
+                        panner.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
                     let _ = source.start();
                 }
             }
@@ -218,9 +233,12 @@ impl AudioManager {
 
             for i in 0..num_samples {
                 let t = i as f32 / sample_rate as f32;
-                let env = (-(t - duration_sec * 0.1).powi(2) / (2.0 * 0.09 * 0.09)).exp().min(1.0)
+                let env = (-(t - duration_sec * 0.1).powi(2) / (2.0 * 0.09 * 0.09))
+                    .exp()
+                    .min(1.0)
                     * (1.0 - t / duration_sec);
-                let current_f0 = f0 + vibrato_depth * (2.0 * std::f32::consts::PI * vibrato_rate * t).sin();
+                let current_f0 =
+                    f0 + vibrato_depth * (2.0 * std::f32::consts::PI * vibrato_rate * t).sin();
                 let formant1 = 0.55 * (2.0 * std::f32::consts::PI * current_f0 * t).sin();
                 let formant2 = 0.30 * (2.0 * std::f32::consts::PI * current_f0 * 2.05 * t).sin();
                 let formant3 = 0.15 * (2.0 * std::f32::consts::PI * current_f0 * 3.10 * t).sin();
@@ -233,7 +251,8 @@ impl AudioManager {
                 let _ = audio_buf.copy_to_channel(&mut samples, 0);
                 if let Ok(source) = ctx.create_buffer_source() {
                     source.set_buffer(Some(&audio_buf));
-                    let _ = source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
+                    let _ =
+                        source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
                     let _ = source.start();
                 }
             }
@@ -245,7 +264,12 @@ impl AudioManager {
     }
 
     /// Plays stereo multi-channel PCM audio packet from Audio-DiT co-diffuser
-    pub fn play_audio_dit_packet(&self, left_channel: &[f32], right_channel: &[f32], sample_rate: u32) {
+    pub fn play_audio_dit_packet(
+        &self,
+        left_channel: &[f32],
+        right_channel: &[f32],
+        sample_rate: u32,
+    ) {
         #[cfg(target_arch = "wasm32")]
         if let Some(ctx) = &self.ctx {
             let num_frames = left_channel.len().min(right_channel.len()) as u32;
@@ -260,7 +284,8 @@ impl AudioManager {
 
                 if let Ok(source) = ctx.create_buffer_source() {
                     source.set_buffer(Some(&audio_buf));
-                    let _ = source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
+                    let _ =
+                        source.connect_with_audio_node(ctx.destination().as_ref() as &AudioNode);
                     let _ = source.start();
                 }
             }

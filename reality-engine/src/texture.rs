@@ -229,7 +229,6 @@ impl Texture {
         })
     }
 
-
     pub fn create_procedural_normal_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let size = 512;
         let mut pixels = vec![0u8; size * size * 4];
@@ -259,9 +258,11 @@ impl Texture {
                 let nz = 1.0f32;
 
                 if tile_idx == 4 {
-                    nx *= 0.1; ny *= 0.1;
+                    nx *= 0.1;
+                    ny *= 0.1;
                 } else if tile_idx == 1 {
-                    nx *= 0.3; ny *= 0.3;
+                    nx *= 0.3;
+                    ny *= 0.3;
                 }
 
                 let len = (nx * nx + ny * ny + nz * nz).sqrt();
@@ -275,7 +276,11 @@ impl Texture {
             }
         }
 
-        let texture_size = wgpu::Extent3d {width: size as u32, height: size as u32, depth_or_array_layers: 1 };
+        let texture_size = wgpu::Extent3d {
+            width: size as u32,
+            height: size as u32,
+            depth_or_array_layers: 1,
+        };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("procedural_normal_map"),
             size: texture_size,
@@ -295,7 +300,11 @@ impl Texture {
                 origin: wgpu::Origin3d::ZERO,
             },
             &pixels,
-            wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(4 * size as u32), rows_per_image: Some(size as u32) },
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * size as u32),
+                rows_per_image: Some(size as u32),
+            },
             texture_size,
         );
 
@@ -310,7 +319,11 @@ impl Texture {
             ..Default::default()
         });
 
-        Self { texture, view, sampler }
+        Self {
+            texture,
+            view,
+            sampler,
+        }
     }
 
     pub fn create_procedural_pbr_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
@@ -339,17 +352,42 @@ impl Texture {
                 let ao = 1.0f32;
 
                 match tile_idx {
-                    0 => { roughness = 0.7 + noise_val * 0.2; }
-                    1 => { roughness = 0.2; metallic = 0.2; }
-                    2 => { roughness = 0.1; }
-                    3 => { roughness = 0.6; }
-                    4 => { roughness = 0.05; metallic = 0.1; }
-                    5 => { roughness = 0.9; }
-                    6 => { roughness = 0.8; }
-                    7 => { roughness = 0.9; }
-                    8 => { roughness = 0.7; }
-                    9 => { roughness = 0.3; metallic = 0.8; }
-                    _ => { roughness = 0.5; }
+                    0 => {
+                        roughness = 0.7 + noise_val * 0.2;
+                    }
+                    1 => {
+                        roughness = 0.2;
+                        metallic = 0.2;
+                    }
+                    2 => {
+                        roughness = 0.1;
+                    }
+                    3 => {
+                        roughness = 0.6;
+                    }
+                    4 => {
+                        roughness = 0.05;
+                        metallic = 0.1;
+                    }
+                    5 => {
+                        roughness = 0.9;
+                    }
+                    6 => {
+                        roughness = 0.8;
+                    }
+                    7 => {
+                        roughness = 0.9;
+                    }
+                    8 => {
+                        roughness = 0.7;
+                    }
+                    9 => {
+                        roughness = 0.3;
+                        metallic = 0.8;
+                    }
+                    _ => {
+                        roughness = 0.5;
+                    }
                 }
 
                 roughness = (roughness + noise_val * 0.1).clamp(0.0, 1.0);
@@ -361,7 +399,11 @@ impl Texture {
             }
         }
 
-        let texture_size = wgpu::Extent3d {width: size as u32, height: size as u32, depth_or_array_layers: 1 };
+        let texture_size = wgpu::Extent3d {
+            width: size as u32,
+            height: size as u32,
+            depth_or_array_layers: 1,
+        };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("procedural_pbr_map"),
             size: texture_size,
@@ -381,7 +423,11 @@ impl Texture {
                 origin: wgpu::Origin3d::ZERO,
             },
             &pixels,
-            wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(4 * size as u32), rows_per_image: Some(size as u32) },
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * size as u32),
+                rows_per_image: Some(size as u32),
+            },
             texture_size,
         );
 
@@ -396,9 +442,13 @@ impl Texture {
             ..Default::default()
         });
 
-        Self { texture, view, sampler }
+        Self {
+            texture,
+            view,
+            sampler,
+        }
     }
-pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let size = 512;
         let mut pixels = vec![0u8; size * size * 4];
 
@@ -431,7 +481,9 @@ pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Se
                         let gy = (ly * 2.0).fract();
                         let edge = if gx < 0.1 || gy < 0.1 { 0.5 } else { 1.0 };
                         let f = (val as f32 * edge) as u8;
-                        r = f; g = f; b = f;
+                        r = f;
+                        g = f;
+                        b = f;
                     }
                     1 => {
                         // 1: Lava
@@ -507,7 +559,9 @@ pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Se
                         // Fallback
                         let n = fbm(lx, ly, 2);
                         let f = (n * 255.0) as u8;
-                        r = f; g = 0; b = f;
+                        r = f;
+                        g = 0;
+                        b = f;
                     }
                 }
 
@@ -518,7 +572,8 @@ pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Se
             }
         }
 
-        let texture_size = wgpu::Extent3d {width: size as u32,
+        let texture_size = wgpu::Extent3d {
+            width: size as u32,
             height: size as u32,
             depth_or_array_layers: 1,
         };

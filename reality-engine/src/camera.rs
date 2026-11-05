@@ -43,10 +43,10 @@ impl Camera {
 
     pub fn build_inverse_view_projection_matrix(&self) -> Matrix4<f32> {
         use cgmath::SquareMatrix;
-        self.build_view_projection_matrix().invert().unwrap_or(Matrix4::identity())
+        self.build_view_projection_matrix()
+            .invert()
+            .unwrap_or(Matrix4::identity())
     }
-
-
 
     pub fn rotate(&mut self, dx: f32, dy: f32) {
         self.yaw += dx;

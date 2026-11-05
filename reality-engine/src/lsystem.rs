@@ -1,5 +1,5 @@
+use cgmath::{Deg, InnerSpace, Matrix3, Point3, Vector3};
 use std::collections::HashMap;
-use cgmath::{Matrix3, InnerSpace, Vector3, Point3, Deg};
 
 pub struct LSystem {
     axiom: String,
@@ -100,7 +100,11 @@ pub struct LSystemTurtle {
 impl LSystemTurtle {
     pub fn new(start_pos: Point3<i32>, angle: f32, distance: f32) -> Self {
         Self {
-            state: TurtleState::new(Vector3::new(start_pos.x as f32, start_pos.y as f32, start_pos.z as f32)),
+            state: TurtleState::new(Vector3::new(
+                start_pos.x as f32,
+                start_pos.y as f32,
+                start_pos.z as f32,
+            )),
             stack: Vec::new(),
             angle,
             distance,
@@ -166,9 +170,10 @@ mod tests {
         let mut state = TurtleState::new(Vector3::new(0.0, 0.0, 0.0));
 
         // Calculate initial determinant to ensure handedness is preserved
-        let initial_det = state.right.x * (state.direction.y * state.up.z - state.up.y * state.direction.z)
-                - state.right.y * (state.direction.x * state.up.z - state.up.x * state.direction.z)
-                + state.right.z * (state.direction.x * state.up.y - state.up.x * state.direction.y);
+        let initial_det = state.right.x
+            * (state.direction.y * state.up.z - state.up.y * state.direction.z)
+            - state.right.y * (state.direction.x * state.up.z - state.up.x * state.direction.z)
+            + state.right.z * (state.direction.x * state.up.y - state.up.x * state.direction.y);
 
         // Perform many rotations to accumulate potential drift
         for _ in 0..1000 {
@@ -189,8 +194,8 @@ mod tests {
 
         // Check handedness preservation
         let det = state.right.x * (state.direction.y * state.up.z - state.up.y * state.direction.z)
-                - state.right.y * (state.direction.x * state.up.z - state.up.x * state.direction.z)
-                + state.right.z * (state.direction.x * state.up.y - state.up.x * state.direction.y);
+            - state.right.y * (state.direction.x * state.up.z - state.up.x * state.direction.z)
+            + state.right.z * (state.direction.x * state.up.y - state.up.x * state.direction.y);
         assert_relative_eq!(det, initial_det, epsilon = 1e-6);
     }
 }

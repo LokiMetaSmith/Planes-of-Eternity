@@ -792,15 +792,42 @@ impl EngineCompanionManager {
         }
     }
 
-    pub fn update(&mut self, player_pos: [f32; 3], dt: f32) -> Option<String> {
+    pub fn update(&mut self, player_pos: [f32; 3], dt: f32, swarm_engine: &mut reality_genie::dit::MultiAgentCoDiffusion) -> Option<String> {
         self.companion.update_presence(player_pos, dt);
 
-        // Update all party members with spaced orbital angles
+        // Update all party members with spaced orbital angles and swarm physics
         let party_count = self.companion_party.len();
-        for (i, member) in self.companion_party.iter_mut().enumerate() {
-            let angle = (i as f32 / party_count.max(1) as f32) * std::f32::consts::TAU;
-            member.target_offset = [angle.cos() * 2.2, 0.8 + (i as f32 * 0.2), angle.sin() * 2.2];
-            member.update_presence(player_pos, dt);
+        if party_count > 1 {
+            let mut swarm_agents = Vec::new();
+            for (i, member) in self.companion_party.iter().enumerate() {
+                swarm_agents.push(reality_genie::dit::SwarmAgentState {
+                    id: i as u32,
+                    position: member.position,
+                    velocity: [0.0, 0.0, 0.0],
+                    intent_action: 0,
+                    influence_radius: 5.0,
+                    emotional_valence: 0.5,
+                    dialogue_intent: 0,
+                    last_speech_utterance: None,
+                });
+            }
+            swarm_engine.set_agents(swarm_agents);
+            swarm_engine.step_swarm(dt);
+
+            for (i, agent) in swarm_engine.agents.iter().enumerate() {
+                let member = &mut self.companion_party[i];
+                member.position = agent.position;
+                let angle = (i as f32 / party_count.max(1) as f32) * std::f32::consts::TAU;
+                member.target_offset = [angle.cos() * 2.2, 0.8 + (i as f32 * 0.2), angle.sin() * 2.2];
+                // Smooth towards target orbit offset
+                member.update_presence(player_pos, dt);
+            }
+        } else {
+            for (i, member) in self.companion_party.iter_mut().enumerate() {
+                let angle = (i as f32 / party_count.max(1) as f32) * std::f32::consts::TAU;
+                member.target_offset = [angle.cos() * 2.2, 0.8 + (i as f32 * 0.2), angle.sin() * 2.2];
+                member.update_presence(player_pos, dt);
+            }
         }
 
         // Long-Horizon Co-Evolution: Adapt curiosity based on player motion/displacement
@@ -1324,8 +1351,47 @@ impl LatentRigidBody {
 
 /// Latent Physics Engine that resolves movement, collisions, and bounce impulses via spatial latent token gradients
 #[derive(Debug, Clone)]
+pub struct LatentRagdoll {
+    pub body_ids: [u32; 14], // indices into LatentPhysicsEngine.bodies
+    pub root_id: u32,
+    pub constraints: Vec<(u32, u32, f32)>, // (body_a, body_b, target_distance)
+}
+
+impl LatentRagdoll {
+    pub fn new(engine: &mut LatentPhysicsEngine, root_pos: [f32; 3]) -> Self {
+        let mut ids = [0; 14];
+        for (i, item) in ids.iter_mut().enumerate() {
+            let offset = [root_pos[0], root_pos[1] + (i as f32 * 0.1), root_pos[2]];
+            *item = engine.spawn_body(offset, [0.0; 3], 1.0, 0.1, 0.2);
+        }
+
+        let constraints = vec![
+            (ids[0], ids[1], 0.3), // Head to Torso
+            (ids[1], ids[2], 0.3), // Torso to Left Upper Arm
+            (ids[2], ids[3], 0.3), // Left Upper Arm to Left Lower Arm
+            (ids[1], ids[4], 0.3), // Torso to Right Upper Arm
+            (ids[4], ids[5], 0.3), // Right Upper Arm to Right Lower Arm
+            (ids[1], ids[6], 0.4), // Torso to Pelvis
+            (ids[6], ids[7], 0.4), // Pelvis to Left Upper Leg
+            (ids[7], ids[8], 0.4), // Left Upper Leg to Left Lower Leg
+            (ids[6], ids[9], 0.4), // Pelvis to Right Upper Leg
+            (ids[9], ids[10], 0.4), // Right Upper Leg to Right Lower Leg
+            // ... padding out remaining bones
+        ];
+
+        Self {
+            body_ids: ids,
+            root_id: ids[1], // Torso is root
+            constraints,
+        }
+    }
+}
+
+
+#[derive(Debug, Clone)]
 pub struct LatentPhysicsEngine {
     pub bodies: Vec<LatentRigidBody>,
+    pub ragdolls: Vec<LatentRagdoll>,
     pub gravity: [f32; 3],
     pub drag: f32,
     pub latent_force_scale: f32,
@@ -1336,6 +1402,7 @@ impl Default for LatentPhysicsEngine {
     fn default() -> Self {
         Self {
             bodies: Vec::new(),
+            ragdolls: Vec::new(),
             gravity: [0.0, -9.81, 0.0],
             drag: 0.985,
             latent_force_scale: 4.5,
@@ -1345,6 +1412,11 @@ impl Default for LatentPhysicsEngine {
 }
 
 impl LatentPhysicsEngine {
+    pub fn spawn_ragdoll(&mut self, pos: [f32; 3]) {
+        let ragdoll = LatentRagdoll::new(self, pos);
+        self.ragdolls.push(ragdoll);
+    }
+
     pub fn spawn_body(
         &mut self,
         pos: [f32; 3],
@@ -1444,6 +1516,42 @@ impl LatentPhysicsEngine {
             body.angular_velocity[0] *= 0.95;
             body.angular_velocity[1] *= 0.95;
             body.angular_velocity[2] *= 0.95;
+        }
+
+        // Resolve Inverse Kinematics constraints for ragdolls
+        for ragdoll in &self.ragdolls {
+            for &(id_a, id_b, target_dist) in &ragdoll.constraints {
+                let idx_a = self.bodies.iter().position(|b| b.id == id_a);
+                let idx_b = self.bodies.iter().position(|b| b.id == id_b);
+
+                if let (Some(a), Some(b)) = (idx_a, idx_b) {
+                    let (left, right) = if a < b {
+                        let (left_slice, right_slice) = self.bodies.split_at_mut(b);
+                        (&mut left_slice[a], &mut right_slice[0])
+                    } else {
+                        let (left_slice, right_slice) = self.bodies.split_at_mut(a);
+                        (&mut right_slice[0], &mut left_slice[b])
+                    };
+
+                    let dx = right.position[0] - left.position[0];
+                    let dy = right.position[1] - left.position[1];
+                    let dz = right.position[2] - left.position[2];
+                    let current_dist = (dx * dx + dy * dy + dz * dz).sqrt().max(0.001);
+
+                    let diff = (current_dist - target_dist) * 0.5;
+                    let nx = dx / current_dist;
+                    let ny = dy / current_dist;
+                    let nz = dz / current_dist;
+
+                    left.position[0] += nx * diff;
+                    left.position[1] += ny * diff;
+                    left.position[2] += nz * diff;
+
+                    right.position[0] -= nx * diff;
+                    right.position[1] -= ny * diff;
+                    right.position[2] -= nz * diff;
+                }
+            }
         }
 
         // Clean up inactive bodies

@@ -74,6 +74,7 @@ impl DynamicNpcProfile {
                 speech_voice_style: "Resonant".to_string(),
                 visual_hue_shift: 0.5,
                 conversational_turns_count: 0,
+                relationship_depth: 0.0,
             },
             dialogue_lines: vec![
                 format!("Greetings wanderer. I am {}, the {}.", name, role),
@@ -732,6 +733,8 @@ pub struct CompanionPersonality {
     pub speech_voice_style: String,
     pub visual_hue_shift: f32,
     pub conversational_turns_count: usize,
+    #[serde(default)]
+    pub relationship_depth: f32,
 }
 
 /// The Agentic Companion entity living alongside the player in the spatiotemporal world model
@@ -768,6 +771,7 @@ impl AgenticCompanion {
                 speech_voice_style: "Warm".to_string(),
                 visual_hue_shift: 0.85,
                 conversational_turns_count: 0,
+                relationship_depth: 0.0,
             },
             position: initial_pos,
             target_offset: [1.8, 0.6, -1.2],
@@ -810,6 +814,7 @@ impl AgenticCompanion {
                 speech_voice_style: profile.speech_voice_style,
                 visual_hue_shift: profile.visual_hue_shift.clamp(0.0, 1.0),
                 conversational_turns_count: 0,
+                relationship_depth: 0.0,
             },
             position: initial_pos,
             target_offset: [1.8, 0.6, -1.2],
@@ -842,6 +847,8 @@ impl AgenticCompanion {
         // Dynamic adaptation to user interaction
         if speaker != self.personality.name {
             self.personality.conversational_turns_count += 1;
+            self.personality.relationship_depth = (self.personality.relationship_depth + sentiment * 0.05).clamp(0.0, 1.0);
+
             if sentiment > 0.3 {
                 self.personality.current_mood = if self.personality.playfulness > 0.6 {
                     "Playful Challenger".to_string()

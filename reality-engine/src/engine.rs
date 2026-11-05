@@ -1,4 +1,3 @@
-use crate::rigging::Skeleton;
 use crate::audio::AudioManager;
 use crate::camera::{Camera, CameraController};
 use crate::input::{Action, InputConfig};
@@ -6,6 +5,7 @@ use crate::lambda::{self, Primitive, Term};
 use crate::persistence::GameState;
 use crate::projector::RealityProjector;
 use crate::reality_types::{RealityArchetype, RealitySignature};
+use crate::rigging::Skeleton;
 use crate::visual_lambda::{self, LambdaSystem};
 use crate::world::WorldState;
 use cgmath::{EuclideanSpace, InnerSpace, Point3, SquareMatrix, Vector3};
@@ -327,7 +327,11 @@ impl Engine {
                                 self.audio.play_impact();
                                 let color = crate::voxel::Chunk::get_color_for_id(voxel.id);
                                 self.spell_effects.push(SpellEffect {
-                                    position: Point3::new(vx as f32 + 0.5, vy as f32 + 0.5, vz as f32 + 0.5),
+                                    position: Point3::new(
+                                        vx as f32 + 0.5,
+                                        vy as f32 + 0.5,
+                                        vz as f32 + 0.5,
+                                    ),
                                     color: [color[0], color[1], color[2], 1.0],
                                     scale: 1.0,
                                     timer: 0.0,
@@ -368,7 +372,13 @@ impl Engine {
             // Try X movement
             let mut next_pos_x = pos;
             next_pos_x.x += vel.x * step_dt;
-            if !self.is_occupied(next_pos_x, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
+            if !self.is_occupied(
+                next_pos_x,
+                radius,
+                voxel_world,
+                speed > smash_threshold,
+                &mut smashed_any,
+            ) {
                 pos.x = next_pos_x.x;
             } else {
                 vel.x = 0.0;
@@ -378,7 +388,13 @@ impl Engine {
             // Try Y movement
             let mut next_pos_y = pos;
             next_pos_y.y += vel.y * step_dt;
-            if !self.is_occupied(next_pos_y, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
+            if !self.is_occupied(
+                next_pos_y,
+                radius,
+                voxel_world,
+                speed > smash_threshold,
+                &mut smashed_any,
+            ) {
                 pos.y = next_pos_y.y;
             } else {
                 vel.y = 0.0;
@@ -388,7 +404,13 @@ impl Engine {
             // Try Z movement
             let mut next_pos_z = pos;
             next_pos_z.z += vel.z * step_dt;
-            if !self.is_occupied(next_pos_z, radius, voxel_world, speed > smash_threshold, &mut smashed_any) {
+            if !self.is_occupied(
+                next_pos_z,
+                radius,
+                voxel_world,
+                speed > smash_threshold,
+                &mut smashed_any,
+            ) {
                 pos.z = next_pos_z.z;
             } else {
                 vel.z = 0.0;
@@ -428,9 +450,14 @@ impl Engine {
                 for (dx, dz) in offsets {
                     let nx = key_x + dx;
                     let nz = key_z + dz;
-                    let nkey = crate::voxel::ChunkKey { x: nx, y: key_y, z: nz };
+                    let nkey = crate::voxel::ChunkKey {
+                        x: nx,
+                        y: key_y,
+                        z: nz,
+                    };
                     if let Some(n_chunk) = vw.chunks.get(&nkey) {
-                        let mut n_heights = vec![0.0; crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE];
+                        let mut n_heights =
+                            vec![0.0; crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE];
                         for lz in 0..crate::voxel::CHUNK_SIZE {
                             for lx in 0..crate::voxel::CHUNK_SIZE {
                                 let mut h = -1.0;
@@ -448,7 +475,14 @@ impl Engine {
                     }
                 }
 
-                vw.genie.request_iterative_extension(key_x, key_y, key_z, crate::voxel::CHUNK_SIZE, trajectory, neighbors);
+                vw.genie.request_iterative_extension(
+                    key_x,
+                    key_y,
+                    key_z,
+                    crate::voxel::CHUNK_SIZE,
+                    trajectory,
+                    neighbors,
+                );
             }
         }
 
@@ -468,7 +502,8 @@ impl Engine {
                         for y in 0..crate::voxel::CHUNK_SIZE {
                             for x in 0..crate::voxel::CHUNK_SIZE {
                                 let wy = wy_base + y as i32;
-                                let terrain_height = res.heightmap[x + z * crate::voxel::CHUNK_SIZE] as i32;
+                                let terrain_height =
+                                    res.heightmap[x + z * crate::voxel::CHUNK_SIZE] as i32;
 
                                 let mut voxel = crate::voxel::Voxel::default();
                                 if wy <= terrain_height {
@@ -486,7 +521,9 @@ impl Engine {
                                     voxel.id = 4;
                                 }
 
-                                let idx = x + y * crate::voxel::CHUNK_SIZE + z * crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE;
+                                let idx = x
+                                    + y * crate::voxel::CHUNK_SIZE
+                                    + z * crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE;
                                 chunk.data[idx] = voxel;
                             }
                         }
@@ -572,7 +609,8 @@ impl Engine {
 
                 // 2. High-level brain (Assign top-level goals if stack is empty)
                 if behavior.goal_stack.is_empty() {
-                    let current_archetype = self.world_state.get_dominant_archetype_at(npc.location);
+                    let current_archetype =
+                        self.world_state.get_dominant_archetype_at(npc.location);
 
                     if let Some(arch) = current_archetype {
                         if arch == behavior.preferred_archetype {
@@ -580,7 +618,9 @@ impl Engine {
                             if rand::random::<f32>() < 0.2 {
                                 behavior.goal_stack.push(Goal::ExpandInfluence);
                             } else if rand::random::<f32>() < 0.5 {
-                                behavior.goal_stack.push(Goal::GatherResource("".to_string()));
+                                behavior
+                                    .goal_stack
+                                    .push(Goal::GatherResource("".to_string()));
                             } else {
                                 behavior.goal_stack.push(Goal::Wander);
                                 behavior.goal_stack.push(Goal::Idle(2.0));
@@ -613,7 +653,10 @@ impl Engine {
                     if let Some(anim_playback) = &mut behavior.animation_playback {
                         let desired_state = match goal {
                             Goal::Idle(_) => AnimationState::Idle,
-                            Goal::Wander | Goal::Escape | Goal::GatherResource(_) | Goal::ExpandInfluence => AnimationState::Walk,
+                            Goal::Wander
+                            | Goal::Escape
+                            | Goal::GatherResource(_)
+                            | Goal::ExpandInfluence => AnimationState::Walk,
                             Goal::Attack(_) => AnimationState::Attack,
                             Goal::Evolve => AnimationState::Interact,
                         };
@@ -666,7 +709,8 @@ impl Engine {
                             if dist_sq > 0.1 && dist_sq.is_finite() {
                                 let move_vel = dir * (2.0 / dist_sq.sqrt());
                                 if let Some(vw) = vw_opt.as_mut() {
-                                    let res = self.check_collision(npc.location, move_vel, dt, 0.5, vw);
+                                    let res =
+                                        self.check_collision(npc.location, move_vel, dt, 0.5, vw);
                                     npc.location = res.position;
                                 } else {
                                     npc.location += move_vel * dt;
@@ -680,10 +724,12 @@ impl Engine {
                         }
 
                         if let Some(behavior) = &mut npc.behavior {
-                            let current_arch = self.world_state.get_dominant_archetype_at(npc.location);
+                            let current_arch =
+                                self.world_state.get_dominant_archetype_at(npc.location);
                             if current_arch == Some(behavior.preferred_archetype) {
                                 behavior.energy = (behavior.energy + 5.0 * dt).min(100.0);
-                                behavior.mutation_progress = (behavior.mutation_progress - 10.0 * dt).max(0.0);
+                                behavior.mutation_progress =
+                                    (behavior.mutation_progress - 10.0 * dt).max(0.0);
                             } else {
                                 behavior.energy = (behavior.energy - 2.0 * dt).max(0.0);
                                 behavior.mutation_progress += 2.0 * dt;
@@ -710,7 +756,8 @@ impl Engine {
                             if dist_sq > 0.1 && dist_sq.is_finite() {
                                 let move_vel = dir * (5.0 / dist_sq.sqrt());
                                 if let Some(vw) = vw_opt.as_mut() {
-                                    let res = self.check_collision(npc.location, move_vel, dt, 0.5, vw);
+                                    let res =
+                                        self.check_collision(npc.location, move_vel, dt, 0.5, vw);
                                     npc.location = res.position;
                                 } else {
                                     npc.location += move_vel * dt;
@@ -730,7 +777,8 @@ impl Engine {
                     }
                     Goal::Evolve => {
                         if let Some(behavior) = &mut npc.behavior {
-                            let current_arch = self.world_state.get_dominant_archetype_at(npc.location);
+                            let current_arch =
+                                self.world_state.get_dominant_archetype_at(npc.location);
                             if let Some(arch) = current_arch {
                                 behavior.preferred_archetype = arch;
                                 npc.reality_signature.active_style.archetype = arch;
@@ -765,7 +813,8 @@ impl Engine {
                             if dist_sq.is_finite() && dist_sq > 0.01 {
                                 let move_vel = dir * (6.0 / dist_sq.sqrt());
                                 if let Some(vw) = vw_opt.as_mut() {
-                                    let res = self.check_collision(npc.location, move_vel, dt, 0.5, *vw);
+                                    let res =
+                                        self.check_collision(npc.location, move_vel, dt, 0.5, *vw);
                                     npc.location = res.position;
                                 } else {
                                     npc.location += move_vel * dt;
@@ -803,7 +852,13 @@ impl Engine {
                                 if min_dist_sq.is_finite() && min_dist_sq > 0.01 {
                                     let move_vel = dir * (3.0 / min_dist_sq.sqrt());
                                     if let Some(vw) = vw_opt.as_mut() {
-                                        let res = self.check_collision(npc.location, move_vel, dt, 0.5, *vw);
+                                        let res = self.check_collision(
+                                            npc.location,
+                                            move_vel,
+                                            dt,
+                                            0.5,
+                                            *vw,
+                                        );
                                         npc.location = res.position;
                                     } else {
                                         npc.location += move_vel * dt;
@@ -859,7 +914,8 @@ impl Engine {
                 npc.location.y = 1.0;
             } else if let Some(vw) = vw_opt.as_mut() {
                 // Apply a bit of gravity to NPCs too
-                let res = self.check_collision(npc.location, Vector3::new(0.0, -9.8, 0.0), dt, 0.5, vw);
+                let res =
+                    self.check_collision(npc.location, Vector3::new(0.0, -9.8, 0.0), dt, 0.5, vw);
                 npc.location = res.position;
             }
 
@@ -935,7 +991,7 @@ impl Engine {
                 item.position.z = next_pos.z;
                 item.position.y = next_pos.y.max(0.5); // Ensure it doesn't sink below global floor
                 item.velocity.y = -item.velocity.y * 0.5; // Bounce with restitution
-                // Apply friction
+                                                          // Apply friction
                 item.velocity.x *= 0.9;
                 item.velocity.z *= 0.9;
 
@@ -1027,7 +1083,11 @@ impl Engine {
         }
 
         // Global Floor Fallback
-        let target_floor = if self.camera_controller.is_crouching { 0.5 } else { 1.0 };
+        let target_floor = if self.camera_controller.is_crouching {
+            0.5
+        } else {
+            1.0
+        };
         if self.camera.eye.y < target_floor {
             self.camera.eye.y = target_floor;
             if self.camera.velocity.y < 0.0 {
@@ -1036,7 +1096,8 @@ impl Engine {
             }
         }
 
-        self.camera_controller.update_camera_target(&mut self.camera);
+        self.camera_controller
+            .update_camera_target(&mut self.camera);
 
         // Update Reality Projector Position (Player follows camera)
         self.player_projector.location = self.camera.eye;
@@ -1130,9 +1191,15 @@ impl Engine {
 
                         let color = match anomaly.reality_signature.active_style.archetype {
                             crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
-                            crate::reality_types::RealityArchetype::Prehistoric => [0.3, 0.4, 0.1, 1.0],
-                            crate::reality_types::RealityArchetype::PostApocalyptic => [0.4, 0.3, 0.2, 1.0],
-                            crate::reality_types::RealityArchetype::Underwater => [0.0, 0.5, 0.8, 1.0],
+                            crate::reality_types::RealityArchetype::Prehistoric => {
+                                [0.3, 0.4, 0.1, 1.0]
+                            }
+                            crate::reality_types::RealityArchetype::PostApocalyptic => {
+                                [0.4, 0.3, 0.2, 1.0]
+                            }
+                            crate::reality_types::RealityArchetype::Underwater => {
+                                [0.0, 0.5, 0.8, 1.0]
+                            }
                             crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
                             crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
                             crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
@@ -1438,7 +1505,8 @@ impl Engine {
                         if self.camera_controller.orbit_mode {
                             log::info!("Switched to Orbit Camera Mode.");
                             // Set a focal point somewhere in front of the current camera or at origin
-                            self.camera_controller.orbit_focal_point = cgmath::Point3::new(0.0, 5.0, 0.0);
+                            self.camera_controller.orbit_focal_point =
+                                cgmath::Point3::new(0.0, 5.0, 0.0);
                             self.camera_controller.orbit_radius = 20.0;
                             // Precalculate pitch and yaw towards focal point if we wanted seamless transition
                         } else {
@@ -1802,8 +1870,10 @@ impl Engine {
                                 if dist < 50.0 {
                                     if let Some(behavior) = &npc.behavior {
                                         npc.chat_message = Some((
-                                            format!("HP: {} | MP: {}", behavior.health, behavior.energy),
-
+                                            format!(
+                                                "HP: {} | MP: {}",
+                                                behavior.health, behavior.energy
+                                            ),
                                             crate::projector::get_current_timestamp(),
                                         ));
                                     }
@@ -1841,7 +1911,11 @@ impl Engine {
                     Primitive::Extend => {
                         if pressed {
                             log::info!("Extend primitive invoked! Queueing GCT extension.");
-                            self.pending_extensions.push([self.camera.eye.x, self.camera.eye.y, self.camera.eye.z]);
+                            self.pending_extensions.push([
+                                self.camera.eye.x,
+                                self.camera.eye.y,
+                                self.camera.eye.z,
+                            ]);
                         }
                         None
                     }
@@ -1850,7 +1924,8 @@ impl Engine {
                             self.camera_controller.orbit_mode = !self.camera_controller.orbit_mode;
                             if self.camera_controller.orbit_mode {
                                 log::info!("Lambda invoked Orbit Camera Mode.");
-                                self.camera_controller.orbit_focal_point = cgmath::Point3::new(0.0, 5.0, 0.0);
+                                self.camera_controller.orbit_focal_point =
+                                    cgmath::Point3::new(0.0, 5.0, 0.0);
                                 self.camera_controller.orbit_radius = 20.0;
                             } else {
                                 log::info!("Lambda revoked Orbit Camera Mode.");
@@ -1867,8 +1942,8 @@ impl Engine {
                                 format!("peek_zone_{}", uuid::Uuid::new_v4()),
                                 peek_pos,
                                 cgmath::Vector3::new(0.0, 0.0, 0.0),
-                                5.0,                                 // Size of peek volume
-                                [1.0, 0.2, 0.8, 1.0],                // Pinkish purple marker color
+                                5.0,                  // Size of peek volume
+                                [1.0, 0.2, 0.8, 1.0], // Pinkish purple marker color
                                 1,
                             );
 
@@ -1883,9 +1958,11 @@ impl Engine {
                                 if let Some(skeleton) = &mut player.skeleton {
                                     for bone in &mut skeleton.bones {
                                         if bone.name.contains("arm") {
-                                            use cgmath::{Rotation3, Rad};
+                                            use cgmath::{Rad, Rotation3};
                                             // Explicit rotation override triggered by Lambda spell
-                                            bone.local_rotation = cgmath::Quaternion::from_angle_z(Rad(1.57)); // 90 degree raise
+                                            bone.local_rotation =
+                                                cgmath::Quaternion::from_angle_z(Rad(1.57));
+                                            // 90 degree raise
                                         }
                                     }
                                 }
@@ -1981,9 +2058,15 @@ impl Engine {
                                     Some(crate::reality_types::RealityArchetype::WildWest)
                                 }
                                 "FRACTAL" => Some(crate::reality_types::RealityArchetype::Fractal),
-                                "PREHISTORIC" => Some(crate::reality_types::RealityArchetype::Prehistoric),
-                                "POSTAPOCALYPTIC" => Some(crate::reality_types::RealityArchetype::PostApocalyptic),
-                                "UNDERWATER" => Some(crate::reality_types::RealityArchetype::Underwater),
+                                "PREHISTORIC" => {
+                                    Some(crate::reality_types::RealityArchetype::Prehistoric)
+                                }
+                                "POSTAPOCALYPTIC" => {
+                                    Some(crate::reality_types::RealityArchetype::PostApocalyptic)
+                                }
+                                "UNDERWATER" => {
+                                    Some(crate::reality_types::RealityArchetype::Underwater)
+                                }
                                 "VOID" => Some(crate::reality_types::RealityArchetype::Void),
                                 _ => None,
                             };

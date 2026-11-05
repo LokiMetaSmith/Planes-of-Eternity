@@ -1,6 +1,6 @@
+use js_sys::Promise;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use js_sys::Promise;
 
 #[wasm_bindgen]
 extern "C" {
@@ -13,7 +13,11 @@ pub struct SteamClient;
 impl SteamClient {
     pub async fn init(app_id: u32) -> Result<String, JsValue> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("appId"), &JsValue::from_f64(app_id as f64))?;
+        js_sys::Reflect::set(
+            &args,
+            &JsValue::from_str("appId"),
+            &JsValue::from_f64(app_id as f64),
+        )?;
 
         match invoke("init_steamworks", args.into()) {
             Ok(promise) => {

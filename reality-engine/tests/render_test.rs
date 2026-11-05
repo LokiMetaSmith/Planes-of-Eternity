@@ -50,7 +50,8 @@ fn test_render_pipeline() {
                     },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry { // Skeleton binding
+                wgpu::BindGroupLayoutEntry {
+                    // Skeleton binding
                     binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
@@ -384,7 +385,8 @@ fn test_render_lambda_pipeline() {
                     },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry { // Skeleton binding
+                wgpu::BindGroupLayoutEntry {
+                    // Skeleton binding
                     binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
@@ -593,7 +595,8 @@ fn test_render_voxel_pipeline() {
                     },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry { // Skeleton binding
+                wgpu::BindGroupLayoutEntry {
+                    // Skeleton binding
                     binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
@@ -687,16 +690,15 @@ fn test_render_voxel_pipeline() {
             label: Some("reality_bind_group_layout"),
         });
 
-    let voxel_pipeline_layout =
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Voxel Pipeline Layout"),
-            bind_group_layouts: &[
-                &camera_bind_group_layout,
-                &voxel_bind_group_layout,
-                &reality_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
+    let voxel_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Voxel Pipeline Layout"),
+        bind_group_layouts: &[
+            &camera_bind_group_layout,
+            &voxel_bind_group_layout,
+            &reality_bind_group_layout,
+        ],
+        push_constant_ranges: &[],
+    });
 
     let _voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Voxel Render Pipeline"),
@@ -789,7 +791,8 @@ fn test_render_splat_pipeline() {
                     },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry { // Skeleton binding
+                wgpu::BindGroupLayoutEntry {
+                    // Skeleton binding
                     binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
@@ -883,16 +886,15 @@ fn test_render_splat_pipeline() {
             label: Some("reality_bind_group_layout"),
         });
 
-    let splat_pipeline_layout =
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Splat Pipeline Layout"),
-            bind_group_layouts: &[
-                &camera_bind_group_layout,
-                &voxel_bind_group_layout,
-                &reality_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
+    let splat_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Splat Pipeline Layout"),
+        bind_group_layouts: &[
+            &camera_bind_group_layout,
+            &voxel_bind_group_layout,
+            &reality_bind_group_layout,
+        ],
+        push_constant_ranges: &[],
+    });
 
     let _splat_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Splat Render Pipeline"),
@@ -1061,15 +1063,14 @@ fn test_compute_sort_pipeline() {
         compilation_options: Default::default(),
     });
 
-    let _apply_sort_pipeline =
-        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Apply Sort Pipeline"),
-            layout: Some(&sort_pipeline_layout),
-            cache: None,
-            module: &sort_shader,
-            entry_point: Some("apply_sort"),
-            compilation_options: Default::default(),
-        });
+    let _apply_sort_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("Apply Sort Pipeline"),
+        layout: Some(&sort_pipeline_layout),
+        cache: None,
+        module: &sort_shader,
+        entry_point: Some("apply_sort"),
+        compilation_options: Default::default(),
+    });
 
     println!("Successfully compiled shader_sort.wgsl and created compute pipelines.");
 }
@@ -1079,7 +1080,7 @@ fn test_camera_culling_angles() {
     // Tests that looking at various angles doesn't incorrectly cull chunks
     // due to unnormalized frustum planes
 
-    use cgmath::{Point3, Vector3, Matrix4, Deg};
+    use cgmath::{Deg, Matrix4, Point3, Vector3};
     // Include the same code we are testing for extraction
     fn extract_frustum_planes(m: &cgmath::Matrix4<f32>) -> [cgmath::Vector4<f32>; 6] {
         let planes = [
@@ -1111,10 +1112,7 @@ fn test_camera_culling_angles() {
     }
 
     pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 0.5, 0.0,
-        0.0, 0.0, 0.5, 1.0,
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0,
     );
 
     let eye = Point3::new(0.0, 0.0, 0.0);
@@ -1129,7 +1127,7 @@ fn test_camera_culling_angles() {
     let target = eye + front * 10.0;
 
     let view = Matrix4::look_at_rh(eye, target, Vector3::new(0.0, 1.0, 0.0));
-    let proj = cgmath::perspective(Deg(45.0), 16.0/9.0, 0.1, 1000.0);
+    let proj = cgmath::perspective(Deg(45.0), 16.0 / 9.0, 0.1, 1000.0);
     let view_proj = OPENGL_TO_WGPU_MATRIX * proj * view;
 
     let mut planes = extract_frustum_planes(&view_proj);
@@ -1153,5 +1151,8 @@ fn test_camera_culling_angles() {
 
     let is_visible_normalized = is_aabb_visible(min, max, &planes);
 
-    assert!(is_visible_normalized, "Normalized planes should not cull an AABB directly in front of the camera.");
+    assert!(
+        is_visible_normalized,
+        "Normalized planes should not cull an AABB directly in front of the camera."
+    );
 }

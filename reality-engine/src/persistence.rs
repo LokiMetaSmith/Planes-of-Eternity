@@ -28,6 +28,8 @@ pub struct GameState {
     pub voxel_world: Option<crate::voxel::VoxelWorld>,
     #[serde(default)]
     pub companion_state_json: Option<String>,
+    #[serde(default)]
+    pub companion_party_state_json: Option<String>,
     pub timestamp: u64,
     #[serde(default)]
     pub version: u32,
@@ -93,7 +95,9 @@ pub fn delete_save(_slot: &str) {
 #[cfg(target_arch = "wasm32")]
 pub async fn save_to_indexed_db(key: &str, state: &GameState) -> bool {
     // Large world optimization: yield to event loop before heavy serialization
-    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL)).await.ok();
+    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL))
+        .await
+        .ok();
 
     match serde_json::to_string(state) {
         Ok(json) => {
@@ -143,15 +147,13 @@ pub fn save_to_local_storage(_key: &str, _state: &GameState) {
 pub async fn load_from_indexed_db(key: &str) -> Option<GameState> {
     if let Ok(db) = crate::indexed_db::IndexedDb::new().await {
         match db.load(key).await {
-            Ok(Some(json)) => {
-                match serde_json::from_str::<GameState>(&json) {
-                    Ok(state) => {
-                        info!("Loaded game state from IndexedDB.");
-                        return Some(state);
-                    }
-                    Err(e) => error!("Failed to deserialize game state from IndexedDB: {:?}", e),
+            Ok(Some(json)) => match serde_json::from_str::<GameState>(&json) {
+                Ok(state) => {
+                    info!("Loaded game state from IndexedDB.");
+                    return Some(state);
                 }
-            }
+                Err(e) => error!("Failed to deserialize game state from IndexedDB: {:?}", e),
+            },
             Ok(None) => info!("No save found in IndexedDB for key: {}", key),
             Err(e) => error!("Failed to read from IndexedDB: {:?}", e),
         }

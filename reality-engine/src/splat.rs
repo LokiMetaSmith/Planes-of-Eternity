@@ -136,14 +136,16 @@ impl SplatVertex {
                 wgpu::VertexAttribute {
                     offset: (std::mem::size_of::<[f32; 3]>() * 3
                         + std::mem::size_of::<[f32; 4]>() * 2
-                        + std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+                        + std::mem::size_of::<u32>())
+                        as wgpu::BufferAddress,
                     shader_location: 6,
                     format: wgpu::VertexFormat::Uint32,
                 },
                 wgpu::VertexAttribute {
                     offset: (std::mem::size_of::<[f32; 3]>() * 3
                         + std::mem::size_of::<[f32; 4]>() * 2
-                        + std::mem::size_of::<u32>() * 2) as wgpu::BufferAddress,
+                        + std::mem::size_of::<u32>() * 2)
+                        as wgpu::BufferAddress,
                     shader_location: 7,
                     format: wgpu::VertexFormat::Float32,
                 },
@@ -151,7 +153,8 @@ impl SplatVertex {
                     offset: (std::mem::size_of::<[f32; 3]>() * 3
                         + std::mem::size_of::<[f32; 4]>() * 2
                         + std::mem::size_of::<u32>() * 2
-                        + std::mem::size_of::<f32>()) as wgpu::BufferAddress,
+                        + std::mem::size_of::<f32>())
+                        as wgpu::BufferAddress,
                     shader_location: 8,
                     format: wgpu::VertexFormat::Sint32,
                 },

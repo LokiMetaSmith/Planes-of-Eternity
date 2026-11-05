@@ -595,6 +595,7 @@ fn test_lambda_layout_persistence() {
         companion_state_json: None,
         timestamp: 0,
         version: 1,
+        companion_party_state_json: None,
     };
 
     // 2. Initialize Engine
@@ -812,8 +813,22 @@ fn test_time_echo_replay_and_narrative_director() {
     use reality_engine::genie_bridge::{NarrativeDirector, TimeEchoReplay};
 
     let mut replay = TimeEchoReplay::new(10);
-    replay.record(1.0, [0.0, 1.0, 2.0], [0.0, 0.0, 0.0, 1.0], None, 1, [0.0; 5]);
-    replay.record(2.0, [1.0, 1.0, 2.0], [0.0, 0.0, 0.0, 1.0], None, 2, [0.0; 5]);
+    replay.record(
+        1.0,
+        [0.0, 1.0, 2.0],
+        [0.0, 0.0, 0.0, 1.0],
+        None,
+        1,
+        [0.0; 5],
+    );
+    replay.record(
+        2.0,
+        [1.0, 1.0, 2.0],
+        [0.0, 0.0, 0.0, 1.0],
+        None,
+        2,
+        [0.0; 5],
+    );
     assert_eq!(replay.frames.len(), 2);
     assert_eq!(replay.scrub_index, 1);
 
@@ -850,7 +865,12 @@ fn test_p2p_latent_consensus_and_npc_neural_empathy() {
 
     let mut local_latents = vec![1.0; 64];
     let remote_latents = vec![0.0; 64];
-    consensus.fuse_latents(&mut local_latents, &remote_latents, local_pos, near_remote_pos);
+    consensus.fuse_latents(
+        &mut local_latents,
+        &remote_latents,
+        local_pos,
+        near_remote_pos,
+    );
     // Values should have blended towards remote
     assert!(local_latents[0] < 1.0);
     assert!(local_latents[0] > 0.0);
@@ -904,7 +924,8 @@ fn test_latent_rollback_netcode_reconciliation() {
 
     // Frame 5 diverges on peer
     let authoritative_latents = vec![0.8f32; 16];
-    let did_rollback = netcode.reconcile_and_rollback(5, &authoritative_latents, [0.0, 0.0, -5.0], 0.2);
+    let did_rollback =
+        netcode.reconcile_and_rollback(5, &authoritative_latents, [0.0, 0.0, -5.0], 0.2);
     assert!(did_rollback);
     assert_eq!(netcode.total_rollbacks, 1);
     assert_eq!(netcode.last_rollback_frames, 5); // frames 6, 7, 8, 9, 10 resimulated
@@ -973,7 +994,10 @@ fn test_agentic_companion_engine_manager() {
     };
     manager.customize_personality(profile, [0.0, 1.0, 0.0]);
     assert_eq!(manager.companion.personality.name, "Lyra");
-    assert_eq!(manager.companion.personality.personality_archetype, "Whimsical Mystic");
+    assert_eq!(
+        manager.companion.personality.personality_archetype,
+        "Whimsical Mystic"
+    );
 
     // Test chat interaction and memory history
     let reply = manager.chat_interact("Hello Lyra, what can we do here?", 5000);
@@ -990,4 +1014,106 @@ fn test_agentic_companion_engine_manager() {
     let banter = manager.simulate_party_banter();
     assert!(banter.is_some());
     assert!(banter.unwrap().contains("Leo"));
+}
+
+#[test]
+fn test_companion_party_save_persistence() {
+    use reality_engine::genie_bridge::EngineCompanionManager;
+    use reality_engine::input::InputConfig;
+    use reality_engine::persistence::{GameState, PlayerState};
+    use reality_engine::projector::RealityProjector;
+    use reality_engine::world::WorldState;
+
+    let mut manager = EngineCompanionManager::new("Samantha", [0.0, 1.0, 0.0]);
+    let companion2 = reality_genie::dit::AgenticCompanion::new("Leo", [1.0, 1.0, 1.0]);
+    manager.recruit_companion(companion2);
+
+    let game_state = GameState {
+        player: PlayerState {
+            projector: RealityProjector::new(
+                cgmath::Point3::new(0.0, 0.0, 0.0),
+                reality_engine::reality_types::RealitySignature {
+                    active_style: reality_engine::reality_types::RealityStyle {
+                        archetype: reality_engine::reality_types::RealityArchetype::Fantasy,
+                        sub_theme: String::new(),
+                        seed: 0,
+                        roughness: 0.0,
+                        scale: 0.0,
+                        distortion: 0.0,
+                    },
+                    fidelity: 1.0,
+                    influence_radius: 10.0,
+                    active_injections: vec![],
+                },
+            ),
+        },
+        world: WorldState::default(),
+        lambda_source: "FIRE".to_string(),
+        lambda_layout: vec![],
+        input_config: InputConfig::default(),
+        voxel_world: None,
+        companion_state_json: Some(manager.get_companion_state_json()),
+        companion_party_state_json: Some(manager.get_party_roster_json()),
+        timestamp: 0,
+        version: 1,
+    };
+
+    let serialized = serde_json::to_string(&game_state).unwrap();
+    let deserialized: GameState = serde_json::from_str(&serialized).unwrap();
+
+    assert!(deserialized.companion_party_state_json.is_some());
+    let party_json = deserialized.companion_party_state_json.unwrap();
+    let party: Vec<reality_genie::dit::AgenticCompanion> =
+        serde_json::from_str(&party_json).unwrap();
+
+    assert_eq!(party.len(), 2);
+    assert_eq!(party[0].personality.name, "Samantha");
+    assert_eq!(party[1].personality.name, "Leo");
+}
+
+
+
+#[test]
+fn test_companion_voice_sculpt_world() {
+    let mut manager = reality_engine::genie_bridge::EngineCompanionManager::new("Samantha", [0.0, 1.0, 0.0]);
+    let companion2 = reality_genie::dit::AgenticCompanion::new("Leo", [1.0, 1.0, 1.0]);
+    manager.recruit_companion(companion2);
+
+    let player_pos: [f32; 3] = [0.0, 1.0, 0.0];
+    let speech_prompt = "crystal beacon";
+
+    let prompt_lower = speech_prompt.to_lowercase();
+    let (structure_name, voxel_type, radius) = if prompt_lower.contains("pillar") || prompt_lower.contains("tower") {
+        ("Harmonic Spire", 2u8, 2i32)
+    } else if prompt_lower.contains("clear") || prompt_lower.contains("trench") || prompt_lower.contains("hollow") {
+        ("Excavated Sanctuary", 0u8, 3i32)
+    } else if prompt_lower.contains("crystal") || prompt_lower.contains("beacon") {
+        ("Crystalline Beacon", 3u8, 2i32)
+    } else {
+        ("Resonant Archway", 1u8, 2i32)
+    };
+
+    assert_eq!(structure_name, "Crystalline Beacon");
+    assert_eq!(voxel_type, 3);
+
+    let cx = (player_pos[0] + 4.0).round() as i32;
+    let cy = player_pos[1].round() as i32;
+    let cz = player_pos[2].round() as i32;
+
+    let coords = [cx as f32, cy as f32, cz as f32];
+    let co_creation = reality_genie::dit::CompanionCoCreation {
+        structure_name: structure_name.to_string(),
+        coords,
+        archetype_id: voxel_type as u32,
+        description: format!("I hear you. Materializing {} at your coordinates.", structure_name),
+    };
+
+    manager.companion.past_co_creations.push(co_creation.clone());
+    manager.companion.current_dialogue = Some(co_creation.description.clone());
+
+    assert_eq!(manager.companion.past_co_creations.len(), 1);
+    assert_eq!(manager.companion.past_co_creations[0].structure_name, "Crystalline Beacon");
+
+    let banter = manager.simulate_party_banter();
+    assert!(banter.is_some());
 }

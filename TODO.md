@@ -192,7 +192,7 @@
   - Implement emergent companion-to-companion dialogue and collaborative multi-agent world building.
 - [ ] **Volumetric Neural Radiance Caching (NRC)**:
   - Cache dynamic indirect lighting and global illumination radiance in a low-resolution 3D latent clipmap volume to allow dynamic day-night transitions with bounce lighting on procedural voxels.
-- [ ] **Continuous Latent Ragdolls & Inverse Kinematics**:
+- [x] **Continuous Latent Ragdolls & Inverse Kinematics**:
   - Expand `LatentPhysicsEngine` with 14-bone humanoid skeletal rigs, allowing NPC splats and companions to conform to sloping terrain and climb procedural obstacles.
 - [ ] **Decentralized P2P World State Sharding via libp2p**:
   - Replace single-channel WebRTC streaming with distributed Kademlia DHT peer discovery and zero-knowledge validity proofs for trustless peer-to-peer infinite procedural worlds.

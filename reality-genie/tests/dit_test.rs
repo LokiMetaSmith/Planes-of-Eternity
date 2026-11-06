@@ -667,7 +667,7 @@ fn test_pyramid_resolution_mode_and_sfx_genie() {
 
 #[test]
 fn test_atmospheric_conditioning_and_tinygenie_quantization() {
-    use reality_genie::dit::{AtmosphericConditioningEmbedder, QuantizedLinearInt8, SfxGenie};
+    use reality_genie::dit::{AtmosphericConditioningEmbedder, QuantizedLinearInt8, QuantizedLinearInt4, SfxGenie};
     use candle_core::{Device, Tensor};
     use candle_nn::{VarBuilder, VarMap};
 
@@ -692,6 +692,20 @@ fn test_atmospheric_conditioning_and_tinygenie_quantization() {
     qlinear.forward_dequantized(&input_vec, &mut output_vec);
     assert!(output_vec[0].abs() > 0.0);
     assert!(output_vec[1].abs() > 0.0);
+
+    // Test TinyGenie QuantizedLinearInt4 (AWQ/GPTQ Style)
+    // 4 output features, 8 input features, block size 4
+    let weights_int4: Vec<f32> = (0..32).map(|x| (x as f32 - 16.0) * 0.1).collect();
+    let qlinear4 = QuantizedLinearInt4::from_f32_weights(&weights_int4, 4, 8, 4, None);
+    assert_eq!(qlinear4.qweights.len(), 16); // 32 weights / 2 (packed 4-bit)
+    assert_eq!(qlinear4.scales.len(), 8); // (4 * 8) / 4 blocks
+    assert_eq!(qlinear4.zeros.len(), 8);
+
+    let input_vec4 = vec![1.0f32, -1.0f32, 0.5f32, 0.0f32, 2.0f32, -0.5f32, 1.5f32, -2.0f32];
+    let mut output_vec4 = vec![0.0f32; 4];
+    qlinear4.forward_dequantized(&input_vec4, &mut output_vec4);
+    assert!(output_vec4[0].abs() > 0.0);
+    assert!(output_vec4[3].abs() > 0.0);
 
     // Test SfxGenie with atmospheric conditions
     let sfx = SfxGenie::new(44100);

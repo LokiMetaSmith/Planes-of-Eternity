@@ -33,6 +33,116 @@ impl Default for DiTConfig {
     }
 }
 
+/// Asymmetric Block-wise INT4 Quantized Linear layer (AWQ/GPTQ style)
+#[derive(Debug, Clone)]
+pub struct QuantizedLinearInt4 {
+    pub in_features: usize,
+    pub out_features: usize,
+    pub block_size: usize,
+    /// Packed 4-bit weights: 2 weights per u8
+    pub qweights: Vec<u8>,
+    /// Per-block FP32 scales
+    pub scales: Vec<f32>,
+    /// Per-block FP32 zero points
+    pub zeros: Vec<f32>,
+    pub bias: Option<Vec<f32>>,
+}
+
+impl QuantizedLinearInt4 {
+    /// Quantizes an FP32 weight matrix into 4-bit block-wise representation.
+    pub fn from_f32_weights(weights: &[f32], out_features: usize, in_features: usize, block_size: usize, bias: Option<Vec<f32>>) -> Self {
+        assert_eq!(weights.len(), out_features * in_features);
+        assert_eq!(in_features % block_size, 0, "in_features must be divisible by block_size");
+
+        let num_blocks = (out_features * in_features) / block_size;
+        let mut qweights = Vec::with_capacity(weights.len() / 2);
+        let mut scales = Vec::with_capacity(num_blocks);
+        let mut zeros = Vec::with_capacity(num_blocks);
+
+        for ch in 0..out_features {
+            let row_start = ch * in_features;
+            let row = &weights[row_start..row_start + in_features];
+
+            for b in 0..(in_features / block_size) {
+                let block_start = b * block_size;
+                let block = &row[block_start..block_start + block_size];
+
+                let min_val = block.iter().fold(f32::MAX, |acc, &x| acc.min(x));
+                let max_val = block.iter().fold(f32::MIN, |acc, &x| acc.max(x));
+
+                // 4-bit range is [0, 15]
+                let scale = (max_val - min_val) / 15.0;
+                let scale = if scale < 1e-8 { 1e-8 } else { scale };
+                let zero = min_val;
+
+                scales.push(scale);
+                zeros.push(zero);
+
+                for i in (0..block_size).step_by(2) {
+                    let val0 = block[i];
+                    let val1 = block[i + 1];
+
+                    let q0 = ((val0 - zero) / scale).round().clamp(0.0, 15.0) as u8;
+                    let q1 = ((val1 - zero) / scale).round().clamp(0.0, 15.0) as u8;
+
+                    // Pack two 4-bit values into one u8: q1 in high nibble, q0 in low nibble
+                    let packed = (q1 << 4) | q0;
+                    qweights.push(packed);
+                }
+            }
+        }
+
+        Self {
+            in_features,
+            out_features,
+            block_size,
+            qweights,
+            scales,
+            zeros,
+            bias,
+        }
+    }
+
+    /// Fast quantized matrix-vector multiplication with dequantization into FP32 output
+    pub fn forward_dequantized(&self, input: &[f32], output: &mut [f32]) {
+        assert_eq!(input.len(), self.in_features);
+        assert_eq!(output.len(), self.out_features);
+
+        let blocks_per_row = self.in_features / self.block_size;
+
+        for ch in 0..self.out_features {
+            let mut acc: f32 = 0.0;
+
+            for b in 0..blocks_per_row {
+                let block_idx = ch * blocks_per_row + b;
+                let scale = self.scales[block_idx];
+                let zero = self.zeros[block_idx];
+
+                let in_offset = b * self.block_size;
+                let q_offset = (ch * self.in_features + in_offset) / 2;
+
+                for i in 0..(self.block_size / 2) {
+                    let packed = self.qweights[q_offset + i];
+                    let q0 = (packed & 0x0F) as f32;
+                    let q1 = (packed >> 4) as f32;
+
+                    let w0 = q0 * scale + zero;
+                    let w1 = q1 * scale + zero;
+
+                    acc += w0 * input[in_offset + i * 2];
+                    acc += w1 * input[in_offset + i * 2 + 1];
+                }
+            }
+
+            let mut res = acc;
+            if let Some(ref b) = self.bias {
+                res += b[ch];
+            }
+            output[ch] = res;
+        }
+    }
+}
+
 /// Dynamic personality configuration for generalized in-world NPCs
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DynamicNpcProfile {

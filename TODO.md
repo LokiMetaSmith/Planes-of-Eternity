@@ -174,12 +174,12 @@
 - [x] **WebXR Gestural Bimanual High-Five**: Open-palm gestural recognition in VR triggering celebratory resonance.
 - [x] **User-Personalized Companion & Dynamic NPC Personality Generator**: Dynamic companion generation (custom names, archetypes, and aura hue shifts), interactive personality sliders, multi-turn conversational memory with sentiment scoring, and generalized dynamic NPC profile generation.
 - [x] **Long-Horizon Personality Co-Evolution & Save Persistence**: Persist companion memory logs, relationship depth, and adaptive trait evolution across game saves in `GameState`.
-- [ ] **Multi-Agent Companion Swarms & Social Party System**: Support recruiting and maintaining multiple active companions simultaneously coordinating via `MultiAgentCoDiffusion` swarm attention.
+- [x] **Multi-Agent Companion Swarms & Social Party System**: Support recruiting and maintaining multiple active companions simultaneously coordinating via `MultiAgentCoDiffusion` swarm attention.
 - [x] **Voice-Driven Neural World Sculpting**: Interpret real-time voice speech commands to direct companion terraforming and procedural architectural generation.
 - [ ] **Emotional Parametric Neural TTS Voice Modeling**: Parametric formant acoustic modeling and timbre synthesis tuned to distinct companion archetypes.
 
 ## Future Roadmap & Long-Term Enhancements
-- [ ] **Adaptive Long-Horizon User Personality Co-Evolution**:
+- [x] **Adaptive Long-Horizon User Personality Co-Evolution**:
   - Continuous online learning of user behavioral archetypes through episodic memory graph consolidation, adapting companion cognitive styles autonomously over extended play sessions.
 - [ ] **On-Device Neural Quantization (INT4 / AWQ / GPTQ)**:
   - Implement 4-bit block-wise weight quantization (AWQ/GPTQ) for `ActionConditionedDiT` to reduce model memory footprint from ~600MB down to <150MB, enabling ultra-fast execution on consumer mobile WebGPU devices and standalone VR headsets (e.g. Meta Quest 3, Apple Vision Pro).
@@ -187,7 +187,7 @@
   - Implement a tiled FlashAttention-3 compute shader in `shader_dit_compute.wgsl` using workgroup shared memory (`var<workgroup>`) and subgroup matrix extensions to accelerate causal temporal cross-attention beyond 60 FPS on high-DPI displays.
 - [ ] **Companion Neural Voice Cloning & Latent TTS (Kokoro / StyleTTS-2 WASM)**:
   - Integrate an embedded, local ONNX/Candle-based neural TTS model (such as Kokoro-82M or mini-StyleTTS2) compiled to WebAssembly with SIMD, replacing browser Web Speech fallback with naturalistic, emotionally expressive speech audio.
-- [ ] **Multi-Agent Companion Swarms & Autonomous Ecosystem**:
+- [x] **Multi-Agent Companion Swarms & Autonomous Ecosystem**:
   - Allow spawning multiple agentic companions with distinct roles (e.g., Samantha the Architect, Leo the Pathfinder, Aria the Lore-Keeper) coordinating via `MultiAgentCoDiffusion` swarm attention.
   - Implement emergent companion-to-companion dialogue and collaborative multi-agent world building.
 - [ ] **Volumetric Neural Radiance Caching (NRC)**:

@@ -1366,7 +1366,8 @@ impl LatentRagdoll {
         }
 
         let constraints = vec![
-            (ids[0], ids[1], 0.3), // Head to Torso
+            (ids[0], ids[11], 0.1), // Head to Neck
+            (ids[11], ids[1], 0.2), // Neck to Torso
             (ids[1], ids[2], 0.3), // Torso to Left Upper Arm
             (ids[2], ids[3], 0.3), // Left Upper Arm to Left Lower Arm
             (ids[1], ids[4], 0.3), // Torso to Right Upper Arm
@@ -1374,9 +1375,10 @@ impl LatentRagdoll {
             (ids[1], ids[6], 0.4), // Torso to Pelvis
             (ids[6], ids[7], 0.4), // Pelvis to Left Upper Leg
             (ids[7], ids[8], 0.4), // Left Upper Leg to Left Lower Leg
+            (ids[8], ids[12], 0.15), // Left Lower Leg to Left Foot
             (ids[6], ids[9], 0.4), // Pelvis to Right Upper Leg
             (ids[9], ids[10], 0.4), // Right Upper Leg to Right Lower Leg
-            // ... padding out remaining bones
+            (ids[10], ids[13], 0.15), // Right Lower Leg to Right Foot
         ];
 
         Self {
@@ -1520,36 +1522,52 @@ impl LatentPhysicsEngine {
 
         // Resolve Inverse Kinematics constraints for ragdolls
         for ragdoll in &self.ragdolls {
-            for &(id_a, id_b, target_dist) in &ragdoll.constraints {
-                let idx_a = self.bodies.iter().position(|b| b.id == id_a);
-                let idx_b = self.bodies.iter().position(|b| b.id == id_b);
+            // Run multiple FABRIK-style iterations for stability
+            for _iter in 0..4 {
+                for &(id_a, id_b, target_dist) in &ragdoll.constraints {
+                    let idx_a = self.bodies.iter().position(|b| b.id == id_a);
+                    let idx_b = self.bodies.iter().position(|b| b.id == id_b);
 
-                if let (Some(a), Some(b)) = (idx_a, idx_b) {
-                    let (left, right) = if a < b {
-                        let (left_slice, right_slice) = self.bodies.split_at_mut(b);
-                        (&mut left_slice[a], &mut right_slice[0])
-                    } else {
-                        let (left_slice, right_slice) = self.bodies.split_at_mut(a);
-                        (&mut right_slice[0], &mut left_slice[b])
-                    };
+                    if let (Some(a), Some(b)) = (idx_a, idx_b) {
+                        let (left, right) = if a < b {
+                            let (left_slice, right_slice) = self.bodies.split_at_mut(b);
+                            (&mut left_slice[a], &mut right_slice[0])
+                        } else {
+                            let (left_slice, right_slice) = self.bodies.split_at_mut(a);
+                            (&mut right_slice[0], &mut left_slice[b])
+                        };
 
-                    let dx = right.position[0] - left.position[0];
-                    let dy = right.position[1] - left.position[1];
-                    let dz = right.position[2] - left.position[2];
-                    let current_dist = (dx * dx + dy * dy + dz * dz).sqrt().max(0.001);
+                        let dx = right.position[0] - left.position[0];
+                        let dy = right.position[1] - left.position[1];
+                        let dz = right.position[2] - left.position[2];
+                        let current_dist = (dx * dx + dy * dy + dz * dz).sqrt().max(0.001);
 
-                    let diff = (current_dist - target_dist) * 0.5;
-                    let nx = dx / current_dist;
-                    let ny = dy / current_dist;
-                    let nz = dz / current_dist;
+                        let diff = (current_dist - target_dist) * 0.5;
+                        let nx = dx / current_dist;
+                        let ny = dy / current_dist;
+                        let nz = dz / current_dist;
 
-                    left.position[0] += nx * diff;
-                    left.position[1] += ny * diff;
-                    left.position[2] += nz * diff;
+                        left.position[0] += nx * diff;
+                        left.position[1] += ny * diff;
+                        left.position[2] += nz * diff;
 
-                    right.position[0] -= nx * diff;
-                    right.position[1] -= ny * diff;
-                    right.position[2] -= nz * diff;
+                        right.position[0] -= nx * diff;
+                        right.position[1] -= ny * diff;
+                        right.position[2] -= nz * diff;
+                    }
+                }
+
+                // Terrain conformation for feet (indices 12 and 13)
+                for &foot_idx in &[12, 13] {
+                    if let Some(idx) = self.bodies.iter().position(|b| b.id == ragdoll.body_ids[foot_idx]) {
+                        let foot_pos = self.bodies[idx].position;
+                        let grad = Self::sample_latent_gradient(latents, foot_pos);
+                        // If gradient indicates an upward slope/obstacle in movement direction, lift foot
+                        let movement_dir_grad = grad[0].abs() + grad[2].abs();
+                        if movement_dir_grad > 0.5 && foot_pos[1] < 1.0 {
+                             self.bodies[idx].position[1] += 0.1; // Step up
+                        }
+                    }
                 }
             }
         }

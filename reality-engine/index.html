@@ -242,7 +242,65 @@
             text-shadow: 0 0 5px var(--theme-primary);
             letter-spacing: 2px;
             font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
+        .cyber-card.minimized {
+            padding-bottom: 10px !important;
+            max-height: 48px !important;
+            overflow: hidden !important;
+            opacity: 0.85;
+            transition: max-height 0.25s ease, opacity 0.25s ease;
+        }
+
+        .cyber-card.minimized > *:not(.cyber-header) {
+            display: none !important;
+        }
+
+        .cyber-card.minimized .cyber-header {
+            margin-bottom: 0 !important;
+            border-bottom: none !important;
+            padding-bottom: 0 !important;
+        }
+
+        .btn-card-min-toggle {
+            background: none;
+            border: 1px solid var(--theme-primary);
+            color: var(--theme-primary);
+            font-family: inherit;
+            font-size: 0.75rem;
+            cursor: pointer;
+            padding: 1px 6px;
+            line-height: 1;
+            margin-left: auto;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .btn-card-min-toggle:hover {
+            background: var(--theme-primary);
+            color: #000;
+        }
+
+        #companion-compact-hud {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            background: rgba(15, 10, 25, 0.75);
+            backdrop-filter: blur(8px);
+            border: 1px solid #ff77a8;
+            padding: 8px 14px;
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(255, 119, 168, 0.3);
+            pointer-events: auto;
+            max-width: 480px;
+        }
+
 
         .control-group {
             margin-bottom: 20px;
@@ -1051,11 +1109,17 @@
             </div>
 
             <!-- Agentic Companion (Inspired by "Her") & Dynamic Personality Generator -->
-            <div class="control-group" style="margin-top: 12px; border: 1px solid #ff77a8; padding: 8px; border-radius: 4px; background: rgba(255, 119, 168, 0.05);">
+            <div id="wm-companion-card" class="control-group" style="margin-top: 12px; border: 1px solid #ff77a8; padding: 8px; border-radius: 4px; background: rgba(255, 119, 168, 0.05); transition: all 0.25s ease;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label id="wm-companion-name-badge" style="color: #ff77a8; font-weight: bold;">Agentic Companion (Samantha)</label>
-                    <span id="wm-companion-mood" style="color: #ffd700; font-size: 0.7rem;">MOOD: ADVENTUROUS</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label id="wm-companion-name-badge" style="color: #ff77a8; font-weight: bold; margin-bottom: 0;">Agentic Companion (Samantha)</label>
+                        <span id="wm-companion-mood" style="color: #ffd700; font-size: 0.7rem;">MOOD: ADVENTUROUS</span>
+                    </div>
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <button id="btn-companion-minimize-hud" class="btn-card-min-toggle" title="Minimize to compact non-obstructive HUD" aria-label="Minimize Companion to compact HUD" style="border-color: #ff77a8; color: #ff77a8;">MINIMIZE VIEW</button>
+                    </div>
                 </div>
+                <div id="companion-full-deck">
                 <div id="wm-companion-dialogue" style="font-size: 0.7rem; color: #fff; margin-top: 6px; font-style: italic; background: rgba(0,0,0,0.5); padding: 6px; border-left: 2px solid #ff77a8;">
                     "Hey there! Ready to see what we can create together in this reality?"
                 </div>
@@ -1132,6 +1196,7 @@
                     <strong>SHARED LORE DIARY:</strong>
                     <div id="wm-companion-journal-list" style="margin-top: 4px;">Loading journal...</div>
                 </div>
+                </div>
             </div>
 
             <div class="control-group" style="margin-top: 8px;">
@@ -1167,6 +1232,20 @@
             </div>
         </div>
     </aside>
+    </div>
+
+    <!-- Compact Companion Non-Obstructive Floating HUD -->
+    <div id="companion-compact-hud">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="compact-companion-name" style="color: #ff77a8; font-weight: bold; font-size: 0.8rem;">Samantha</span>
+                <span id="compact-companion-mood" style="color: #ffd700; font-size: 0.65rem;">[ADVENTUROUS]</span>
+            </div>
+            <div id="compact-companion-speech" style="color: #eee; font-style: italic; font-size: 0.7rem; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                "Ready when you are!"
+            </div>
+        </div>
+        <button id="btn-companion-restore-deck" class="cyber-button" style="padding: 2px 8px; font-size: 0.7rem; border-color: #ff77a8; color: #ff77a8; white-space: nowrap;">RESTORE DECK</button>
     </div>
 
     <!-- Keybinds Overlay -->
@@ -2100,6 +2179,53 @@
                         log(`> CO-OP PUZZLE INITIATED: [${puzzleObj.puzzle_type}] ${puzzleObj.player_objective}`);
                         btnCompanionPuzzle.textContent = "ACTIVE PUZZLE!";
                         setTimeout(() => { btnCompanionPuzzle.textContent = "CO-OP PUZZLE"; }, 1500);
+                    });
+                }
+
+                // Companion View Minimization / Compact HUD
+                const btnCompanionMinHud = document.getElementById('btn-companion-minimize-hud');
+                const btnCompanionRestoreDeck = document.getElementById('btn-companion-restore-deck');
+                const companionFullDeck = document.getElementById('companion-full-deck');
+                const companionCompactHud = document.getElementById('companion-compact-hud');
+                const compactName = document.getElementById('compact-companion-name');
+                const compactMood = document.getElementById('compact-companion-mood');
+                const compactSpeech = document.getElementById('compact-companion-speech');
+
+                function updateCompactHudStatus() {
+                    if (compactName) compactName.textContent = currentCompanionName;
+                    if (compactMood && companionMood) compactMood.textContent = "[" + companionMood.textContent.replace('MOOD: ', '') + "]";
+                    if (compactSpeech && companionDialogue) {
+                        const raw = companionDialogue.textContent.trim().replace(/^"/, '').replace(/"$/, '');
+                        compactSpeech.textContent = '"' + raw + '"';
+                    }
+                }
+
+                if (btnCompanionMinHud) {
+                    btnCompanionMinHud.addEventListener('click', () => {
+                        if (companionFullDeck) {
+                            companionFullDeck.style.display = 'none';
+                        }
+                        if (companionCompactHud) {
+                            companionCompactHud.style.display = 'flex';
+                            updateCompactHudStatus();
+                        }
+                        btnCompanionMinHud.style.display = 'none';
+                        log("> COMPANION: Minimized to compact player HUD to keep screen unobstructed.");
+                    });
+                }
+
+                if (btnCompanionRestoreDeck) {
+                    btnCompanionRestoreDeck.addEventListener('click', () => {
+                        if (companionFullDeck) {
+                            companionFullDeck.style.display = 'block';
+                        }
+                        if (companionCompactHud) {
+                            companionCompactHud.style.display = 'none';
+                        }
+                        if (btnCompanionMinHud) {
+                            btnCompanionMinHud.style.display = 'inline-block';
+                        }
+                        log("> COMPANION: Restored full configuration deck.");
                     });
                 }
 
@@ -3419,9 +3545,33 @@
             });
         }
 
-        // Initialize draggability
+
+        function initCardMinimization() {
+            const cards = document.querySelectorAll('.cyber-card');
+            cards.forEach(card => {
+                const header = card.querySelector('.cyber-header');
+                if (!header) return;
+                if (header.querySelector('.btn-card-min-toggle') || header.querySelector('.close-btn')) return;
+
+                const minBtn = document.createElement('button');
+                minBtn.className = 'btn-card-min-toggle';
+                minBtn.textContent = '[-]';
+                minBtn.setAttribute('title', 'Minimize panel');
+                minBtn.setAttribute('aria-label', 'Minimize panel');
+                minBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isMin = card.classList.toggle('minimized');
+                    minBtn.textContent = isMin ? '[+]' : '[-]';
+                    minBtn.setAttribute('title', isMin ? 'Restore panel' : 'Minimize panel');
+                });
+                header.appendChild(minBtn);
+            });
+        }
+
+        // Initialize draggability and minimization
         document.addEventListener('DOMContentLoaded', () => {
             makeDraggable();
+            initCardMinimization();
         });
 
     document.addEventListener("DOMContentLoaded", () => {

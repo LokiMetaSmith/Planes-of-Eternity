@@ -1378,6 +1378,7 @@ pub struct NeuralGiField {
     pub grid_resolution: usize,
     pub sh_coefficients: SphericalHarmonicsL2,
     pub ambient_occlusion_grid: Vec<f32>,
+    pub radiance_clipmap: Vec<f32>, // Caches dynamic indirect lighting and global illumination radiance
 }
 
 impl NeuralGiField {
@@ -1391,6 +1392,7 @@ impl NeuralGiField {
             grid_resolution,
             sh_coefficients: SphericalHarmonicsL2 { coeffs: base_sh },
             ambient_occlusion_grid: vec![1.0; total_cells],
+            radiance_clipmap: vec![0.0; total_cells * 3], // 3 floats (RGB) per cell
         }
     }
 
@@ -1416,14 +1418,30 @@ impl NeuralGiField {
             0.15 // Moonlight
         };
 
+        // Cache dynamic indirect lighting and global illumination radiance in the clipmap
+        // Calculate cell index based on position mapped to grid resolution
+        let cell_x = (pos[0].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_y = (pos[1].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_z = (pos[2].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_index = (cell_x * self.grid_resolution * self.grid_resolution + cell_y * self.grid_resolution + cell_z) * 3;
+
+        // Ensure bounds before reading
+        let bounce_r = if cell_index < self.radiance_clipmap.len() { self.radiance_clipmap[cell_index] } else { 0.0 };
+        let bounce_g = if cell_index + 1 < self.radiance_clipmap.len() { self.radiance_clipmap[cell_index + 1] } else { 0.0 };
+        let bounce_b = if cell_index + 2 < self.radiance_clipmap.len() { self.radiance_clipmap[cell_index + 2] } else { 0.0 };
+
         let irradiance_rgb = if is_daytime {
             [
-                (0.8 * daylight_intensity + 0.15 * ao).clamp(0.05, 1.2),
-                (0.75 * daylight_intensity + 0.18 * ao).clamp(0.05, 1.2),
-                (0.6 * daylight_intensity + 0.25 * ao).clamp(0.05, 1.2),
+                (0.8 * daylight_intensity + 0.15 * ao + bounce_r * 0.1).clamp(0.05, 1.2),
+                (0.75 * daylight_intensity + 0.18 * ao + bounce_g * 0.1).clamp(0.05, 1.2),
+                (0.6 * daylight_intensity + 0.25 * ao + bounce_b * 0.1).clamp(0.05, 1.2),
             ]
         } else {
-            [0.08 * ao, 0.12 * ao, 0.25 * ao]
+            [
+                (0.08 * ao + bounce_r * 0.05).clamp(0.01, 1.0),
+                (0.12 * ao + bounce_g * 0.05).clamp(0.01, 1.0),
+                (0.25 * ao + bounce_b * 0.05).clamp(0.01, 1.0)
+            ]
         };
 
         NeuralGiSample {
@@ -1431,6 +1449,21 @@ impl NeuralGiField {
             ambient_occlusion: ao,
             directional_shadow_factor: shadow,
             sun_direction: sun_dir,
+        }
+    }
+
+    /// Update the radiance cache at a specific position with injected bounce light from emissive sources or reflections
+    pub fn inject_bounce_radiance(&mut self, pos: [f32; 3], color: [f32; 3], intensity: f32) {
+        let cell_x = (pos[0].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_y = (pos[1].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_z = (pos[2].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_index = (cell_x * self.grid_resolution * self.grid_resolution + cell_y * self.grid_resolution + cell_z) * 3;
+
+        if cell_index + 2 < self.radiance_clipmap.len() {
+            // Decay existing radiance and add new bounce
+            self.radiance_clipmap[cell_index] = self.radiance_clipmap[cell_index] * 0.9 + color[0] * intensity * 0.1;
+            self.radiance_clipmap[cell_index + 1] = self.radiance_clipmap[cell_index + 1] * 0.9 + color[1] * intensity * 0.1;
+            self.radiance_clipmap[cell_index + 2] = self.radiance_clipmap[cell_index + 2] * 0.9 + color[2] * intensity * 0.1;
         }
     }
 }

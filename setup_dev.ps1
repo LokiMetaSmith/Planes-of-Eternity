@@ -26,9 +26,36 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 
 Write-Host "Rust is installed."
 
+if (Get-Command rustup -ErrorAction SilentlyContinue) {
+    $installedTargets = rustup target list --installed
+    if ($installedTargets -notcontains "wasm32-unknown-unknown") {
+        Write-Host "Installing wasm32-unknown-unknown target..."
+        rustup target add wasm32-unknown-unknown
+        Write-Host "wasm32-unknown-unknown target installed successfully!"
+    } else {
+        Write-Host "wasm32-unknown-unknown target is already installed."
+    }
+} else {
+    Write-Warning "rustup is not in your PATH. Please ensure the wasm32-unknown-unknown target is installed."
+}
+
 if (-not (Get-Command trunk -ErrorAction SilentlyContinue)) {
-    Write-Host "trunk is missing. Installing via cargo..."
-    cargo install trunk
+    Write-Host "trunk is missing. Downloading pre-compiled release..."
+
+    $trunkVersion = "v0.21.14"
+    $trunkUrl = "https://github.com/trunk-rs/trunk/releases/download/$trunkVersion/trunk-x86_64-pc-windows-msvc.zip"
+    $zipPath = "$env:TEMP\trunk.zip"
+    $cargoBinPath = "$env:USERPROFILE\.cargo\bin"
+
+    Invoke-WebRequest -Uri $trunkUrl -OutFile $zipPath
+
+    if (-not (Test-Path $cargoBinPath)) {
+        New-Item -ItemType Directory -Force -Path $cargoBinPath | Out-Null
+    }
+
+    Expand-Archive -Path $zipPath -DestinationPath $cargoBinPath -Force
+    Remove-Item $zipPath
+
     Write-Host "trunk installed successfully!"
 } else {
     Write-Host "trunk is already installed."

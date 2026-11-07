@@ -10,46 +10,6 @@ pub type VoxelId = u8;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SplatVertex {
-    pub position: [f32; 3],
-    pub rotation: [f32; 4],
-    pub scale: [f32; 3],
-    pub color: [f32; 4],
-}
-
-impl SplatVertex {
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<SplatVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3, // Pos
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x4, // Rotation
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 7]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x3, // Scale
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 10]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float32x4, // Color
-                },
-            ],
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VoxelVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
@@ -146,9 +106,13 @@ pub mod voxel_data_serde {
             // A maliciously crafted run-length encoded string could specify massive counts,
             // leading to memory exhaustion when pushing to the vector.
             // We limit the total decoded size to the expected maximum volume of a chunk.
-            const MAX_VOXELS: usize = crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE;
+            const MAX_VOXELS: usize =
+                crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE * crate::voxel::CHUNK_SIZE;
             if data.len() + (count as usize) > MAX_VOXELS {
-                return Err(serde::de::Error::custom(format!("Security Warning: Chunk data exceeds maximum allowed volume of {}", MAX_VOXELS)));
+                return Err(serde::de::Error::custom(format!(
+                    "Security Warning: Chunk data exceeds maximum allowed volume of {}",
+                    MAX_VOXELS
+                )));
             }
 
             for _ in 0..count {
@@ -259,6 +223,69 @@ mod tests {
 
         assert_eq!(data, decoded);
     }
+
+    #[test]
+    fn test_chunk_set_out_of_bounds() {
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let mut chunk = Chunk::new(key);
+
+        // This should safely return without panicking
+        chunk.set(CHUNK_SIZE, CHUNK_SIZE + 1, CHUNK_SIZE + 2, Voxel { id: 1 });
+
+        // Ensure no voxel was actually set at valid bounds due to overflow
+        let voxel = chunk.get(CHUNK_SIZE - 1, CHUNK_SIZE - 1, CHUNK_SIZE - 1);
+        assert_eq!(voxel.id, 0);
+    }
+
+    #[test]
+    fn test_chunk_index_opt_bounds() {
+        let key = ChunkKey { x: 0, y: 0, z: 0 };
+        let chunk = Chunk::new(key);
+
+        assert_eq!(chunk.index_opt(-1, 0, 0), None);
+        assert_eq!(chunk.index_opt(0, -1, 0), None);
+        assert_eq!(chunk.index_opt(0, 0, -1), None);
+
+        assert_eq!(chunk.index_opt(CHUNK_SIZE as i32, 0, 0), None);
+        assert_eq!(chunk.index_opt(0, CHUNK_SIZE as i32, 0), None);
+        assert_eq!(chunk.index_opt(0, 0, CHUNK_SIZE as i32), None);
+
+        // Valid bounds
+        assert!(chunk.index_opt(0, 0, 0).is_some());
+        assert!(chunk.index_opt(CHUNK_SIZE as i32 - 1, CHUNK_SIZE as i32 - 1, CHUNK_SIZE as i32 - 1).is_some());
+    }
+
+    #[test]
+    fn test_voxel_world_set_creates_chunk() {
+        let mut world = VoxelWorld::new();
+        let target_key = ChunkKey { x: 5, y: -2, z: 10 };
+
+        // Ensure chunk doesn't exist
+        assert!(world.get_chunk(target_key).is_none());
+
+        // Calculate world coordinates that map to this chunk
+        // A chunk's local bounds are 0..32, world pos = chunk * 32 + local
+        let world_x = target_key.x * CHUNK_SIZE as i32 + 5;
+        let world_y = target_key.y * CHUNK_SIZE as i32 + 5;
+        let world_z = target_key.z * CHUNK_SIZE as i32 + 5;
+
+        // Set a non-air voxel
+        world.set_voxel_at(world_x, world_y, world_z, Voxel { id: 1 });
+
+        // Verify chunk was created
+        let chunk = world.get_chunk(target_key).expect("Chunk should have been created");
+
+        // Verify voxel was set
+        let voxel = chunk.get(5, 5, 5);
+        assert_eq!(voxel.id, 1);
+
+        // Setting an air block should NOT create a chunk
+        let air_target_key = ChunkKey { x: 6, y: -2, z: 10 };
+        let air_world_x = air_target_key.x * CHUNK_SIZE as i32 + 5;
+        world.set_voxel_at(air_world_x, world_y, world_z, Voxel { id: 0 });
+
+        assert!(world.get_chunk(air_target_key).is_none(), "Air placement should not create new chunks");
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -311,15 +338,78 @@ pub struct Chunk {
     pub size: usize, // Dynamic size for LOD
     #[serde(skip)]
     pub history: VecDeque<Vec<Voxel>>,
+    #[serde(skip)]
+    pub splats: Vec<crate::splat::SplatVertex>,
+    #[serde(skip)]
+    pub is_fully_solid: bool,
 }
 
-fn hash(x: i32, y: i32, z: i32) -> f32 {
+pub fn noise2d(x: f32, z: f32) -> f32 {
+    let xi = x.floor() as i32;
+    let zi = z.floor() as i32;
+    let xf = x - x.floor();
+    let zf = z - z.floor();
+
+    let bl = hash(xi, 0, zi).abs();
+    let br = hash(xi + 1, 0, zi).abs();
+    let tl = hash(xi, 0, zi + 1).abs();
+    let tr = hash(xi + 1, 0, zi + 1).abs();
+
+    let u = xf * xf * (3.0 - 2.0 * xf);
+    let v = zf * zf * (3.0 - 2.0 * zf);
+
+    let b = bl + u * (br - bl);
+    let t = tl + u * (tr - tl);
+    b + v * (t - b)
+}
+
+pub fn noise3d(x: f32, y: f32, z: f32) -> f32 {
+    let xi = x.floor() as i32;
+    let yi = y.floor() as i32;
+    let zi = z.floor() as i32;
+    let xf = x - x.floor();
+    let yf = y - y.floor();
+    let zf = z - z.floor();
+
+    let c000 = hash(xi, yi, zi);
+    let c100 = hash(xi + 1, yi, zi);
+    let c010 = hash(xi, yi + 1, zi);
+    let c110 = hash(xi + 1, yi + 1, zi);
+    let c001 = hash(xi, yi, zi + 1);
+    let c101 = hash(xi + 1, yi, zi + 1);
+    let c011 = hash(xi, yi + 1, zi + 1);
+    let c111 = hash(xi + 1, yi + 1, zi + 1);
+
+    let u = xf * xf * (3.0 - 2.0 * xf);
+    let v = yf * yf * (3.0 - 2.0 * yf);
+    let w = zf * zf * (3.0 - 2.0 * zf);
+
+    let x00 = c000 + u * (c100 - c000);
+    let x10 = c010 + u * (c110 - c010);
+    let x01 = c001 + u * (c101 - c001);
+    let x11 = c011 + u * (c111 - c011);
+
+    let y0 = x00 + v * (x10 - x00);
+    let y1 = x01 + v * (x11 - x01);
+
+    y0 + w * (y1 - y0)
+}
+
+pub fn hash(x: i32, y: i32, z: i32) -> f32 {
     let mut n = x.wrapping_mul(374761393) ^ y.wrapping_mul(668265263) ^ z.wrapping_mul(393555907);
     n = (n ^ (n >> 13)).wrapping_mul(1274126177);
     (n as f32) / (i32::MAX as f32)
 }
 
 impl Chunk {
+    pub fn map_height(wx: f32, wz: f32) -> i32 {
+        let nx = wx * 0.05;
+        let nz = wz * 0.05;
+        let height_noise =
+            (noise2d(nx, nz) * 0.5 + noise2d(nx * 2.0, nz * 2.0) * 0.25) * 20.0 - 5.0;
+        height_noise as i32
+    }
+
     pub fn new(key: ChunkKey) -> Self {
         let size = CHUNK_SIZE; // Default full res
         let vol = size * size * size;
@@ -328,7 +418,24 @@ impl Chunk {
             data: vec![Voxel::default(); vol],
             size,
             history: VecDeque::with_capacity(HISTORY_DEPTH),
+            splats: Vec::new(),
+            is_fully_solid: false, // Initially empty (all air)
         }
+    }
+
+    pub fn update_solid_state(&mut self) {
+        if self.size != CHUNK_SIZE {
+            self.is_fully_solid = false;
+            return;
+        }
+        let vol = self.size * self.size * self.size;
+        let mut solid_count = 0;
+        for v in &self.data {
+            if v.id != 0 {
+                solid_count += 1;
+            }
+        }
+        self.is_fully_solid = solid_count == vol;
     }
 
     #[inline(always)]
@@ -443,6 +550,8 @@ impl Chunk {
             data: new_data,
             size: new_size,
             history: VecDeque::new(), // LODs don't need history
+            splats: self.splats.clone(),
+            is_fully_solid: false, // LODs are currently never considered solid occluders to be safe
         }
     }
 
@@ -467,47 +576,213 @@ impl Chunk {
 
                     match base_archetype {
                         Some(crate::reality_types::RealityArchetype::Fantasy) | None => {
-                            // Ground
-                            if wy == -1 {
-                                voxel.id = 5;
+                            // Procedural Rolling Hills Terrain
+                            let terrain_height = Chunk::map_height(wx as f32, wz as f32);
+                            // Add octaves for more organic hills
+
+                            if wy <= terrain_height {
+                                if wy == terrain_height {
+                                    voxel.id = 5; // Grass
+                                } else if wy > terrain_height - 3 {
+                                    voxel.id = 8; // Dirt
+                                } else {
+                                    voxel.id = 1; // Stone
+                                }
                             }
 
-                            // Castle (Procedural)
-                            if (-9..=9).contains(&wx)
-                                && (-9..=9).contains(&wz)
-                                && (0..10).contains(&wy)
-                                && (wx.abs() > 8 || wz.abs() > 8 || wy == 0)
-                            {
-                                voxel.id = 1;
+                            // Water Level (Ocean/Lakes)
+                            if wy <= -2 && voxel.id == 0 {
+                                voxel.id = 4; // Water
                             }
 
-                            // Bridge
-                            if wz == 0 && (11..30).contains(&wx) && wy == 5 {
-                                voxel.id = 6;
+                            // Sand on shores
+                            if wy == terrain_height && wy >= -2 && wy <= 0 && voxel.id == 5 {
+                                voxel.id = 9; // Sand
                             }
 
-                            // Volcano
-                            let vx = wx - 40;
-                            let vz = wz;
-                            // Optimization: Use integer arithmetic and squared distances to eliminate expensive f32 conversions
-                            // and float sqrt() calls in this tight chunk generation loop.
-                            if (0..=20).contains(&wy) {
-                                let dist_sq = vx * vx + vz * vz;
-                                let max_dist = 20 - wy;
-                                if dist_sq <= max_dist * max_dist {
-                                    if dist_sq < 4 {
-                                        voxel.id = 2;
-                                    } else {
-                                        voxel.id = 1;
+                            // Trees
+                            // We check tree placement deterministically on a local grid (e.g. 10x10)
+                            if wy > terrain_height && terrain_height > 0 && voxel.id == 0 {
+                                let cell_x = wx / 8;
+                                let cell_z = wz / 8;
+                                // Tree anchor point in this cell
+                                let tx = cell_x * 8 + (hash(cell_x, 0, cell_z).abs() * 8.0) as i32;
+                                let tz = cell_z * 8 + (hash(cell_z, 0, cell_x).abs() * 8.0) as i32;
+
+                                // Base tree height on hash
+                                let tree_seed = hash(cell_x, cell_z, 0).abs();
+
+                                if tree_seed < 0.3 {
+                                    // Normal simple tree
+                                    if wx == tx && wz == tz {
+                                        if wy <= terrain_height + 4 {
+                                            voxel.id = 6; // Wood
+                                        }
+                                    }
+
+                                    let dx = (wx - tx).abs();
+                                    let dy = (wy - (terrain_height + 4)).abs();
+                                    let dz = (wz - tz).abs();
+
+                                    if dy <= 2 && dx * dx + dy * dy + dz * dz <= 5 && voxel.id == 0
+                                    {
+                                        if hash(wx, wy, wz).abs() > 0.1 {
+                                            voxel.id = 7; // Leaves
+                                        }
+                                    }
+                                } else {
+                                    // L-System Tree
+                                    // To make it efficient, we only evaluate if we are close to the tree base (within bounds)
+                                    let max_tree_radius = 8;
+                                    let max_tree_height = 15;
+
+                                    if (wx - tx).abs() <= max_tree_radius
+                                        && (wz - tz).abs() <= max_tree_radius
+                                        && wy <= terrain_height + max_tree_height
+                                    {
+                                        // Evaluate L-system for this specific tree deterministicly
+                                        let mut lsys = crate::lsystem::LSystem::new("F");
+                                        lsys.add_rule('F', "F[-F]F[+F]F");
+                                        let sentence = lsys.evaluate(2); // Keep iterations low for performance
+
+                                        // Different trees can have different angles
+                                        let angle = 25.0 + (hash(tx, 0, tz).abs() * 15.0);
+
+                                        let mut turtle = crate::lsystem::LSystemTurtle::new(
+                                            cgmath::Point3::new(tx, 6, tz),
+                                            angle,
+                                            1.5,
+                                        );
+
+                                        // To add variety to 3D rotation, pitch a bit randomly
+                                        turtle.generate(&sentence);
+
+                                        // Check if our current (wx, wy, wz) is in the generated voxels
+                                        // Because iterating through turtle.voxels per voxel is slow, we check bounds first
+                                        let target = cgmath::Point3::new(wx, wy, wz);
+                                        for v in &turtle.voxels {
+                                            if *v == target {
+                                                voxel.id = 6; // Wood for branches
+                                                break;
+                                            } else if (v.x - target.x).abs() <= 1
+                                                && (v.y - target.y).abs() <= 1
+                                                && (v.z - target.z).abs() <= 1
+                                            {
+                                                if hash(wx, wy, wz).abs() > 0.3 {
+                                                    // Leaves around branches
+                                                    if voxel.id == 0 {
+                                                        voxel.id = 7;
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
 
-                            // Fire Noise
-                            if voxel.id == 0 && wy > 0 {
+                            // Castle (CFG)
+                            // Center of the chunk
+                            let cx = 0;
+                            let cz = 0;
+
+                            // Check if inside a general generous bounding box for the castle area
+                            if (wx - cx).abs() <= 15 && (wz - cz).abs() <= 15 && wy >= 0 && wy <= 20
+                            {
+                                let mut cfg = crate::cfg::CFG::new("Castle");
+                                cfg.add_rule("Castle", vec!["Base", "Mid", "Top"]);
+                                cfg.add_rule(
+                                    "Castle",
+                                    vec!["Base", "Tower", "Mid", "Tower", "Top"],
+                                );
+                                cfg.add_rule("Base", vec!["SolidBase"]);
+                                cfg.add_rule("Mid", vec!["HollowMid"]);
+                                cfg.add_rule("Top", vec!["Spire"]);
+                                cfg.add_rule("Top", vec!["FlatRoof"]);
+                                cfg.add_rule("Tower", vec!["SmallTower"]);
+
+                                // Evaluate the grammar for the chunk (deterministic seed from chunk pos)
+                                let seed = (self
+                                    .key
+                                    .x
+                                    .wrapping_mul(73856093)
+                                    .wrapping_add(self.key.z.wrapping_mul(19349663)))
+                                    as u32;
+                                let sequence = cfg.evaluate(5, seed);
+
+                                let mut current_y = 0;
+                                for term in sequence {
+                                    if term == "SolidBase" {
+                                        if (wx - cx).abs() <= 8
+                                            && (wz - cz).abs() <= 8
+                                            && wy >= current_y
+                                            && wy < current_y + 4
+                                        {
+                                            voxel.id = 1; // Stone
+                                        }
+                                        current_y += 4;
+                                    } else if term == "HollowMid" {
+                                        if (wx - cx).abs() <= 8
+                                            && (wz - cz).abs() <= 8
+                                            && wy >= current_y
+                                            && wy < current_y + 6
+                                        {
+                                            if (wx - cx).abs() == 8 || (wz - cz).abs() == 8 {
+                                                voxel.id = 1;
+                                            } else {
+                                                // interior hollow
+                                            }
+                                        }
+                                        current_y += 6;
+                                    } else if term == "Spire" {
+                                        let h = current_y + 8 - wy;
+                                        if h > 0 {
+                                            let radius = h / 2;
+                                            if (wx - cx).abs() <= radius
+                                                && (wz - cz).abs() <= radius
+                                                && wy >= current_y
+                                                && wy < current_y + 8
+                                            {
+                                                voxel.id = 1;
+                                            }
+                                        }
+                                        current_y += 8;
+                                    } else if term == "FlatRoof" {
+                                        if (wx - cx).abs() <= 9
+                                            && (wz - cz).abs() <= 9
+                                            && wy == current_y
+                                        {
+                                            voxel.id = 1;
+                                        }
+                                        current_y += 1;
+                                    } else if term == "SmallTower" {
+                                        // Four corner towers
+                                        if ((wx - cx).abs() == 9 && (wz - cz).abs() == 9)
+                                            && wy >= current_y
+                                            && wy < current_y + 10
+                                        {
+                                            voxel.id = 1;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Fire Noise (Fireflies or embers)
+                            if voxel.id == 0 && wy > terrain_height + 5 && wy < terrain_height + 10
+                            {
                                 let n = hash(wx, wy, wz);
-                                if n > 0.995 {
-                                    voxel.id = 3;
+                                if n > 0.999 {
+                                    voxel.id = 3; // Fire
+                                }
+                            }
+
+                            // Caves (3D Noise)
+                            if wy < terrain_height - 3 && voxel.id == 1 {
+                                let cave_noise =
+                                    noise3d(wx as f32 * 0.05, wy as f32 * 0.05, wz as f32 * 0.05);
+                                if cave_noise > 0.6 {
+                                    voxel.id = 0; // Air (Cave)
+                                } else if cave_noise > 0.55 && hash(wx, wy, wz).abs() > 0.95 {
+                                    voxel.id = 3; // Occasional glowing mushroom/fire in caves
                                 }
                             }
                         }
@@ -523,6 +798,254 @@ impl Chunk {
                                     voxel.id = 4; // Glowing energy top
                                 } else {
                                     voxel.id = 1; // Metal pillar
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Fractal) => {
+                            // Geometric Floating Islands
+                            let fx = wx as f32 * 0.1;
+                            let fy = wy as f32 * 0.1;
+                            let fz = wz as f32 * 0.1;
+                            let val =
+                                (fx.sin() * fy.cos() + fy.sin() * fz.cos() + fz.sin() * fx.cos())
+                                    .abs();
+                            if val > 1.2 && wy > 5 {
+                                voxel.id = 1; // Stone islands
+                            }
+
+                            // Fractal Crystalline Growths (L-System)
+                            let cell_x = wx / 10;
+                            let cell_z = wz / 10;
+                            let tx = cell_x * 10 + (hash(cell_x, 0, cell_z).abs() * 10.0) as i32;
+                            let tz = cell_z * 10 + (hash(cell_z, 0, cell_x).abs() * 10.0) as i32;
+
+                            // Check base of the crystal is roughly on the islands
+                            let base_fx = tx as f32 * 0.1;
+                            let base_fy: f32 = 6.0 * 0.1; // Check at y=6
+                            let base_fz = tz as f32 * 0.1;
+                            let base_val = (base_fx.sin() * base_fy.cos()
+                                + base_fy.sin() * base_fz.cos()
+                                + base_fz.sin() * base_fx.cos())
+                            .abs();
+
+                            let crystal_seed = hash(cell_x, cell_z, 2).abs();
+
+                            if base_val > 1.2 && crystal_seed > 0.5 {
+                                let crystal_base_y = 6;
+                                let max_radius = 10;
+                                let max_height = 20;
+
+                                if (wx - tx).abs() <= max_radius
+                                    && (wz - tz).abs() <= max_radius
+                                    && wy >= crystal_base_y
+                                    && wy <= crystal_base_y + max_height
+                                {
+                                    let mut lsys = crate::lsystem::LSystem::new("F");
+                                    lsys.add_rule('F', "F[-F]F[+F]F");
+                                    let sentence = lsys.evaluate(2);
+                                    let angle = 30.0 + (hash(tx, 0, tz).abs() * 20.0);
+
+                                    let mut turtle = crate::lsystem::LSystemTurtle::new(
+                                        cgmath::Point3::new(tx, crystal_base_y, tz),
+                                        angle,
+                                        2.0,
+                                    );
+                                    turtle.generate(&sentence);
+
+                                    let target = cgmath::Point3::new(wx, wy, wz);
+                                    for v in &turtle.voxels {
+                                        if (v.x - target.x).abs() <= 1
+                                            && (v.y - target.y).abs() <= 1
+                                            && (v.z - target.z).abs() <= 1
+                                        {
+                                            if voxel.id == 0 {
+                                                voxel.id = 4; // Water/Glassy for crystal
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Prehistoric) => {
+                            let cell_x = wx / 10;
+                            let cell_z = wz / 10;
+                            let tx = cell_x * 10 + (hash(cell_x, 0, cell_z).abs() * 10.0) as i32;
+                            let tz = cell_z * 10 + (hash(cell_z, 0, cell_x).abs() * 10.0) as i32;
+
+                            let max_radius = 15;
+                            let max_height = 30;
+
+                            if (wx - tx).abs() <= max_radius
+                                && (wz - tz).abs() <= max_radius
+                                && wy >= 6
+                                && wy <= 6 + max_height
+                            {
+                                let mut lsys = crate::lsystem::LSystem::new("F");
+                                lsys.add_rule('F', "F[+F]F[-F]F");
+                                let sentence = lsys.evaluate(3);
+                                let angle = 45.0 + (hash(tx, 0, tz).abs() * 10.0);
+
+                                let mut turtle = crate::lsystem::LSystemTurtle::new(
+                                    cgmath::Point3::new(tx, 6, tz),
+                                    angle,
+                                    1.5,
+                                );
+                                turtle.generate(&sentence);
+
+                                let target = cgmath::Point3::new(wx, wy, wz);
+                                for v in &turtle.voxels {
+                                    if *v == target {
+                                        voxel.id = 6; // Wood
+                                        break;
+                                    } else if (v.x - target.x).abs() <= 1
+                                        && (v.y - target.y).abs() <= 1
+                                        && (v.z - target.z).abs() <= 1
+                                    {
+                                        if hash(wx, wy, wz).abs() > 0.3 {
+                                            if voxel.id == 0 {
+                                                voxel.id = 7; // Leaves
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Tron) => {
+                            // Grid floor
+                            if wy == -1 {
+                                if wx % 8 == 0 || wz % 8 == 0 {
+                                    voxel.id = 4; // Glowing lines
+                                } else {
+                                    voxel.id = 1; // Dark stone/metal
+                                }
+                            }
+
+                            // Data Towers (CFG)
+                            let cell_x = wx / 16;
+                            let cell_z = wz / 16;
+                            let cx = cell_x * 16 + 8;
+                            let cz = cell_z * 16 + 8;
+
+                            if (wx - cx).abs() <= 10 && (wz - cz).abs() <= 10 && wy >= 0 && wy <= 30
+                            {
+                                let mut cfg = crate::cfg::CFG::new("Tower");
+                                cfg.add_rule("Tower", vec!["Base", "DataLink", "Top"]);
+                                cfg.add_rule(
+                                    "Tower",
+                                    vec!["Base", "Segment", "DataLink", "Segment", "Top"],
+                                );
+                                cfg.add_rule("Base", vec!["SolidBase"]);
+                                cfg.add_rule("Segment", vec!["BoxySegment"]);
+                                cfg.add_rule("DataLink", vec!["GlowingCore"]);
+                                cfg.add_rule("Top", vec!["Antenna"]);
+
+                                let seed = (cell_x
+                                    .wrapping_mul(73856093)
+                                    .wrapping_add(cell_z.wrapping_mul(19349663)))
+                                    as u32;
+                                let sequence = cfg.evaluate(4, seed);
+
+                                let mut current_y = 0;
+                                for term in sequence {
+                                    if term == "SolidBase" {
+                                        if (wx - cx).abs() <= 4
+                                            && (wz - cz).abs() <= 4
+                                            && wy >= current_y
+                                            && wy < current_y + 5
+                                        {
+                                            voxel.id = 1;
+                                        }
+                                        current_y += 5;
+                                    } else if term == "BoxySegment" {
+                                        if (wx - cx).abs() <= 3
+                                            && (wz - cz).abs() <= 3
+                                            && wy >= current_y
+                                            && wy < current_y + 4
+                                        {
+                                            if (wx - cx).abs() == 3 || (wz - cz).abs() == 3 {
+                                                voxel.id = 4; // Edge glowing
+                                            } else {
+                                                voxel.id = 1;
+                                            }
+                                        }
+                                        current_y += 4;
+                                    } else if term == "GlowingCore" {
+                                        if (wx - cx).abs() <= 2
+                                            && (wz - cz).abs() <= 2
+                                            && wy >= current_y
+                                            && wy < current_y + 6
+                                        {
+                                            voxel.id = 4;
+                                        }
+                                        current_y += 6;
+                                    } else if term == "Antenna" {
+                                        if wx == cx
+                                            && wz == cz
+                                            && wy >= current_y
+                                            && wy < current_y + 8
+                                        {
+                                            voxel.id = 4;
+                                        }
+                                        current_y += 8;
+                                    }
+                                }
+                            }
+                        }
+                        Some(crate::reality_types::RealityArchetype::Biopunk) => {
+                            // Fleshy / Organic ground
+                            let height_noise =
+                                (noise2d(wx as f32 * 0.1, wz as f32 * 0.1) * 0.5 + 0.5) * 5.0;
+                            let height = height_noise as i32;
+                            if wy < height {
+                                voxel.id = 8; // Dirt/Flesh
+                            }
+                            if wy == height && hash(wx, 0, wz).abs() > 0.8 {
+                                voxel.id = 7; // Occasional green goop
+                            }
+
+                            // Tentacles / Organic Structures (L-System)
+                            let cell_x = wx / 12;
+                            let cell_z = wz / 12;
+                            let tx = cell_x * 12 + (hash(cell_x, 1, cell_z).abs() * 12.0) as i32;
+                            let tz = cell_z * 12 + (hash(cell_z, 1, cell_x).abs() * 12.0) as i32;
+
+                            let tentacle_seed = hash(cell_x, cell_z, 3).abs();
+
+                            if tentacle_seed > 0.4 {
+                                let base_h = ((noise2d(tx as f32 * 0.1, tz as f32 * 0.1) * 0.5
+                                    + 0.5)
+                                    * 5.0) as i32;
+                                let max_radius = 8;
+                                let max_height = 15;
+
+                                if (wx - tx).abs() <= max_radius
+                                    && (wz - tz).abs() <= max_radius
+                                    && wy >= base_h
+                                    && wy <= base_h + max_height
+                                {
+                                    let mut lsys = crate::lsystem::LSystem::new("F");
+                                    lsys.add_rule('F', "F[&F]F[^F]F"); // More pitch/yaw bending
+                                    let sentence = lsys.evaluate(2);
+                                    let angle = 45.0 + (hash(tx, 0, tz).abs() * 15.0);
+
+                                    let mut turtle = crate::lsystem::LSystemTurtle::new(
+                                        cgmath::Point3::new(tx, base_h, tz),
+                                        angle,
+                                        1.5,
+                                    );
+                                    turtle.generate(&sentence);
+
+                                    let target = cgmath::Point3::new(wx, wy, wz);
+                                    for v in &turtle.voxels {
+                                        if (v.x - target.x).abs() <= 1
+                                            && (v.y - target.y).abs() <= 1
+                                            && (v.z - target.z).abs() <= 1
+                                        {
+                                            if voxel.id == 0 {
+                                                voxel.id = 8; // Fleshy
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -606,12 +1129,8 @@ impl Chunk {
                                 next_data[d_idx].id = 7;
                             } else if self.data[d_idx].id != 0 {
                                 // Block below is solid, try spreading horizontally
-                                let neighbors = [
-                                    (x + 1, y, z),
-                                    (x - 1, y, z),
-                                    (x, y, z + 1),
-                                    (x, y, z - 1),
-                                ];
+                                let neighbors =
+                                    [(x + 1, y, z), (x - 1, y, z), (x, y, z + 1), (x, y, z - 1)];
                                 // Move to one random available neighbor to avoid infinite cloning/flooding
                                 // since we don't have volume simulation, we just randomly pick one air neighbor and swap.
                                 // Using hash to pick deterministically pseudo-random neighbor
@@ -625,7 +1144,10 @@ impl Chunk {
                                 }
 
                                 if !available.is_empty() {
-                                    let rand_idx = (hash(x + self.key.x, y, z + self.key.z).abs() * 100.0) as usize % available.len();
+                                    let rand_idx = (hash(x + self.key.x, y, z + self.key.z).abs()
+                                        * 100.0)
+                                        as usize
+                                        % available.len();
                                     let target_idx = available[rand_idx];
                                     next_data[idx].id = 0;
                                     next_data[target_idx].id = 7;
@@ -641,7 +1163,9 @@ impl Chunk {
                         // Clouds occasionally spawn rain beneath them
                         let down_idx = self.index_opt(x, y - 1, z);
                         if let Some(d_idx) = down_idx {
-                            if self.data[d_idx].id == 0 && hash(x + self.key.x, y, z).abs() % 1.0 > 0.9 {
+                            if self.data[d_idx].id == 0
+                                && hash(x + self.key.x, y, z).abs() % 1.0 > 0.9
+                            {
                                 next_data[d_idx].id = 10;
                             }
                         }
@@ -669,22 +1193,25 @@ impl Chunk {
 
     pub fn get_color_for_id(id: VoxelId) -> [f32; 3] {
         match id {
-            1 => [0.5, 0.5, 0.5], // Stone
-            2 => [1.0, 0.3, 0.0], // Lava
-            3 => [1.0, 0.8, 0.0], // Fire
-            4 => [0.0, 0.0, 1.0], // Water
-            5 => [0.4, 0.2, 0.0], // Wood
-            6 => [0.2, 0.6, 0.2], // Leaves
-            7 => [0.2, 1.0, 0.2], // Acid
-            8 => [0.7, 0.7, 0.8], // Fog
-            9 => [0.9, 0.9, 0.95], // Cloud
-            10 => [0.4, 0.5, 0.8], // Rain
-            _ => [1.0, 0.0, 1.0], // Magenta error
+            1 => [0.5, 0.5, 0.5],   // 1: Stone
+            2 => [1.0, 0.3, 0.0],   // 2: Lava
+            3 => [1.0, 0.8, 0.0],   // 3: Fire
+            4 => [0.0, 0.5, 1.0],   // 4: Water
+            5 => [0.2, 0.8, 0.2],   // 5: Grass
+            6 => [0.4, 0.2, 0.0],   // 6: Wood
+            7 => [0.2, 0.6, 0.2],   // 7: Leaves
+            8 => [0.4, 0.3, 0.2],   // 8: Dirt
+            9 => [0.8, 0.8, 0.6],   // 9: Sand
+            10 => [0.2, 1.0, 0.2],  // 10: Acid
+            11 => [0.7, 0.7, 0.8],  // 11: Fog
+            12 => [0.9, 0.9, 0.95], // 12: Cloud
+            13 => [0.4, 0.5, 0.8],  // 13: Rain
+            _ => [1.0, 0.0, 1.0],   // Magenta error
         }
     }
 
     // --- Greedy Meshing Implementation ---
-    pub fn generate_splats(&self) -> Vec<SplatVertex> {
+    pub fn generate_splats(&self) -> Vec<crate::splat::SplatVertex> {
         let mut splats = Vec::new();
         let size = self.size;
         let scale_factor = CHUNK_SIZE as f32 / size as f32;
@@ -692,6 +1219,8 @@ impl Chunk {
         let offset_x = self.key.x as f32 * CHUNK_SIZE as f32;
         let offset_y = self.key.y as f32 * CHUNK_SIZE as f32;
         let offset_z = self.key.z as f32 * CHUNK_SIZE as f32;
+
+        let prev_state = self.history.back();
 
         for x in 0..size {
             for y in 0..size {
@@ -705,22 +1234,73 @@ impl Chunk {
                         let mut scale = [scale_factor, scale_factor, scale_factor];
 
                         // Modify based on material type for demonstration
-                        if id == 8 || id == 9 { // Fog, Cloud
+                        if id == 8 || id == 9 {
+                            // Fog, Cloud
                             opacity = 0.5;
                             scale = [scale_factor * 1.5, scale_factor * 1.5, scale_factor * 1.5];
-                        } else if id == 4 || id == 7 { // Water, Acid
+                        } else if id == 4 || id == 7 {
+                            // Water, Acid
                             opacity = 0.8;
                         }
 
                         let pos_x = offset_x + x as f32 * scale_factor + scale_factor * 0.5;
                         let pos_y = offset_y + y as f32 * scale_factor + scale_factor * 0.5;
                         let pos_z = offset_z + z as f32 * scale_factor + scale_factor * 0.5;
+                        let current_pos = [pos_x, pos_y, pos_z];
 
-                        splats.push(SplatVertex {
-                            position: [pos_x, pos_y, pos_z],
+                        let mut previous_position = current_pos;
+
+                        if let Some(prev) = prev_state {
+                            let idx = self.index(x, y, z);
+                            if prev[idx].id != id {
+                                // Find where it came from (adjacent neighbors)
+                                let neighbors = [
+                                    (x as i32 + 1, y as i32, z as i32),
+                                    (x as i32 - 1, y as i32, z as i32),
+                                    (x as i32, y as i32 + 1, z as i32),
+                                    (x as i32, y as i32 - 1, z as i32),
+                                    (x as i32, y as i32, z as i32 + 1),
+                                    (x as i32, y as i32, z as i32 - 1),
+                                ];
+                                for (nx, ny, nz) in neighbors {
+                                    if nx >= 0
+                                        && nx < size as i32
+                                        && ny >= 0
+                                        && ny < size as i32
+                                        && nz >= 0
+                                        && nz < size as i32
+                                    {
+                                        let nidx =
+                                            self.index(nx as usize, ny as usize, nz as usize);
+                                        if prev[nidx].id == id {
+                                            previous_position = [
+                                                offset_x
+                                                    + nx as f32 * scale_factor
+                                                    + scale_factor * 0.5,
+                                                offset_y
+                                                    + ny as f32 * scale_factor
+                                                    + scale_factor * 0.5,
+                                                offset_z
+                                                    + nz as f32 * scale_factor
+                                                    + scale_factor * 0.5,
+                                            ];
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        splats.push(crate::splat::SplatVertex {
+                            position: current_pos,
                             rotation: [0.0, 0.0, 0.0, 1.0], // Identity quaternion
                             scale,
                             color: [color_3[0], color_3[1], color_3[2], opacity],
+                            previous_position,
+                            archetype_id: 0, // Voxel splats are default
+                            target_archetype_id: 0,
+                            morph_weight: 0.0,
+                            bone_index: -1,
                         });
                     }
                 }
@@ -744,17 +1324,20 @@ impl Chunk {
 
         fn get_color(id: VoxelId) -> [f32; 3] {
             match id {
-                1 => [0.5, 0.5, 0.5], // Stone
-                2 => [1.0, 0.3, 0.0], // Lava
-                3 => [1.0, 0.8, 0.0], // Fire
-                4 => [0.0, 0.0, 1.0], // Water
-                5 => [0.0, 0.8, 0.0], // Grass
-                6 => [0.6, 0.4, 0.2], // Wood
-                7 => [0.2, 1.0, 0.2], // Acid
-                8 => [0.8, 0.8, 0.8], // Fog
-                9 => [0.9, 0.9, 0.9], // Cloud
-                10 => [0.5, 0.5, 1.0], // Rain
-                _ => [1.0, 0.0, 1.0],
+                1 => [0.5, 0.5, 0.5],   // 1: Stone
+                2 => [1.0, 0.3, 0.0],   // 2: Lava
+                3 => [1.0, 0.8, 0.0],   // 3: Fire
+                4 => [0.0, 0.5, 1.0],   // 4: Water
+                5 => [0.2, 0.8, 0.2],   // 5: Grass
+                6 => [0.4, 0.2, 0.0],   // 6: Wood
+                7 => [0.2, 0.6, 0.2],   // 7: Leaves
+                8 => [0.4, 0.3, 0.2],   // 8: Dirt
+                9 => [0.8, 0.8, 0.6],   // 9: Sand
+                10 => [0.2, 1.0, 0.2],  // 10: Acid
+                11 => [0.7, 0.7, 0.8],  // 11: Fog
+                12 => [0.9, 0.9, 0.95], // 12: Cloud
+                13 => [0.4, 0.5, 0.8],  // 13: Rain
+                _ => [1.0, 0.0, 1.0],   // Magenta error
             }
         }
 
@@ -1075,6 +1658,96 @@ impl VoxelWorld {
         self.chunks.entry(key).or_insert_with(|| Chunk::new(key))
     }
 
+    pub fn ensure_chunks_around(&mut self, player_pos: cgmath::Point3<f32>, radius: i32) -> bool {
+        let chunk_size = CHUNK_SIZE as f32;
+        let px = (player_pos.x / chunk_size).floor() as i32;
+        let _py = (player_pos.y / chunk_size).floor() as i32;
+        let pz = (player_pos.z / chunk_size).floor() as i32;
+
+        let mut generated_any = false;
+
+        // Iterate within radius (a simple bounding box for now)
+        for x in (px - radius)..=(px + radius) {
+            for y in -1..2 {
+                // Match the default world vertical bounds (-1 to 1) for ground layer consistency
+                for z in (pz - radius)..=(pz + radius) {
+                    let key = ChunkKey { x, y, z };
+                    if !self.chunks.contains_key(&key) {
+                        let chunk = self.create_chunk(key);
+
+                        // Procedural archetype selection
+                        let n = (x.wrapping_abs() + z.wrapping_abs()) % 3;
+                        let archetype = if n == 0 {
+                            Some(crate::reality_types::RealityArchetype::Fantasy)
+                        } else if n == 1 {
+                            Some(crate::reality_types::RealityArchetype::SciFi)
+                        } else {
+                            Some(crate::reality_types::RealityArchetype::Horror)
+                        };
+
+                        if let Some(crate::reality_types::RealityArchetype::Fantasy) = archetype {
+                            // Flat layout default
+                            for z in 0..CHUNK_SIZE {
+                                for y in 0..CHUNK_SIZE {
+                                    for x in 0..CHUNK_SIZE {
+                                        let wy = chunk.key.y * CHUNK_SIZE as i32 + y as i32;
+                                        let mut voxel = Voxel::default();
+                                        if wy == -1 {
+                                            voxel.id = 5; // Grass
+                                        }
+                                        let idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+                                        chunk.data[idx] = voxel;
+                                    }
+                                }
+                            }
+                            // Get neighbors with existing heightmaps for GCT AnchorContext
+                            let mut neighbors = Vec::new();
+                            let offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+                            for (dx, dz) in offsets {
+                                let nx = key.x + dx;
+                                let nz = key.z + dz;
+                                let nkey = ChunkKey {
+                                    x: nx,
+                                    y: key.y,
+                                    z: nz,
+                                };
+                                if let Some(n_chunk) = self.chunks.get(&nkey) {
+                                    let mut n_heights = vec![0.0; CHUNK_SIZE * CHUNK_SIZE];
+                                    for lz in 0..CHUNK_SIZE {
+                                        for lx in 0..CHUNK_SIZE {
+                                            // Find highest non-air voxel as height
+                                            let mut h = -1.0;
+                                            for ly in (0..CHUNK_SIZE).rev() {
+                                                if n_chunk.get(lx, ly, lz).id != 0 {
+                                                    h = ly as f32;
+                                                    break;
+                                                }
+                                            }
+                                            n_heights[lx + lz * CHUNK_SIZE] = h;
+                                        }
+                                    }
+                                    neighbors.push((nx, nz, n_heights));
+                                }
+                            }
+
+                            // Use GCT iterative approximation under the hood
+                            let trajectory = vec![[player_pos.x, player_pos.y, player_pos.z]];
+                            self.genie.request_iterative_extension(
+                                key.x, key.y, key.z, CHUNK_SIZE, trajectory, neighbors,
+                            );
+                        } else {
+                            chunk.generate(archetype);
+                        }
+
+                        generated_any = true;
+                    }
+                }
+            }
+        }
+
+        generated_any
+    }
+
     pub fn get_voxel_at(&self, x: i32, y: i32, z: i32) -> Option<Voxel> {
         let chunk_size = CHUNK_SIZE as i32;
         let cx = x.div_euclid(chunk_size);
@@ -1162,6 +1835,99 @@ impl VoxelWorld {
         }
     }
 
+    pub fn update_splat_morphs(
+        &mut self,
+        projectors: &[&crate::projector::RealityProjector],
+        dt: f32,
+    ) -> bool {
+        let mut changed = false;
+        for chunk in self.chunks.values_mut() {
+            for splat in chunk.splats.iter_mut() {
+                let mut target_id = 0; // Default to base archetype
+                let mut min_dist = f32::MAX;
+
+                for p in projectors {
+                    let dx = splat.position[0] - p.location.x;
+                    let dy = splat.position[1] - p.location.y;
+                    let dz = splat.position[2] - p.location.z;
+                    let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+
+                    if dist < p.reality_signature.fidelity && dist < min_dist {
+                        min_dist = dist;
+                        target_id = p.reality_signature.active_style.archetype as u32;
+                    }
+                }
+
+                if splat.target_archetype_id != target_id {
+                    splat.target_archetype_id = target_id;
+                    changed = true;
+                }
+
+                if splat.archetype_id != splat.target_archetype_id {
+                    splat.morph_weight += dt * 0.5;
+                    changed = true;
+                    if splat.morph_weight >= 1.0 {
+                        splat.archetype_id = splat.target_archetype_id;
+                        splat.morph_weight = 0.0;
+                    }
+                } else if splat.morph_weight != 0.0 {
+                    splat.morph_weight = 0.0;
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    pub fn process_pending_splats(&mut self) -> bool {
+        let mut groups = Vec::new();
+        let mut changed = false;
+        if let Ok(mut pending) = self.genie.pending_splats.lock() {
+            groups.extend(pending.drain(..));
+        }
+
+        for splat_group in groups {
+            let mut chunk_key = ChunkKey { x: 0, y: 0, z: 0 };
+            if let Some(first) = splat_group.first() {
+                let pos = first.position;
+                chunk_key = ChunkKey {
+                    x: (pos[0] / CHUNK_SIZE as f32).floor() as i32,
+                    y: (pos[1] / CHUNK_SIZE as f32).floor() as i32,
+                    z: (pos[2] / CHUNK_SIZE as f32).floor() as i32,
+                };
+            }
+
+            let chunk = self.create_chunk(chunk_key);
+            if !splat_group.is_empty() {
+                changed = true;
+            }
+            chunk.splats.extend(splat_group);
+        }
+
+        let mut voxel_chunks = Vec::new();
+        if let Ok(mut pending) = self.genie.pending_voxels.lock() {
+            voxel_chunks.extend(pending.drain(..));
+        }
+
+        for new_chunk in voxel_chunks {
+            let key = new_chunk.key;
+            changed = true;
+            // Merge or replace
+            if let Some(existing) = self.chunks.get_mut(&key) {
+                // Merge data where new_chunk has non-air
+                for i in 0..existing.data.len() {
+                    if new_chunk.data[i].id != 0 {
+                        existing.data[i] = new_chunk.data[i];
+                    }
+                }
+            } else {
+                self.chunks.insert(key, new_chunk);
+            }
+        }
+
+        changed
+    }
+
     pub fn dream(&mut self) {
         for chunk in self.chunks.values_mut() {
             self.genie.dream_chunk(chunk);
@@ -1191,7 +1957,34 @@ impl VoxelWorld {
                         Some(crate::reality_types::RealityArchetype::Horror)
                     };
 
-                    chunk.generate(archetype);
+                    if let Some(crate::reality_types::RealityArchetype::Fantasy) = archetype {
+                        // Flat layout default
+                        for z in 0..CHUNK_SIZE {
+                            for y in 0..CHUNK_SIZE {
+                                for x in 0..CHUNK_SIZE {
+                                    let wy = chunk.key.y * CHUNK_SIZE as i32 + y as i32;
+                                    let mut voxel = Voxel::default();
+                                    if wy == -1 {
+                                        voxel.id = 5; // Grass
+                                    }
+                                    let idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+                                    chunk.data[idx] = voxel;
+                                }
+                            }
+                        }
+                        // Request GCT scene extension
+                        let trajectory = vec![[0.0, 0.0, 0.0]];
+                        self.genie.request_iterative_extension(
+                            key.x,
+                            key.y,
+                            key.z,
+                            CHUNK_SIZE,
+                            trajectory,
+                            Vec::new(),
+                        );
+                    } else {
+                        chunk.generate(archetype);
+                    }
                 }
             }
         }
@@ -1515,14 +2308,14 @@ mod diffuse_tests {
             chunk.diffuse();
         }
 
-        let mut fire_count = 0;
+        let mut _fire_count = 0;
         let mut lava_count = 0;
         for z in 0..CHUNK_SIZE {
             for y in 0..CHUNK_SIZE {
                 for x in 0..CHUNK_SIZE {
                     let id = chunk.get(x, y, z).id;
                     if id == 3 {
-                        fire_count += 1;
+                        _fire_count += 1;
                     }
                     if id == 2 {
                         lava_count += 1;

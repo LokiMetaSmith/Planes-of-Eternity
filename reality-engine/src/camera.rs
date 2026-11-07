@@ -20,17 +20,32 @@ pub struct Camera {
     pub yaw: f32,
     pub pitch: f32,
     pub projection_override: Option<Matrix4<f32>>,
+    pub velocity: Vector3<f32>,
+    pub is_grounded: bool,
 }
 
 impl Camera {
-    pub fn build_view_projection_matrix(&self) -> Matrix4<f32> {
-        let view = Matrix4::look_at_rh(self.eye, self.target, self.up);
-        let proj = if let Some(p) = self.projection_override {
+    pub fn build_view_matrix(&self) -> Matrix4<f32> {
+        Matrix4::look_at_rh(self.eye, self.target, self.up)
+    }
+
+    pub fn build_projection_matrix(&self) -> Matrix4<f32> {
+        if let Some(p) = self.projection_override {
             p
         } else {
             cgmath::perspective(Deg(self.fovy), self.aspect, self.znear, self.zfar)
-        };
-        OPENGL_TO_WGPU_MATRIX * proj * view
+        }
+    }
+
+    pub fn build_view_projection_matrix(&self) -> Matrix4<f32> {
+        OPENGL_TO_WGPU_MATRIX * self.build_projection_matrix() * self.build_view_matrix()
+    }
+
+    pub fn build_inverse_view_projection_matrix(&self) -> Matrix4<f32> {
+        use cgmath::SquareMatrix;
+        self.build_view_projection_matrix()
+            .invert()
+            .unwrap_or(Matrix4::identity())
     }
 
     pub fn rotate(&mut self, dx: f32, dy: f32) {
@@ -78,6 +93,10 @@ pub struct CameraController {
     is_right_pressed: bool,
     is_up_pressed: bool,
     is_down_pressed: bool,
+    pub is_crouching: bool,
+    pub orbit_mode: bool,
+    pub orbit_focal_point: Point3<f32>,
+    pub orbit_radius: f32,
 }
 
 impl CameraController {
@@ -90,6 +109,10 @@ impl CameraController {
             is_right_pressed: false,
             is_up_pressed: false,
             is_down_pressed: false,
+            is_crouching: false,
+            orbit_mode: false,
+            orbit_focal_point: Point3::new(0.0, 0.0, 0.0),
+            orbit_radius: 20.0,
         }
     }
 
@@ -100,7 +123,10 @@ impl CameraController {
             Action::MoveLeft => self.is_left_pressed = pressed,
             Action::MoveRight => self.is_right_pressed = pressed,
             Action::Jump => self.is_up_pressed = pressed,
-            Action::Descend => self.is_down_pressed = pressed,
+            Action::Descend => {
+                self.is_down_pressed = pressed;
+                self.is_crouching = pressed;
+            }
             _ => (),
         }
     }
@@ -128,40 +154,56 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&self, camera: &mut Camera) {
-        // Calculate forward direction on XZ plane for movement
+    pub fn get_movement_velocity(&self, camera: &Camera) -> Vector3<f32> {
+        if self.orbit_mode {
+            return Vector3::zero();
+        }
+
         let (sin_y, cos_y) = camera.yaw.sin_cos();
-        // Optimization: Vector3::new(sin_y, 0.0, cos_y) is mathematically guaranteed to be unit length (sin^2 + cos^2 = 1)
         let forward_xz = Vector3::new(sin_y, 0.0, cos_y);
-        // Optimization: Cross product of two orthogonal unit vectors is a unit vector
         let right_xz = forward_xz.cross(Vector3::unit_y());
 
+        let mut speed = self.speed;
+        if self.is_crouching {
+            speed *= 0.5;
+        }
+
+        let mut vel = Vector3::zero();
         if self.is_forward_pressed {
-            camera.eye += forward_xz * self.speed;
+            vel += forward_xz * speed;
         }
         if self.is_backward_pressed {
-            camera.eye -= forward_xz * self.speed;
+            vel -= forward_xz * speed;
         }
         if self.is_right_pressed {
-            camera.eye += right_xz * self.speed;
+            vel += right_xz * speed;
         }
         if self.is_left_pressed {
-            camera.eye -= right_xz * self.speed;
+            vel -= right_xz * speed;
         }
 
-        if self.is_up_pressed {
-            camera.eye.y += self.speed;
-        }
-        if self.is_down_pressed {
-            camera.eye.y -= self.speed;
-        }
+        vel
+    }
 
-        // Floor collision
-        if camera.eye.y < 1.0 {
-            camera.eye.y = 1.0;
-        }
+    pub fn is_up_pressed(&self) -> bool {
+        self.is_up_pressed
+    }
 
-        // Update target based on new eye position
-        camera.update_target();
+    pub fn is_down_pressed(&self) -> bool {
+        self.is_down_pressed
+    }
+
+    pub fn update_camera_target(&self, camera: &mut Camera) {
+        if self.orbit_mode {
+            let (sin_y, cos_y) = camera.yaw.sin_cos();
+            let (sin_p, cos_p) = camera.pitch.sin_cos();
+
+            // Calculate eye position based on focal point, radius, and spherical coordinates
+            let front = Vector3::new(cos_p * sin_y, sin_p, cos_p * cos_y);
+            camera.eye = self.orbit_focal_point - front * self.orbit_radius;
+            camera.target = self.orbit_focal_point;
+        } else {
+            camera.update_target();
+        }
     }
 }

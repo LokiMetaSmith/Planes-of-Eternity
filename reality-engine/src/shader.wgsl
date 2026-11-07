@@ -1,6 +1,8 @@
 struct CameraUniform {
     view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
+    time: vec4<f32>,
 };
 @group(1) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -10,6 +12,13 @@ struct RealityUniform {
     proj_params: array<vec4<f32>, 5>, // x=roughness, y=scale, z=distortion, w=archetype_id
     proj_color: array<vec4<f32>, 5>,
     global_offset: vec4<f32>,
+    nodes_pos_fid: array<vec4<f32>, 15>,
+    nodes_params: array<vec4<f32>, 15>,
+    nodes_color: array<vec4<f32>, 15>,
+    num_nodes: vec4<u32>, // x=count
+    sun_dir: vec4<f32>,
+    sun_color: vec4<f32>,
+    ambient_color: vec4<f32>,
 };
 @group(2) @binding(0)
 var<uniform> reality: RealityUniform;
@@ -127,11 +136,13 @@ fn domain_warp(p: vec2<f32>) -> f32 {
 
 struct BlendResult {
     weights: array<f32, 5>,
+    node_weights: array<f32, 15>,
     total_strength: f32,
 };
 
 fn calculate_blend(pos: vec3<f32>) -> BlendResult {
     var strengths: array<f32, 5>;
+    var node_strengths: array<f32, 15>;
     var total = 0.0;
 
     for (var i = 0u; i < 5u; i = i + 1u) {
@@ -141,18 +152,93 @@ fn calculate_blend(pos: vec3<f32>) -> BlendResult {
         total = total + strength;
     }
 
+    let node_count = min(reality.num_nodes.x, 15u);
+    for (var i = 0u; i < node_count; i = i + 1u) {
+        let dist = max(distance(pos, reality.nodes_pos_fid[i].xyz), 1.0);
+        let strength = reality.nodes_pos_fid[i].w / dist;
+        node_strengths[i] = strength;
+        total = total + strength;
+    }
+
     var weights: array<f32, 5>;
+    var node_weights: array<f32, 15>;
     if (total > 0.0001) {
         for (var i = 0u; i < 5u; i = i + 1u) {
             weights[i] = strengths[i] / total;
+        }
+        for (var i = 0u; i < node_count; i = i + 1u) {
+            node_weights[i] = node_strengths[i] / total;
         }
     } else {
         for (var i = 0u; i < 5u; i = i + 1u) {
             weights[i] = 0.0;
         }
+        for (var i = 0u; i < 15u; i = i + 1u) {
+            node_weights[i] = 0.0;
+        }
     }
 
-    return BlendResult(weights, total);
+    return BlendResult(weights, node_weights, total);
+}
+
+
+fn get_lighting_info(id: f32) -> vec2<f32> {
+    // x = directional weight, y = ambient strength
+    if (id < -0.5) {
+        return vec2<f32>(0.0, 0.4); // Void (ambient only)
+    } else if (id < 0.5) {
+        return vec2<f32>(1.0, 0.3); // Fantasy
+    } else if (id < 1.5) {
+        return vec2<f32>(0.0, 0.5); // SciFi (ambient)
+    } else if (id < 2.5) {
+        return vec2<f32>(0.0, 0.2); // Horror (ambient)
+    } else if (id < 3.5) {
+        return vec2<f32>(1.0, 0.3); // Toon
+    } else if (id < 4.5) {
+        return vec2<f32>(1.0, 0.3); // HyperNature
+    } else if (id < 5.5) {
+        return vec2<f32>(1.0, 0.3); // Genie
+    } else if (id < 6.5) {
+        return vec2<f32>(0.0, 0.5); // Glitch (ambient)
+    } else if (id < 7.5) {
+        return vec2<f32>(1.0, 0.3); // Steampunk
+    } else if (id < 8.5) {
+        return vec2<f32>(0.0, 0.5); // Vaporwave (ambient)
+    } else if (id < 9.5) {
+        return vec2<f32>(0.0, 0.4); // Noir (ambient)
+    } else if (id < 10.5) {
+        return vec2<f32>(0.0, 0.5); // CyberSpace (ambient)
+    } else if (id < 11.5) {
+        return vec2<f32>(0.0, 0.6); // Dream (ambient)
+    } else if (id < 12.5) {
+        return vec2<f32>(1.0, 0.3); // ObraDinn
+    } else if (id < 13.5) {
+        return vec2<f32>(1.0, 0.3); // SolarPunk
+    } else if (id < 14.5) {
+        return vec2<f32>(1.0, 0.3); // Biopunk
+    } else if (id < 15.5) {
+        return vec2<f32>(0.0, 0.5); // Tron (ambient)
+    } else if (id < 16.5) {
+        return vec2<f32>(0.0, 0.6); // ColdStorage (ambient)
+    } else if (id < 17.5) {
+        return vec2<f32>(0.0, 0.7); // LiminalSpace (ambient)
+    } else if (id < 18.5) {
+        return vec2<f32>(1.0, 0.3); // Clockwork
+    } else if (id < 19.5) {
+        return vec2<f32>(1.0, 0.3); // Cottagecore
+    } else if (id < 20.5) {
+        return vec2<f32>(1.0, 0.3); // WildWest
+    } else if (id < 21.5) {
+        return vec2<f32>(1.0, 0.3); // Fractal
+    } else if (id < 22.5) {
+        return vec2<f32>(1.0, 0.3); // Prehistoric
+    } else if (id < 23.5) {
+        return vec2<f32>(1.0, 0.3); // PostApocalyptic
+    } else if (id < 24.5) {
+        return vec2<f32>(0.5, 0.8); // Underwater
+    }
+
+    return vec2<f32>(0.5, 0.3); // fallback
 }
 
 fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
@@ -307,7 +393,7 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
     } else if (id < 13.5) {
         // SolarPunk
         let time = reality.global_offset.z;
-        let pos_scaled = pos.xz * scale;
+        let pos_scaled = pos * scale;
         // Voronoi cells mixed with organic noise
         let cells = voronoi(pos_scaled);
         let organic = fbm(pos_scaled * 2.0 + time * 0.1, 3, roughness);
@@ -330,6 +416,47 @@ fn get_displacement(xz: vec2<f32>, params: vec4<f32>) -> f32 {
     } else if (id < 17.5) {
         // LiminalSpace (Flat indoor hallways)
         return 0.0;
+    } else if (id < 18.5) {
+        // Clockwork (Gear-like geometric ridges)
+        let p = pos * scale;
+        let r = length(p - vec2<f32>(0.0, 0.0));
+        let angle = atan2(p.y, p.x);
+        let gear_teeth = sin(angle * 12.0) * 0.5 + 0.5;
+        let base_height = sin(r * 3.14159) * 0.5;
+        return (base_height + gear_teeth * 0.5) * 10.0 * params.z;
+    } else if (id < 19.5) {
+        // Cottagecore (Soft rolling hills)
+        let p = pos * scale * 0.5;
+        let n = fbm(p, 4, roughness);
+        return n * 12.0 * params.z;
+    } else if (id < 20.5) {
+        // WildWest (Sandy dunes, canyons)
+        let p = pos * scale * 1.5;
+        let n = fbm(p, 3, roughness);
+        return (n * n) * 10.0 * params.z;
+    } else if (id < 21.5) {
+        // Fractal (Sharp, crystalline structures)
+        let p = pos * scale * 3.0;
+        let v = voronoi(p);
+        return v * 15.0 * params.z;
+    } else if (id < 22.5) {
+        // Prehistoric (Rugged, twisted terrain)
+        let p = pos * scale;
+        let p_warp = vec2<f32>(domain_warp(p), domain_warp(p + vec2<f32>(1.0, 1.0)));
+        let n = fbm(p + p_warp * 2.0, 4, roughness);
+        return n * 15.0 * params.z;
+    } else if (id < 23.5) {
+        // PostApocalyptic (Barren, ruined terrain)
+        let p = pos * scale * 2.0;
+        let n = fbm(p, 5, roughness);
+        return (n * n) * 10.0 * params.z;
+    } else if (id < 24.5) {
+        // Underwater (Smooth wavy dunes)
+        let p = pos * scale * 0.5;
+        let n1 = sin(p.x * 3.0 + reality.global_offset.z) * 0.5;
+        let n2 = cos(p.y * 2.0 + reality.global_offset.z * 1.5) * 0.5;
+        let n3 = fbm(p, 3, roughness) * 0.5;
+        return (n1 + n2 + n3) * 5.0 * params.z;
     }
 
     return 0.0;
@@ -345,6 +472,14 @@ fn get_height_at(pos: vec3<f32>) -> f32 {
             let disp = get_displacement(pos.xz, reality.proj_params[i]);
             let val = disp * reality.proj_params[i].z;
             total_displacement = total_displacement + val * blend.weights[i];
+        }
+    }
+
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        if (blend.node_weights[i] > 0.001) {
+            let disp = get_displacement(pos.xz, reality.nodes_params[i]);
+            let val = disp * reality.nodes_params[i].z;
+            total_displacement = total_displacement + val * blend.node_weights[i];
         }
     }
 
@@ -365,6 +500,10 @@ struct VertexOutput {
     @location(8) visibility: f32,
     @location(9) normal: vec3<f32>,
     @location(10) instability: f32,
+    @location(11) node_weight0: f32,
+    @location(12) node_weight1: f32,
+    @location(13) node_weight2: f32,
+    @location(14) node_weight3: f32,
 };
 
 @vertex
@@ -419,6 +558,10 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.weight2 = blend.weights[2];
     out.weight3 = blend.weights[3];
     out.weight4 = blend.weights[4];
+    out.node_weight0 = blend.node_weights[0];
+    out.node_weight1 = blend.node_weights[1];
+    out.node_weight2 = blend.node_weights[2];
+    out.node_weight3 = blend.node_weights[3];
     out.visibility = min(blend.total_strength, 1.0);
     out.normal = normal;
     out.instability = instability;
@@ -772,9 +915,159 @@ fn get_pattern_color(pos_in: vec3<f32>, params: vec4<f32>, base_color: vec3<f32>
         // Faint carpet pattern or ceiling tile lines
         let pattern = (sin(p.x * 3.14) * sin(p.y * 3.14)) * 0.1;
         return base - vec3<f32>(pattern) + vec3<f32>(n * 0.05);
+    } else if (id < 18.5) {
+        // Clockwork (Brass/copper with gear lines)
+        let p = pos.xz * scale * 5.0;
+        let n = fbm(p, 3, roughness);
+
+        let brass = vec3<f32>(0.8, 0.6, 0.2);
+        let copper = vec3<f32>(0.7, 0.4, 0.2);
+
+        // Concentric circles/gears pattern
+        let r = length(p);
+        let ring = step(0.1, abs(sin(r * 10.0)));
+        let base_metal = mix(copper, brass, n);
+
+        return base_metal * (0.8 + 0.2 * ring);
+    } else if (id < 19.5) {
+        // Cottagecore (Floral greens and earthy paths)
+        let p = pos.xz * scale * 4.0;
+        let n = fbm(p, 4, roughness);
+
+        let grass = vec3<f32>(0.4, 0.7, 0.3);
+        let path = vec3<f32>(0.6, 0.5, 0.3);
+        let flower = vec3<f32>(0.9, 0.4, 0.6); // Pinkish flowers
+
+        // Voronoi-ish blobs for flowers
+        let f_pattern = step(0.85, fbm(p * 5.0, 2, 0.5));
+
+        let base_col = mix(path, grass, smoothstep(0.3, 0.7, n));
+        return mix(base_col, flower, f_pattern * smoothstep(0.5, 0.6, n)); // Flowers only on grass
+    } else if (id < 20.5) {
+        // WildWest (Dusty, sandy)
+        let n = fbm(pos_in.xz * scale, 4, roughness);
+        return mix(vec3<f32>(0.8, 0.5, 0.2), vec3<f32>(0.6, 0.3, 0.1), n);
+    } else if (id < 21.5) {
+        // Fractal (Neon/orange structures)
+        let v = voronoi(pos_in.xz * scale * 3.0);
+        return mix(vec3<f32>(0.1, 0.05, 0.1), vec3<f32>(1.0, 0.5, 0.0), v);
+    } else if (id < 22.5) {
+        // Prehistoric (Jungle green and earth brown)
+        let n = fbm(pos_in.xz * scale, 4, roughness);
+        let col = mix(vec3<f32>(0.2, 0.1, 0.05), vec3<f32>(0.1, 0.3, 0.1), n);
+        return col;
+    } else if (id < 23.5) {
+        // PostApocalyptic (Dusty brown and orange)
+        let n = fbm(pos_in.xz * scale, 5, roughness);
+        let col = mix(vec3<f32>(0.4, 0.3, 0.2), vec3<f32>(0.3, 0.2, 0.15), n);
+        return col;
+    } else if (id < 24.5) {
+        // Underwater (Caustic mappings)
+        let time = reality.global_offset.z;
+        let p = pos_in.xz * scale;
+
+        let sand = vec3<f32>(0.8, 0.7, 0.5);
+        let deep_water = vec3<f32>(0.1, 0.3, 0.6);
+
+        let caustic_scale = 3.0;
+        let v1 = voronoi(p * caustic_scale + vec2<f32>(time * 0.5, time * 0.3));
+        let v2 = voronoi(p * caustic_scale * 1.5 - vec2<f32>(time * 0.4, time * 0.6));
+
+        let caustic = pow(min(v1, v2), 2.0); // sharp lines
+        let caustic_color = vec3<f32>(0.8, 0.9, 1.0) * caustic * 2.0;
+
+        let base = mix(sand, deep_water, 0.3); // a bit of water tint
+        return base + caustic_color;
     }
 
     return base_color;
+}
+
+
+// PBR Math Helpers
+const PI = 3.14159265359;
+
+fn get_roughness_metallic(id: f32) -> vec2<f32> {
+    if (id < -0.5) { return vec2<f32>(0.6, 0.0); }
+    else if (id < 0.5) { return vec2<f32>(0.9, 0.0); }
+    else if (id < 1.5) { return vec2<f32>(0.8, 0.0); }
+    else if (id < 2.5) { return vec2<f32>(0.5, 0.1); }
+    else if (id < 3.5) { return vec2<f32>(0.7, 0.0); }
+    else if (id < 4.5) { return vec2<f32>(0.2, 0.0); }
+    else if (id < 5.5) { return vec2<f32>(0.8, 0.0); }
+    else if (id < 6.5) { return vec2<f32>(0.5, 0.0); }
+    else if (id < 7.5) { return vec2<f32>(0.4, 0.0); }
+    else if (id < 8.5) { return vec2<f32>(0.2, 0.8); }
+    else if (id < 9.5) { return vec2<f32>(0.9, 0.0); }
+    else { return vec2<f32>(0.5, 0.0); }
+}
+
+fn DistributionGGX(N: vec3<f32>, H: vec3<f32>, roughness: f32) -> f32 {
+    let a = roughness*roughness;
+    let a2 = a*a;
+    let NdotH = max(dot(N, H), 0.0);
+    let NdotH2 = NdotH*NdotH;
+    let num = a2;
+    var denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+    return num / denom;
+}
+
+fn GeometrySchlickGGX(NdotV: f32, roughness: f32) -> f32 {
+    let r = (roughness + 1.0);
+    let k = (r*r) / 8.0;
+    let num = NdotV;
+    let denom = NdotV * (1.0 - k) + k;
+    return num / denom;
+}
+
+fn GeometrySmith(N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, roughness: f32) -> f32 {
+    let NdotV = max(dot(N, V), 0.0);
+    let NdotL = max(dot(N, L), 0.0);
+    let ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    let ggx1 = GeometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+fn calculate_pbr(
+    N: vec3<f32>, V: vec3<f32>, L: vec3<f32>,
+    albedo: vec3<f32>, roughness: f32, metallic: f32,
+    light_color: vec3<f32>, attenuation: f32
+) -> vec3<f32> {
+    let H = normalize(V + L);
+    let radiance = light_color * attenuation;
+
+    var F0 = vec3<f32>(0.04);
+    F0 = mix(F0, albedo, metallic);
+
+    let NDF = DistributionGGX(N, H, roughness);
+    let G   = GeometrySmith(N, V, L, roughness);
+    let F   = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+    let numerator    = NDF * G * F;
+    let denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+    let specular = numerator / denominator;
+
+    let kS = F;
+    var kD = vec3<f32>(1.0) - kS;
+    kD *= 1.0 - metallic;
+
+    let NdotL = max(dot(N, L), 0.0);
+    return (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
+// ACES Tonemapping
+fn ACESFilm(x: vec3<f32>) -> vec3<f32> {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 @fragment
@@ -782,6 +1075,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_texture = textureSample(t_diffuse, s_diffuse, in.tex_coords);
 
     let weights = array<f32, 5>(in.weight0, in.weight1, in.weight2, in.weight3, in.weight4);
+    let node_weights = array<f32, 4>(in.node_weight0, in.node_weight1, in.node_weight2, in.node_weight3);
 
     var pattern_color = vec3<f32>(0.0);
     var blended_roughness = 0.0;
@@ -791,6 +1085,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let c = get_pattern_color(in.world_pos, reality.proj_params[i], reality.proj_color[i].rgb);
             pattern_color = pattern_color + c * weights[i];
             blended_roughness = blended_roughness + reality.proj_params[i].x * weights[i];
+        }
+    }
+
+    // We only passed the first 4 node weights via interpolators to avoid hitting limits
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        if (node_weights[i] > 0.001) {
+            let c = get_pattern_color(in.world_pos, reality.nodes_params[i], reality.nodes_color[i].rgb);
+            pattern_color = pattern_color + c * node_weights[i];
+            blended_roughness = blended_roughness + reality.nodes_params[i].x * node_weights[i];
         }
     }
 
@@ -807,19 +1110,51 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let light_y = cos(cycle);
     let light_dir = normalize(vec3<f32>(light_x, light_y, 0.5));
 
-    // Shadow
-    var shadow = 1.0;
-    if (light_y > 0.0) {
-        shadow = ray_march_shadow(in.world_pos, light_dir);
-    } else {
-        shadow = 0.0; // No direct sun at night
+    var directional_weight = 0.0;
+    var ambient_strength = 0.0;
+
+    for (var i = 0u; i < 5u; i = i + 1u) {
+        if (weights[i] > 0.001) {
+            let l_info = get_lighting_info(reality.proj_params[i].w);
+            directional_weight = directional_weight + l_info.x * weights[i];
+            ambient_strength = ambient_strength + l_info.y * weights[i];
+        }
     }
 
-    let diffuse = max(dot(in.normal, light_dir), 0.0) * shadow;
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        if (node_weights[i] > 0.001) {
+            let l_info = get_lighting_info(reality.nodes_params[i].w);
+            directional_weight = directional_weight + l_info.x * node_weights[i];
+            ambient_strength = ambient_strength + l_info.y * node_weights[i];
+        }
+    }
 
-    // Ambient varies with Day/Night
-    var ambient = 0.3;
-    if (light_y < 0.0) { ambient = 0.05; }
+    // Shadow
+    var shadow = 1.0;
+    if (light_y > 0.0 && directional_weight > 0.001) {
+        shadow = ray_march_shadow(in.world_pos, light_dir);
+    } else {
+        shadow = 0.0; // No direct sun at night or if no directional light
+    }
+
+    // Storm Lightning Flash
+    var ambient = ambient_strength;
+    let is_stormy = sin(time * 0.05) > 0.8;
+    if (is_stormy && light_y < 0.2) {
+        let lightning_noise = fract(sin(dot(vec2<f32>(time * 10.0, 0.0), vec2<f32>(12.9898, 78.233))) * 43758.5453);
+        if (lightning_noise > 0.98) {
+            ambient = ambient + 1.5;
+        }
+    }
+
+    let diffuse = max(dot(in.normal, light_dir), 0.0) * shadow * directional_weight;
+
+    // Ambient varies with Day/Night ONLY if there is directional light.
+    // If it's pure ambient, keep it constant (e.g. indoor/cyberpunk doesn't get dark at "night")
+    if (light_y < 0.0) {
+        // Fade out ambient slightly at night based on how directional the area is
+        ambient = mix(ambient_strength, 0.05, directional_weight);
+    }
 
     let lighting = diffuse + ambient;
 
@@ -831,7 +1166,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_diffuse = max(dot(base_normal, light_dir), 0.0) * shadow;
     let lit_base = base_texture.rgb * (base_diffuse + ambient);
 
-    let result = mix(lit_base, lit_reality, in.visibility);
+    var result = mix(lit_base, lit_reality, in.visibility);
+
+    // ACES Tonemapping
+    result = ACESFilm(result);
+    // Gamma correction
+    result = pow(result, vec3<f32>(1.0/2.2));
 
     // Visual Glitch Overlay (Chromatic Aberration simulation via color shift)
     if (in.instability > 0.1) {

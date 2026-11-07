@@ -143,6 +143,8 @@ pub struct WorldState {
     pub dropped_items: Vec<crate::reality_types::DroppedItem>,
     #[serde(default)]
     pub player_inventory: Vec<crate::reality_types::DroppedItem>,
+    #[serde(default)]
+    pub spawned_nodes_grid: HashSet<[i32; 3]>,
 }
 
 impl WorldState {
@@ -212,6 +214,13 @@ impl WorldState {
             RealityArchetype::Tron => 0.15,
             RealityArchetype::ColdStorage => 0.2,
             RealityArchetype::LiminalSpace => 0.3,
+            RealityArchetype::Clockwork => 0.2,
+            RealityArchetype::Cottagecore => 0.1,
+            RealityArchetype::WildWest => 0.3,
+            RealityArchetype::Fractal => 0.1,
+            RealityArchetype::Prehistoric => 0.1,
+            RealityArchetype::PostApocalyptic => 0.2,
+            RealityArchetype::Underwater => 0.2,
         };
 
         // Player influence applies over time
@@ -248,6 +257,13 @@ impl WorldState {
             RealityArchetype::Tron => 0.15,
             RealityArchetype::ColdStorage => 0.2,
             RealityArchetype::LiminalSpace => 0.3,
+            RealityArchetype::Clockwork => 0.2,
+            RealityArchetype::Cottagecore => 0.1,
+            RealityArchetype::WildWest => 0.3,
+            RealityArchetype::Fractal => 0.1,
+            RealityArchetype::Prehistoric => 0.1,
+            RealityArchetype::PostApocalyptic => 0.2,
+            RealityArchetype::Underwater => 0.2,
         };
 
         chunk.stability = (chunk.stability - stability_cost).clamp(0.0, 1.0);
@@ -492,5 +508,45 @@ mod tests {
             chunk1.hash, chunk2.hash,
             "Hashes should be identical regardless of insertion order"
         );
+    }
+
+    #[test]
+    fn test_world_state_add_remove_anomaly() {
+        let mut world = WorldState::default();
+        let location = cgmath::Point3::new(15.0, 0.0, 15.0);
+        let id = ChunkId::from_world_pos(location.x, location.z, ANOMALY_GRID_SIZE);
+
+        // Ensure starting stability is 1.0
+        assert_eq!(world.get_or_create_chunk(id).stability, 1.0);
+
+        let mut sig = RealitySignature::default();
+        sig.active_style.archetype = RealityArchetype::Horror; // Cost 0.2
+        let mut projector = RealityProjector::new(location, sig);
+        projector.uuid = "test-uuid-1".to_string();
+
+        // Add anomaly
+        world.add_anomaly(projector);
+
+        // Verify anomaly was added
+        let chunk = world.get_or_create_chunk(id);
+        assert_eq!(chunk.anomalies.len(), 1);
+        assert_eq!(chunk.anomalies[0].uuid, "test-uuid-1");
+        assert_eq!(chunk.stability, 0.8); // 1.0 - 0.2
+
+        // Remember root hash
+        let initial_root_hash = world.root_hash.clone();
+        assert!(!initial_root_hash.is_empty());
+
+        // Remove anomaly
+        let removed = world.remove_anomaly("test-uuid-1", location);
+        assert!(removed);
+
+        // Verify anomaly is marked as deleted (tombstone)
+        let chunk_after = world.get_or_create_chunk(id);
+        assert_eq!(chunk_after.anomalies.len(), 1);
+        assert!(chunk_after.anomalies[0].deleted);
+
+        // Root hash should have changed due to tombstone state
+        assert_ne!(world.root_hash, initial_root_hash);
     }
 }

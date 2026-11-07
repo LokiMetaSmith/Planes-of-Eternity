@@ -1,3 +1,9 @@
+#![allow(dead_code)]
+
+#[cfg(target_arch = "wasm32")]
+use cgmath::{InnerSpace, One, Rotation, SquareMatrix};
+#[cfg(target_arch = "wasm32")]
+use wgpu::util::DeviceExt;
 use cgmath::{InnerSpace, SquareMatrix};
 
 use serde::Serialize;
@@ -17,14 +23,25 @@ use web_sys::{
 
 pub mod audio;
 pub mod camera;
+pub mod cfg;
+#[cfg(target_arch = "wasm32")]
+pub mod crash_report;
+pub mod culling;
 pub mod engine;
 pub mod genie_bridge;
+pub mod indexed_db;
 pub mod input;
 pub mod lambda;
+pub mod lsystem;
 pub mod network;
 pub mod persistence;
 pub mod projector;
 pub mod reality_types;
+pub mod rigging;
+pub mod splat;
+pub mod splat4d_decoder;
+pub mod splat4d_encoder;
+pub mod steam;
 mod texture;
 pub mod visual_lambda;
 pub mod voxel;
@@ -37,6 +54,7 @@ pub mod xr;
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
+    inv_view_proj: [[f32; 4]; 4],
     camera_pos: [f32; 4], // xyz, w=padding
     time: [f32; 4],       // x=time, yzw=padding
 }
@@ -46,6 +64,7 @@ impl CameraUniform {
         use cgmath::SquareMatrix;
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
+            inv_view_proj: cgmath::Matrix4::identity().into(),
             camera_pos: [0.0; 4],
             time: [0.0; 4],
         }
@@ -53,6 +72,7 @@ impl CameraUniform {
 
     fn update_view_proj(&mut self, camera: &camera::Camera, time: f32) {
         self.view_proj = camera.build_view_projection_matrix().into();
+        self.inv_view_proj = camera.build_inverse_view_projection_matrix().into();
         self.camera_pos = [camera.eye.x, camera.eye.y, camera.eye.z, 1.0];
         self.time[0] = time;
     }
@@ -65,7 +85,13 @@ struct RealityUniform {
     proj_params: [[f32; 4]; 5], // x=roughness, y=scale, z=distortion, w=archetype_id
     proj_color: [[f32; 4]; 5],
     global_offset: [f32; 4],
-
+    nodes_pos_fid: [[f32; 4]; 15],
+    nodes_params: [[f32; 4]; 15],
+    nodes_color: [[f32; 4]; 15],
+    num_nodes: [u32; 4], // x=count
+    sun_dir: [f32; 4],
+    sun_color: [f32; 4],
+    ambient_color: [f32; 4],
 }
 
 impl RealityUniform {
@@ -75,7 +101,13 @@ impl RealityUniform {
             proj_params: [[0.0; 4]; 5],
             proj_color: [[0.0; 4]; 5],
             global_offset: [0.0; 4],
-
+            nodes_pos_fid: [[0.0; 4]; 15],
+            nodes_params: [[0.0; 4]; 15],
+            nodes_color: [[0.0; 4]; 15],
+            num_nodes: [0; 4],
+            sun_dir: [0.0, 1.0, 0.5, 0.0],
+            sun_color: [1.0, 0.95, 0.9, 1.0],
+            ambient_color: [0.1, 0.15, 0.2, 1.0],
         }
     }
 }
@@ -127,8 +159,7 @@ fn extract_frustum_planes(m: &cgmath::Matrix4<f32>) -> [cgmath::Vector4<f32>; 6]
 
     for plane in planes.iter_mut() {
         // Normalize the plane normal
-        let n = cgmath::Vector3::new(plane.x, plane.y, plane.z);
-        let len = n.magnitude();
+        let len = (plane.x * plane.x + plane.y * plane.y + plane.z * plane.z).sqrt();
         if len > 0.0 {
             *plane /= len;
         }
@@ -264,8 +295,9 @@ struct ChunkData {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub struct State {
+pub struct WgpuState {
     surface: wgpu::Surface<'static>,
+    pub sky_pipeline: wgpu::RenderPipeline,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -277,58 +309,91 @@ pub struct State {
 
     instance_buffer: wgpu::Buffer,
     num_instances: u32,
-    chunk_data: Vec<ChunkData>, // CPU side data for culling
+    max_instances: u32,
 
     diffuse_bind_group: wgpu::BindGroup,
     pub diffuse_texture: texture::Texture,
-    // camera moved to engine
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    // camera_controller moved to engine
     reality_uniform: RealityUniform,
     reality_buffer: wgpu::Buffer,
     reality_bind_group: wgpu::BindGroup,
-    // player_projector moved to engine
-    // world_state moved to engine
-    // active_anomaly moved to engine
-    // width/height logic in engine, but config needs it
-    width: u32,
-    height: u32,
-    // global_offset moved to engine
     lambda_renderer: visual_lambda::LambdaRenderer,
-    // lambda_system moved to engine
-    // pending_full_sync moved to engine
-    // time moved to engine
-    pub engine: engine::Engine,
 
     pub depth_texture: texture::Texture,
-    pub voxel_world: voxel::VoxelWorld,
     pub voxel_pipeline: wgpu::RenderPipeline,
-    pub voxel_meshes: HashMap<voxel::ChunkKey, ChunkMesh>,
-    pub voxel_dirty: bool,
-    pub last_lod_update_pos: cgmath::Point3<f32>,
+    pub splat_pipeline: wgpu::RenderPipeline,
+    pub splat_buffer: wgpu::Buffer,
+
+    pub compute_distances_pipeline: wgpu::ComputePipeline,
+    pub sort_step_pipeline: wgpu::ComputePipeline,
+    pub apply_sort_pipeline: wgpu::ComputePipeline,
+    pub sort_uniform_buffer: wgpu::Buffer,
+    pub bitonic_uniform_buffer: wgpu::Buffer,
+    pub unsorted_splat_buffer: wgpu::Buffer,
+    pub sort_entries_buffer: wgpu::Buffer,
+    pub sort_bind_group_layout_0: wgpu::BindGroupLayout,
+    pub sort_bind_group_layout_1: wgpu::BindGroupLayout,
+    pub sort_bind_group_1: wgpu::BindGroup,
+    pub max_splat_capacity: u32,
+
+    pub skeleton_buffer: wgpu::Buffer,
+    pub skeleton_bind_group: wgpu::BindGroup,
+
     pub voxel_atlas: texture::Texture,
     pub voxel_bind_group: wgpu::BindGroup,
     pub voxel_density_texture: wgpu::Texture,
     pub voxel_density_view: wgpu::TextureView,
+
+    entities_instance_buffer: wgpu::Buffer,
+    max_entities: u32,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct State {
+    pub wgpu_state: Option<WgpuState>,
+    width: u32,
+    height: u32,
+    pub engine: engine::Engine,
+    chunk_data: Vec<ChunkData>, // CPU side data for culling
+
+    pub npc_splats: Vec<splat::SplatVertex>,
+    pub npc_animations: std::collections::HashMap<
+        crate::engine::AnimationState,
+        Vec<Vec<crate::splat::SplatVertex>>,
+    >,
+
+    pub voxel_world: voxel::VoxelWorld,
+    pub num_splats: u32,
+
+    pub software_culler: crate::culling::SoftwareOcclusionCuller,
+
+    pub voxel_meshes: std::collections::HashMap<voxel::ChunkKey, ChunkMesh>,
+    pub voxel_dirty: bool,
+    pub last_lod_update_pos: cgmath::Point3<f32>,
     pub in_xr: bool,
+    pub in_vr: bool,
     pub canvas: HtmlCanvasElement,
 
     // Caching logic for instanced chunk updates
     pub last_view_proj: Option<cgmath::Matrix4<f32>>,
     pub last_stability_hash: String,
 
-    entities_instance_buffer: wgpu::Buffer,
     num_entities: u32,
-    max_entities: u32,
 
     pub labels_buffer: Vec<u8>,
+
+    // Dynamic Draw Distance & FPS Tracking
+    pub last_frame_time: f64,
+    pub fps_moving_average: f32,
+    pub frame_count: u32,
+    pub grid_count: i32,
 }
 
 #[cfg(target_arch = "wasm32")]
 impl State {
-    async fn new(canvas: HtmlCanvasElement) -> Self {
+    async fn init_wgpu(canvas: &HtmlCanvasElement) -> Option<WgpuState> {
         let width = canvas.width();
         let height = canvas.height();
 
@@ -336,7 +401,7 @@ impl State {
 
         // Create surface from canvas
         let surface_target = wgpu::SurfaceTarget::Canvas(canvas.clone());
-        let surface = instance.create_surface(surface_target).unwrap();
+        let surface = instance.create_surface(surface_target).ok()?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -344,23 +409,20 @@ impl State {
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
-            .await
-            .expect("Failed to find an appropriate adapter");
+            .await?;
 
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features: wgpu::Features::empty(),
-                    // WebGL doesn't support all limits, but we are targeting WebGPU
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
+                    required_limits: adapter.limits(),
                     memory_hints: Default::default(),
                 },
                 None,
             )
             .await
-            .expect("Failed to create device");
+            .ok()?;
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -480,20 +542,22 @@ impl State {
             ))),
         });
 
-        // Init Engine Logic
-        let mut loaded_state = persistence::load_from_local_storage("reality_engine_save");
-
-        // Extract voxel_world if present
-        let loaded_voxel_world = if let Some(ref mut state) = loaded_state {
-            state.voxel_world.take()
-        } else {
-            None
-        };
-
-        let engine = engine::Engine::new(width, height, loaded_state);
-
         let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&engine.camera, engine.time);
+        let dummy_camera = camera::Camera {
+            eye: cgmath::Point3::new(0.0, 5.0, 10.0),
+            target: cgmath::Point3::new(0.0, 0.0, 0.0),
+            up: cgmath::Vector3::unit_y(),
+            aspect: width as f32 / height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+            yaw: 0.0,
+            pitch: 0.0,
+            projection_override: None,
+            velocity: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            is_grounded: false,
+        };
+        camera_uniform.update_view_proj(&dummy_camera, 0.0);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -501,7 +565,7 @@ impl State {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_bind_group_layout =
+        let _camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -516,12 +580,73 @@ impl State {
                 label: Some("camera_bind_group_layout"),
             });
 
+        // Setup Skeleton Buffer (max 64 bones for prototype)
+        let skeleton_buffer_size = (64 * 16 * 4) as wgpu::BufferAddress; // 64 mat4x4<f32>
+        let skeleton_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Skeleton Uniform Buffer"),
+            size: skeleton_buffer_size,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Initialize with identity matrices
+        let mut initial_skeleton_data = Vec::with_capacity(64 * 16);
+        for _ in 0..64 {
+            let id = cgmath::Matrix4::<f32>::one();
+            let arr: [[f32; 4]; 4] = id.into();
+            let arr_flat = [
+                arr[0][0], arr[0][1], arr[0][2], arr[0][3], arr[1][0], arr[1][1], arr[1][2],
+                arr[1][3], arr[2][0], arr[2][1], arr[2][2], arr[2][3], arr[3][0], arr[3][1],
+                arr[3][2], arr[3][3],
+            ];
+            initial_skeleton_data.extend_from_slice(&arr_flat);
+        }
+        queue.write_buffer(
+            &skeleton_buffer,
+            0,
+            bytemuck::cast_slice(&initial_skeleton_data),
+        );
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // Skeleton binding
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("camera_bind_group_layout"),
+            });
+
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: skeleton_buffer.as_entire_binding(),
+                },
+            ],
             label: Some("camera_bind_group"),
         });
 
@@ -557,6 +682,57 @@ impl State {
             label: Some("reality_bind_group"),
         });
 
+        let sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Sky Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader_sky.wgsl").into()),
+        });
+
+        let sky_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Sky Pipeline Layout"),
+            bind_group_layouts: &[&camera_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Sky Pipeline"),
+            layout: Some(&sky_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &sky_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[], // No vertex buffers
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &sky_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: false, // Don't write to depth buffer
+                depth_compare: wgpu::CompareFunction::Always, // Always draw
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -569,7 +745,7 @@ impl State {
             });
 
         // Generate single chunk mesh (template)
-        let chunk_size = 10.0;
+        let chunk_size = voxel::CHUNK_SIZE as f32;
         let chunk_res = 60;
         let (vertices, indices) = create_grid_mesh(chunk_size, chunk_res);
 
@@ -587,39 +763,21 @@ impl State {
 
         let num_indices = indices.len() as u32;
 
-        // Define logical chunks (Positions)
-        let mut chunk_data = Vec::new();
-        let grid_count = 3; // 3x3
-        let half_grid = (grid_count as f32 * chunk_size) / 2.0;
-        let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
-
-        for z in 0..grid_count {
-            for x in 0..grid_count {
-                let x_pos = (x as f32 * chunk_size) - half_grid + offset;
-                let z_pos = (z as f32 * chunk_size) - half_grid + offset;
-
-                chunk_data.push(ChunkData {
-                    position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
-                    aabb_min: cgmath::Point3::new(x_pos - 5.0, -10.0, z_pos - 5.0),
-                    aabb_max: cgmath::Point3::new(x_pos + 5.0, 10.0, z_pos + 5.0),
-                });
-            }
-        }
-
-        // Initial Instance Buffer
+        let num_instances_initial = 9u32; // 3x3 chunks initially, we write it to instance_buffer
         let instances = vec![
             Instance {
                 model: cgmath::Matrix4::identity().into(),
                 stability: 1.0,
                 padding: [0.0; 3]
             };
-            chunk_data.len()
+            num_instances_initial as usize
         ];
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
             contents: bytemuck::cast_slice(&instances),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+        let max_instances = num_instances_initial;
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -719,18 +877,10 @@ impl State {
         let lambda_renderer =
             visual_lambda::LambdaRenderer::new(&device, config.format, &camera_bind_group_layout);
 
-        // --- Voxel Initialization ---
-        let voxel_world = if let Some(vw) = loaded_voxel_world {
-            log::info!("Restored Voxel World from save.");
-            vw
-        } else {
-            let mut vw = voxel::VoxelWorld::new();
-            vw.generate_default_world();
-            vw
-        };
-
         // Voxel Texture Atlas
         let voxel_atlas = texture::Texture::create_procedural_atlas(&device, &queue);
+        let voxel_normal = texture::Texture::create_procedural_normal_map(&device, &queue);
+        let voxel_pbr = texture::Texture::create_procedural_pbr_map(&device, &queue);
 
         let voxel_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -761,6 +911,38 @@ impl State {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
                 ],
                 label: Some("voxel_bind_group_layout"),
             });
@@ -779,6 +961,22 @@ impl State {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&voxel_density_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&voxel_normal.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&voxel_normal.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&voxel_pbr.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&voxel_pbr.sampler),
                 },
             ],
             label: Some("voxel_bind_group"),
@@ -802,14 +1000,14 @@ impl State {
                 push_constant_ranges: &[],
             });
 
-        let max_entities = 100; // Player + NPCs + Items
+        let max_entities = 100u32; // Player + NPCs + Items
         let initial_entities = vec![
             visual_lambda::LambdaInstance {
                 position: [0.0, 0.0, 0.0],
                 color: [1.0, 1.0, 1.0, 1.0],
                 scale: 0.0,
             };
-            max_entities
+            max_entities as usize
         ];
         let entities_instance_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -818,22 +1016,40 @@ impl State {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
 
-        let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Voxel Render Pipeline"),
-            layout: Some(&voxel_pipeline_layout),
+        let splat_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Splat Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader_splat.wgsl"
+            ))),
+        });
+
+        let splat_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Splat Pipeline Layout"),
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,  // Group 0
+                    &voxel_bind_group_layout,   // Group 1
+                    &reality_bind_group_layout, // Group 2
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let splat_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Splat Render Pipeline"),
+            layout: Some(&splat_pipeline_layout),
             cache: None,
             vertex: wgpu::VertexState {
-                module: &voxel_shader,
+                module: &splat_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[voxel::VoxelVertex::desc()],
+                buffers: &[splat::SplatVertex::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &voxel_shader,
+                module: &splat_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -842,14 +1058,14 @@ impl State {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: texture::Texture::DEPTH_FORMAT,
-                depth_write_enabled: true,
+                depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
@@ -911,8 +1127,412 @@ impl State {
 
         state
     }
+        let splat_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Splat Instance Buffer"),
+            contents: bytemuck::cast_slice(&[splat::SplatVertex {
+                position: [0.0, 0.0, 0.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [0.0, 0.0, 0.0],
+                previous_position: [0.0, 0.0, 0.0],
+                color: [0.0, 0.0, 0.0, 0.0],
+                archetype_id: 0,
+                target_archetype_id: 0,
+                morph_weight: 0.0,
+                bone_index: -1,
+            }]),
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Setup compute shaders for Bitonic Sort
+        let sort_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Sort Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader_sort.wgsl"
+            ))),
+        });
+
+        let sort_bind_group_layout_0 =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Sort Bind Group Layout 0"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let sort_bind_group_layout_1 =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Sort Bind Group Layout 1"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<
+                            splat::BitonicUniforms,
+                        >() as _),
+                    },
+                    count: None,
+                }],
+            });
+
+        let sort_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Sort Pipeline Layout"),
+            bind_group_layouts: &[&sort_bind_group_layout_0, &sort_bind_group_layout_1],
+            push_constant_ranges: &[],
+        });
+
+        let compute_distances_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Compute Distances Pipeline"),
+                layout: Some(&sort_pipeline_layout),
+                cache: None,
+                module: &sort_shader,
+                entry_point: Some("compute_distances"),
+                compilation_options: Default::default(),
+            });
+
+        let sort_step_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Sort Step Pipeline"),
+            layout: Some(&sort_pipeline_layout),
+            cache: None,
+            module: &sort_shader,
+            entry_point: Some("sort_step"),
+            compilation_options: Default::default(),
+        });
+
+        let apply_sort_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Apply Sort Pipeline"),
+                layout: Some(&sort_pipeline_layout),
+                cache: None,
+                module: &sort_shader,
+                entry_point: Some("apply_sort"),
+                compilation_options: Default::default(),
+            });
+
+        let max_splat_capacity = 256; // Starting capacity
+
+        let sort_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sort Uniform Buffer"),
+            size: std::mem::size_of::<splat::SortUniforms>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let mut bitonic_uniforms = Vec::new();
+        let max_k = 262144;
+        let mut k = 2;
+        while k <= max_k {
+            let mut j = k >> 1;
+            while j > 0 {
+                let mut data = [0u8; 256];
+                let uniform = splat::BitonicUniforms {
+                    j,
+                    k,
+                    padding: [0, 0],
+                };
+                let bytes = bytemuck::bytes_of(&uniform);
+                data[0..16].copy_from_slice(bytes);
+                bitonic_uniforms.extend_from_slice(&data);
+
+                j >>= 1;
+            }
+            k <<= 1;
+        }
+
+        let bitonic_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Bitonic Uniform Buffer"),
+            contents: &bitonic_uniforms,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let unsorted_splat_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Unsorted Splat Buffer"),
+            size: (max_splat_capacity as usize * std::mem::size_of::<splat::SplatVertex>())
+                as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let sort_entries_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sort Entries Buffer"),
+            size: (max_splat_capacity as usize * std::mem::size_of::<splat::SortEntry>())
+                as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let sort_bind_group_1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Sort Bind Group 1"),
+            layout: &sort_bind_group_layout_1,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &bitonic_uniform_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(std::mem::size_of::<splat::BitonicUniforms>() as _),
+                }),
+            }],
+        });
+
+        let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Voxel Render Pipeline"),
+            layout: Some(&voxel_pipeline_layout),
+            cache: None,
+            vertex: wgpu::VertexState {
+                module: &voxel_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[voxel::VoxelVertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &voxel_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
+        let skeleton_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: skeleton_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some("camera_bind_group_clone"),
+        });
+
+        Some(WgpuState {
+            surface,
+            device,
+            queue,
+            config,
+            render_pipeline,
+            sky_pipeline,
+            vertex_buffer,
+            index_buffer,
+            num_indices,
+            instance_buffer,
+            num_instances: num_instances_initial,
+            max_instances,
+            diffuse_bind_group,
+            diffuse_texture,
+            camera_uniform,
+            camera_buffer,
+            camera_bind_group,
+            reality_uniform,
+            reality_buffer,
+            reality_bind_group,
+            lambda_renderer,
+            depth_texture,
+            voxel_pipeline,
+            splat_pipeline,
+            splat_buffer,
+            compute_distances_pipeline,
+            sort_step_pipeline,
+            apply_sort_pipeline,
+            sort_uniform_buffer,
+            bitonic_uniform_buffer,
+            unsorted_splat_buffer,
+            sort_entries_buffer,
+            sort_bind_group_layout_0,
+            sort_bind_group_layout_1,
+            sort_bind_group_1,
+            max_splat_capacity,
+
+            skeleton_buffer,
+            skeleton_bind_group,
+
+            voxel_atlas,
+            voxel_bind_group,
+            voxel_density_texture,
+            voxel_density_view,
+            entities_instance_buffer,
+            max_entities,
+        })
+    }
+
+    async fn new(canvas: HtmlCanvasElement) -> Self {
+        let width = canvas.width();
+        let height = canvas.height();
+
+        let mut force_cpu = false;
+        if let Some(window) = web_sys::window() {
+            let location = window.location();
+            if let Ok(search) = location.search() {
+                if search.contains("renderer=cpu") {
+                    force_cpu = true;
+                }
+            }
+        }
+
+        let mut wgpu_state = None;
+        if !force_cpu {
+            wgpu_state = Self::init_wgpu(&canvas).await;
+            if wgpu_state.is_none() {
+                log::warn!("WebGPU initialization failed. Falling back to CPU 2D Canvas renderer.");
+            }
+        } else {
+            log::info!("Forced CPU renderer via URL query parameter.");
+        }
+
+        // Init Engine Logic
+        let mut loaded_state = persistence::load_from_indexed_db("reality_engine_save").await;
+        if loaded_state.is_none() {
+            loaded_state = persistence::load_from_local_storage("reality_engine_save");
+        }
+
+        // Extract voxel_world if present
+        let loaded_voxel_world = if let Some(ref mut state) = loaded_state {
+            state.voxel_world.take()
+        } else {
+            None
+        };
+
+        let engine = engine::Engine::new(width, height, loaded_state);
+
+        // --- Voxel Initialization ---
+        let voxel_world = if let Some(vw) = loaded_voxel_world {
+            log::info!("Restored Voxel World from save.");
+            vw
+        } else {
+            let mut vw = voxel::VoxelWorld::new();
+            vw.generate_default_world();
+            vw
+        };
+
+        // Define logical chunks (Positions)
+        let mut chunk_data = Vec::new();
+        let chunk_size = voxel::CHUNK_SIZE as f32;
+        let initial_grid_count = 3; // 3x3
+        let half_grid = (initial_grid_count as f32 * chunk_size) / 2.0;
+        let offset = chunk_size / 2.0; // Mesh is centered, so we move centers.
+
+        for z in 0..initial_grid_count {
+            for x in 0..initial_grid_count {
+                let x_pos = (x as f32 * chunk_size) - half_grid + offset;
+                let z_pos = (z as f32 * chunk_size) - half_grid + offset;
+                let half_size = chunk_size / 2.0;
+
+                chunk_data.push(ChunkData {
+                    position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
+                    aabb_min: cgmath::Point3::new(x_pos - half_size, -10.0, z_pos - half_size),
+                    aabb_max: cgmath::Point3::new(x_pos + half_size, 10.0, z_pos + half_size),
+                });
+            }
+        }
+
+        let mut state = Self {
+            wgpu_state,
+            width,
+            height,
+            engine,
+            chunk_data,
+            npc_splats: Vec::new(),
+            npc_animations: std::collections::HashMap::new(),
+            voxel_world,
+            num_splats: 0,
+            software_culler: crate::culling::SoftwareOcclusionCuller::new(),
+            voxel_meshes: std::collections::HashMap::new(),
+            voxel_dirty: false,
+            last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
+            in_xr: false,
+            in_vr: false,
+            canvas: canvas.clone(),
+            last_view_proj: None,
+            last_stability_hash: String::new(),
+            num_entities: 1,
+            labels_buffer: Vec::with_capacity(1024),
+            last_frame_time: 0.0,
+            fps_moving_average: 60.0,
+            frame_count: 0,
+            grid_count: 3,
+        };
+
+        state.last_lod_update_pos = state.engine.camera.eye;
+        state.update_lods(true);
+        if state.wgpu_state.is_some() {
+            state.update_voxel_texture(); // Initial upload
+        }
+
+        state
+    }
 
     pub fn update_voxel_texture(&self) {
+        let wgpu_state = match &self.wgpu_state {
+            Some(w) => w,
+            None => return,
+        };
         let size = 128;
         let mut data = vec![0u8; size * size * size];
 
@@ -979,10 +1599,10 @@ impl State {
             depth_or_array_layers: 128,
         };
 
-        self.queue.write_texture(
+        wgpu_state.queue.write_texture(
             wgpu::ImageCopyTexture {
                 aspect: wgpu::TextureAspect::All,
-                texture: &self.voxel_density_texture,
+                texture: &wgpu_state.voxel_density_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
@@ -997,18 +1617,25 @@ impl State {
     }
 
     pub fn get_diffuse_texture(&self) -> &texture::Texture {
-        &self.diffuse_texture
+        &self.wgpu_state.as_ref().unwrap().diffuse_texture
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
         if new_width > 0 && new_height > 0 {
             self.width = new_width;
             self.height = new_height;
-            self.config.width = new_width;
-            self.config.height = new_height;
-            self.surface.configure(&self.device, &self.config);
-            self.depth_texture =
-                texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+            if let Some(ref mut wgpu_state) = self.wgpu_state {
+                wgpu_state.config.width = new_width;
+                wgpu_state.config.height = new_height;
+                wgpu_state
+                    .surface
+                    .configure(&wgpu_state.device, &wgpu_state.config);
+                wgpu_state.depth_texture = texture::Texture::create_depth_texture(
+                    &wgpu_state.device,
+                    &wgpu_state.config,
+                    "depth_texture",
+                );
+            }
             self.engine.resize(new_width, new_height);
         }
     }
@@ -1040,7 +1667,58 @@ impl State {
             }
         }
 
-        self.engine.process_keyboard(key_code, true);
+        if let Some(action) = self.engine.process_keyboard(key_code, true) {
+            match action {
+                input::Action::Toggle4DRecording => {
+                    let recording = self.engine.is_recording_splats;
+                    self.engine.is_recording_splats = !recording;
+
+                    if recording && !self.engine.splat_recording_buffer.is_empty() {
+                        // Encode the recording
+                        let encoder = crate::splat4d_encoder::Splat4DEncoder::default();
+                        if let Some(container) =
+                            encoder.encode_container(&self.engine.splat_recording_buffer)
+                        {
+                            if let Ok(json) = serde_json::to_string(&container) {
+                                log::info!(
+                                    "Encoded 4D Splat Container ({} GOPs, {} dynamic splats)",
+                                    container.gops.len(),
+                                    container.header.dynamic_count
+                                );
+                                persistence::save_raw_to_local_storage(
+                                    "last_4d_splat_recording",
+                                    &json,
+                                );
+                            }
+                        }
+                        self.engine.splat_recording_buffer.clear();
+                    }
+                }
+                input::Action::Play4DRecording => {
+                    if let Some(json) =
+                        persistence::load_raw_from_local_storage("last_4d_splat_recording")
+                    {
+                        if let Ok(container) =
+                            serde_json::from_str::<crate::splat::Splat4DContainer>(&json)
+                        {
+                            let decoder = crate::splat4d_decoder::Splat4DDecoder::default();
+                            let frames = decoder.decode_container(&container);
+
+                            // Add to the global NPC animation library
+                            self.npc_animations
+                                .insert(crate::engine::AnimationState::Walk, frames.clone());
+                            self.npc_animations
+                                .insert(crate::engine::AnimationState::Idle, frames.clone());
+                            self.npc_animations
+                                .insert(crate::engine::AnimationState::Attack, frames);
+
+                            log::info!("Loaded last 4D recording as global NPC animations.");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     // Helper for keyup
@@ -1087,10 +1765,29 @@ impl State {
                         lambda_layout: self.engine.lambda_system.get_layout(),
                         input_config: self.engine.input_config.clone(),
                         voxel_world: Some(self.voxel_world.clone()),
+                        companion_state_json: Some(
+                            self.engine.companion_manager.get_companion_state_json(),
+                        ),
+                        companion_party_state_json: Some(
+                            self.engine.companion_manager.get_party_roster_json(),
+                        ),
                         timestamp: js_sys::Date::now() as u64,
                         version: persistence::SAVE_VERSION,
                     };
-                    persistence::save_to_local_storage("reality_engine_save", &game_state);
+                    let game_state_clone = game_state.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let success = persistence::save_to_indexed_db(
+                            "reality_engine_save",
+                            &game_state_clone,
+                        )
+                        .await;
+                        if !success {
+                            persistence::save_to_local_storage(
+                                "reality_engine_save",
+                                &game_state_clone,
+                            );
+                        }
+                    });
                     return;
                 }
             }
@@ -1113,14 +1810,36 @@ impl State {
                 lambda_layout: self.engine.lambda_system.get_layout(),
                 input_config: self.engine.input_config.clone(),
                 voxel_world: Some(self.voxel_world.clone()),
+                companion_state_json: Some(
+                    self.engine.companion_manager.get_companion_state_json(),
+                ),
+                companion_party_state_json: Some(
+                    self.engine.companion_manager.get_party_roster_json(),
+                ),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
             };
-            persistence::save_to_local_storage("reality_engine_save", &game_state);
+            let game_state_clone = game_state.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let success =
+                    persistence::save_to_indexed_db("reality_engine_save", &game_state_clone).await;
+                if !success {
+                    persistence::save_to_local_storage("reality_engine_save", &game_state_clone);
+                }
+            });
         }
     }
 
     pub fn update_lods(&mut self, force: bool) {
+        let cam_pos = self.engine.camera.eye;
+        let wgpu_state = match &self.wgpu_state {
+            Some(w) => w,
+            None => {
+                self.voxel_dirty = false;
+                self.last_lod_update_pos = cam_pos;
+                return;
+            }
+        };
         let cam_pos = self.engine.camera.eye;
 
         let mut to_update = Vec::new();
@@ -1178,20 +1897,22 @@ impl State {
                 let (v, i) = mesh_chunk.generate_mesh();
 
                 if !i.is_empty() {
-                    let v_buf = self
-                        .device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Voxel Chunk Vertex"),
-                            contents: bytemuck::cast_slice(&v),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                    let i_buf = self
-                        .device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Voxel Chunk Index"),
-                            contents: bytemuck::cast_slice(&i),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
+                    let v_buf =
+                        wgpu_state
+                            .device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Voxel Chunk Vertex"),
+                                contents: bytemuck::cast_slice(&v),
+                                usage: wgpu::BufferUsages::VERTEX,
+                            });
+                    let i_buf =
+                        wgpu_state
+                            .device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Voxel Chunk Index"),
+                                contents: bytemuck::cast_slice(&i),
+                                usage: wgpu::BufferUsages::INDEX,
+                            });
 
                     let size = voxel::CHUNK_SIZE as f32;
                     let min_x = key.x as f32 * size;
@@ -1227,6 +1948,236 @@ impl State {
             self.voxel_dirty = true;
         }
 
+        let mut projectors = Vec::new();
+        if let Some(ref anomaly) = self.engine.active_anomaly {
+            projectors.push(anomaly);
+        }
+        for chunk in self.engine.world_state.chunks.values() {
+            for anomaly in &chunk.anomalies {
+                if !anomaly.deleted {
+                    projectors.push(anomaly);
+                }
+            }
+        }
+        if self.voxel_world.update_splat_morphs(&projectors, 0.016) {
+            self.voxel_dirty = true;
+        }
+
+        // Generate Samantha's dynamic 4D orbital Gaussian Splats
+        let player_eye = [
+            self.engine.camera.eye.x,
+            self.engine.camera.eye.y,
+            self.engine.camera.eye.z,
+        ];
+        self.engine
+            .companion_manager
+            .companion
+            .update_presence(player_eye, 0.016);
+        let companion_splats = self
+            .engine
+            .companion_manager
+            .companion
+            .generate_avatar_splats(self.engine.time);
+        for s in companion_splats.chunks_exact(14) {
+            self.npc_splats.push(crate::splat::SplatVertex {
+                position: [s[0], s[1], s[2]],
+                rotation: [s[3], s[4], s[5], s[6]],
+                scale: [s[7], s[8], s[9]],
+                color: [s[10], s[11], s[12], s[13]],
+                previous_position: [s[0], s[1], s[2]],
+                archetype_id: 2,
+                target_archetype_id: 2,
+                morph_weight: 0.0,
+                bone_index: -1,
+            });
+        }
+
+        // Step latent physics simulation
+        let latents_snapshot: Vec<f32> = self
+            .voxel_world
+            .genie
+            .rolling_context
+            .lock()
+            .ok()
+            .and_then(|ctx| {
+                ctx.frames
+                    .last()
+                    .and_then(|t| t.flatten_all().ok()?.to_vec1::<f32>().ok())
+            })
+            .unwrap_or_default();
+        if let Ok(mut physics) = self.voxel_world.genie.latent_physics.lock() {
+            physics.step(0.016, &latents_snapshot);
+        }
+
+        // Synchronize NPCs with multi-agent co-diffusion swarm
+        if let Ok(mut swarm) = self.voxel_world.genie.swarm_engine.lock() {
+            let swarm_agents: Vec<reality_genie::dit::SwarmAgentState> = self
+                .engine
+                .world_state
+                .npcs
+                .iter()
+                .enumerate()
+                .map(|(idx, npc)| reality_genie::dit::SwarmAgentState {
+                    id: idx as u32,
+                    position: [npc.location.x, npc.location.y, npc.location.z],
+                    velocity: [0.0, 0.0, 0.0],
+                    intent_action: idx % 5,
+                    influence_radius: 12.0,
+                    emotional_valence: 0.5,
+                    dialogue_intent: (idx % 4) as u32,
+                    last_speech_utterance: None,
+                })
+                .collect();
+            swarm.set_agents(swarm_agents);
+            swarm.step_swarm(0.016);
+
+            // Reflect diffused dialogue utterances back to NPC chat bubbles
+            for (idx, agent) in swarm.agents.iter().enumerate() {
+                if let (Some(npc), Some(ref msg)) = (
+                    self.engine.world_state.npcs.get_mut(idx),
+                    &agent.last_speech_utterance,
+                ) {
+                    npc.chat_message =
+                        Some((msg.clone(), crate::projector::get_current_timestamp()));
+                }
+            }
+        }
+
+        // Update 3D HRTF AudioListener pose from camera/headset
+        let cam_eye = [
+            self.engine.camera.eye.x,
+            self.engine.camera.eye.y,
+            self.engine.camera.eye.z,
+        ];
+        let cam_forward = [
+            self.engine.camera.target.x - self.engine.camera.eye.x,
+            self.engine.camera.target.y - self.engine.camera.eye.y,
+            self.engine.camera.target.z - self.engine.camera.eye.z,
+        ];
+        let cam_up = [
+            self.engine.camera.up.x,
+            self.engine.camera.up.y,
+            self.engine.camera.up.z,
+        ];
+        self.engine
+            .audio
+            .update_listener_pose(cam_eye, cam_forward, cam_up);
+
+        // Drain any synthesized Audio-DiT co-diffused audio packets
+        let maybe_audio_packet =
+            if let Ok(mut lock) = self.voxel_world.genie.latest_audio_packet.lock() {
+                lock.take()
+            } else {
+                None
+            };
+        if let Some(packet) = maybe_audio_packet {
+            self.engine.audio.play_audio_dit_packet(
+                &packet.left_channel,
+                &packet.right_channel,
+                packet.sample_rate,
+            );
+        }
+
+        // Direct Latent-to-3DGS projection stream: convert latest action-DiT latents directly into Gaussian Splats
+        if let Ok(maybe_latents) = self.voxel_world.genie.latest_action_dit_latents.lock() {
+            if let Some(ref latents) = *maybe_latents {
+                let player_pos = [
+                    self.engine.camera.eye.x,
+                    self.engine.camera.eye.y - 1.0,
+                    self.engine.camera.eye.z - 3.0,
+                ];
+                let gs_primitives = reality_genie::vqvae::LatentVoxelDecoder::decode_direct_3dgs(
+                    latents, player_pos,
+                );
+                for prim in gs_primitives {
+                    self.npc_splats.push(crate::splat::SplatVertex {
+                        position: [prim[0], prim[1], prim[2]],
+                        rotation: [prim[3], prim[4], prim[5], prim[6]],
+                        scale: [prim[7], prim[8], prim[9]],
+                        color: [prim[10], prim[11], prim[12], prim[13]],
+                        previous_position: [prim[0], prim[1], prim[2]],
+                        archetype_id: 1,
+                        target_archetype_id: 1,
+                        morph_weight: 0.0,
+                        bone_index: -1,
+                    });
+                }
+                // Cap npc_splats to prevent unbounded memory growth
+                if self.npc_splats.len() > 4096 {
+                    self.npc_splats.drain(0..self.npc_splats.len() - 4096);
+                }
+            }
+        }
+
+        if self.engine.is_recording_splats {
+            let mut current_frame = Vec::new();
+            for chunk in self.voxel_world.chunks.values() {
+                current_frame.extend(chunk.splats.iter().cloned());
+            }
+            self.engine.splat_recording_buffer.push(current_frame);
+        }
+
+        // Update active 4D players
+        for player in &mut self.engine.active_4d_splats {
+            player.timer += 0.016;
+            if player.timer > 1.0 / player.frame_rate {
+                player.timer = 0.0;
+                player.current_frame += 1;
+
+                if let Some(frames) = player.animations.get(&player.current_state) {
+                    if player.current_frame >= frames.len() {
+                        if player.loop_playback {
+                            player.current_frame = 0;
+                        } else {
+                            player.current_frame = frames.len() - 1;
+                        }
+                    }
+                }
+            }
+
+            // State Blending Logic
+            if let Some(_next) = player.next_state {
+                player.blend_timer += 0.016;
+                if player.blend_timer >= player.blend_duration {
+                    player.current_state = player.next_state.take().unwrap();
+                    player.blend_timer = 0.0;
+                    player.current_frame = 0;
+                }
+            }
+
+            // Procedural Bone Animation
+            if let Some(skeleton) = &mut player.skeleton {
+                let time = self.engine.time;
+                for bone in &mut skeleton.bones {
+                    if bone.name == "head" {
+                        use cgmath::{Rad, Rotation3};
+                        // Nodding head
+                        bone.local_rotation =
+                            cgmath::Quaternion::from_angle_x(Rad((time * 2.0).sin() * 0.2));
+                    } else if bone.name.contains("arm") {
+                        use cgmath::{Rad, Rotation3};
+                        // Swinging arms
+                        bone.local_rotation =
+                            cgmath::Quaternion::from_angle_x(Rad((time * 3.0).cos() * 0.5));
+                    }
+                }
+            }
+        }
+
+        // Handle pending dreams from the engine
+        for prompt in self.engine.pending_dreams.drain(..) {
+            self.voxel_world.genie.request_splat_generation(prompt);
+        }
+
+        for (prompt, pos) in self.engine.pending_models.drain(..) {
+            self.voxel_world.genie.request_model_generation(prompt, pos);
+        }
+
+        // Apply generated splats to the world
+        if self.voxel_world.process_pending_splats() {
+            self.voxel_dirty = true;
+        }
+
         // Rebuild meshes if dirty or if camera moved significantly (LOD update trigger)
         let cam_pos = self.engine.camera.eye;
         let dx = cam_pos.x - self.last_lod_update_pos.x;
@@ -1241,12 +2192,82 @@ impl State {
             }
         }
 
+        // NPC animations are handled per-NPC in active_splats update
+
+        // Combine skeleton data from players to global buffer (just takes the first for the demo to simplify)
+        let mut global_bone_matrices: Vec<[f32; 16]> =
+            vec![
+                [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,];
+                64
+            ];
+        for player in &self.engine.active_4d_splats {
+            if let Some(skeleton) = &player.skeleton {
+                let globals = skeleton.evaluate_global_transforms();
+                for (i, mat) in globals.iter().enumerate().take(64) {
+                    let c0 = mat.x;
+                    let c1 = mat.y;
+                    let c2 = mat.z;
+                    let c3 = mat.w;
+                    global_bone_matrices[i] = [
+                        c0.x, c0.y, c0.z, c0.w, c1.x, c1.y, c1.z, c1.w, c2.x, c2.y, c2.z, c2.w,
+                        c3.x, c3.y, c3.z, c3.w,
+                    ];
+                }
+                break; // Just use first skeleton for global splat shader
+            }
+        }
+
         // Sync WGPU buffers with Engine State
-        self.camera_uniform.update_view_proj(&self.engine.camera, self.engine.time);
-        self.queue.write_buffer(
-            &self.camera_buffer,
+        let wgpu_state = match &mut self.wgpu_state {
+            Some(w) => w,
+            None => {
+                // If in CPU fallback mode, we still want to compute the logical instances culling etc.
+                // Re-generate chunk_data dynamically based on player's chunk
+                let player_pos = self.engine.player_projector.location;
+                let chunk_size = voxel::CHUNK_SIZE as f32;
+                let player_chunk_x = (player_pos.x / chunk_size).floor() as i32;
+                let player_chunk_z = (player_pos.z / chunk_size).floor() as i32;
+
+                self.chunk_data.clear();
+                let grid_count = self.grid_count;
+                let half_grid = grid_count / 2;
+
+                for z in (player_chunk_z - half_grid)..=(player_chunk_z + half_grid) {
+                    for x in (player_chunk_x - half_grid)..=(player_chunk_x + half_grid) {
+                        let x_pos = x as f32 * chunk_size + chunk_size / 2.0;
+                        let z_pos = z as f32 * chunk_size + chunk_size / 2.0;
+                        let half_size = chunk_size / 2.0;
+
+                        self.chunk_data.push(ChunkData {
+                            position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
+                            aabb_min: cgmath::Point3::new(
+                                x_pos - half_size,
+                                -10.0,
+                                z_pos - half_size,
+                            ),
+                            aabb_max: cgmath::Point3::new(
+                                x_pos + half_size,
+                                10.0,
+                                z_pos + half_size,
+                            ),
+                        });
+                    }
+                }
+                return;
+            }
+        };
+        wgpu_state
+            .camera_uniform
+            .update_view_proj(&self.engine.camera, self.engine.time);
+        wgpu_state.queue.write_buffer(
+            &wgpu_state.camera_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[wgpu_state.camera_uniform]),
+        );
+        wgpu_state.queue.write_buffer(
+            &wgpu_state.skeleton_buffer,
+            0,
+            bytemuck::cast_slice(&global_bone_matrices),
         );
 
         // Helper to map archetype to ID and Color
@@ -1271,6 +2292,13 @@ impl State {
                 reality_types::RealityArchetype::Tron => (15.0, [0.0, 1.0, 1.0, 1.0]), // Cyan Neon
                 reality_types::RealityArchetype::ColdStorage => (16.0, [0.6, 0.9, 1.0, 1.0]), // Icy Blue
                 reality_types::RealityArchetype::LiminalSpace => (17.0, [0.95, 0.95, 0.8, 1.0]), // Fluorescent yellow-white
+                reality_types::RealityArchetype::Clockwork => (18.0, [0.8, 0.6, 0.2, 1.0]), // Brass/Gold
+                reality_types::RealityArchetype::Cottagecore => (19.0, [0.4, 0.7, 0.3, 1.0]), // Floral Green
+                reality_types::RealityArchetype::WildWest => (20.0, [0.8, 0.5, 0.2, 1.0]), // Dusty Orange
+                reality_types::RealityArchetype::Fractal => (21.0, [1.0, 0.5, 0.0, 1.0]),
+                reality_types::RealityArchetype::Prehistoric => (22.0, [0.3, 0.4, 0.1, 1.0]),
+                reality_types::RealityArchetype::PostApocalyptic => (23.0, [0.4, 0.3, 0.2, 1.0]), // Dusty Brown/Orange
+                reality_types::RealityArchetype::Underwater => (24.0, [0.0, 0.5, 0.8, 1.0]), // Deep Blue/Teal
             }
         }
 
@@ -1287,16 +2315,26 @@ impl State {
         let cam_pos = self.engine.camera.eye;
 
         // Sort by distance to camera
-        projectors.sort_by(|a, b| {
-            let dist_a = (a.location.x - cam_pos.x).powi(2) + (a.location.y - cam_pos.y).powi(2) + (a.location.z - cam_pos.z).powi(2);
-            let dist_b = (b.location.x - cam_pos.x).powi(2) + (b.location.y - cam_pos.y).powi(2) + (b.location.z - cam_pos.z).powi(2);
-            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        projectors.sort_unstable_by(|a, b| {
+            let dx_a = a.location.x - cam_pos.x;
+            let dy_a = a.location.y - cam_pos.y;
+            let dz_a = a.location.z - cam_pos.z;
+            let dist_a = dx_a * dx_a + dy_a * dy_a + dz_a * dz_a;
+
+            let dx_b = b.location.x - cam_pos.x;
+            let dy_b = b.location.y - cam_pos.y;
+            let dz_b = b.location.z - cam_pos.z;
+            let dist_b = dx_b * dx_b + dy_b * dy_b + dz_b * dz_b;
+
+            dist_a
+                .partial_cmp(&dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Reset all slots
-        self.reality_uniform.proj_pos_fid = [[0.0; 4]; 5];
-        self.reality_uniform.proj_params = [[0.0; 4]; 5];
-        self.reality_uniform.proj_color = [[0.0; 4]; 5];
+        wgpu_state.reality_uniform.proj_pos_fid = [[0.0; 4]; 5];
+        wgpu_state.reality_uniform.proj_params = [[0.0; 4]; 5];
+        wgpu_state.reality_uniform.proj_color = [[0.0; 4]; 5];
 
         // Fill up to 5 slots
         let count = std::cmp::min(5, projectors.len());
@@ -1310,28 +2348,88 @@ impl State {
                 .unwrap_or(&p.reality_signature.active_style.archetype);
             let (id, color) = get_archetype_data(p_archetype);
 
-            self.reality_uniform.proj_pos_fid[i] = [
+            wgpu_state.reality_uniform.proj_pos_fid[i] = [
                 p.location.x,
                 p.location.y,
                 p.location.z,
-                p.reality_signature.fidelity,
+                p.reality_signature.fidelity * p.reality_signature.influence_radius,
             ];
-            self.reality_uniform.proj_params[i] = [
+            wgpu_state.reality_uniform.proj_params[i] = [
                 p.reality_signature.active_style.roughness,
                 p.reality_signature.active_style.scale,
                 p.reality_signature.active_style.distortion,
                 id,
             ];
-            self.reality_uniform.proj_color[i] = color;
+            wgpu_state.reality_uniform.proj_color[i] = color;
         }
 
-        self.reality_uniform.global_offset = self.engine.global_offset;
-        self.reality_uniform.global_offset[2] = self.engine.time;
+        wgpu_state.reality_uniform.global_offset = self.engine.global_offset;
+        wgpu_state.reality_uniform.global_offset[2] = self.engine.time;
+        wgpu_state.reality_uniform.global_offset[3] = (self.engine.time % 0.016) / 0.016;
 
-        self.queue.write_buffer(
-            &self.reality_buffer,
+        // Collect permanent anomalies (nodes)
+        wgpu_state.reality_uniform.nodes_pos_fid = [[0.0; 4]; 15];
+        wgpu_state.reality_uniform.nodes_params = [[0.0; 4]; 15];
+        wgpu_state.reality_uniform.nodes_color = [[0.0; 4]; 15];
+
+        let mut permanent_anomalies = Vec::new();
+        for chunk in self.engine.world_state.chunks.values() {
+            for anomaly in &chunk.anomalies {
+                if !anomaly.deleted {
+                    permanent_anomalies.push(anomaly);
+                }
+            }
+        }
+
+        // Sort anomalies by distance to camera
+        permanent_anomalies.sort_unstable_by(|a, b| {
+            let dx_a = a.location.x - cam_pos.x;
+            let dy_a = a.location.y - cam_pos.y;
+            let dz_a = a.location.z - cam_pos.z;
+            let dist_a = dx_a * dx_a + dy_a * dy_a + dz_a * dz_a;
+
+            let dx_b = b.location.x - cam_pos.x;
+            let dy_b = b.location.y - cam_pos.y;
+            let dz_b = b.location.z - cam_pos.z;
+            let dist_b = dx_b * dx_b + dy_b * dy_b + dz_b * dz_b;
+
+            dist_a
+                .partial_cmp(&dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let nodes_count = std::cmp::min(15, permanent_anomalies.len());
+        wgpu_state.reality_uniform.num_nodes[0] = nodes_count as u32;
+
+        for i in 0..nodes_count {
+            let p = permanent_anomalies[i];
+            let p_archetype = *self
+                .engine
+                .input_config
+                .archetype_filters
+                .get(&p.reality_signature.active_style.archetype)
+                .unwrap_or(&p.reality_signature.active_style.archetype);
+            let (id, color) = get_archetype_data(p_archetype);
+
+            wgpu_state.reality_uniform.nodes_pos_fid[i] = [
+                p.location.x,
+                p.location.y,
+                p.location.z,
+                p.reality_signature.fidelity * p.reality_signature.influence_radius,
+            ];
+            wgpu_state.reality_uniform.nodes_params[i] = [
+                p.reality_signature.active_style.roughness,
+                p.reality_signature.active_style.scale,
+                p.reality_signature.active_style.distortion,
+                id,
+            ];
+            wgpu_state.reality_uniform.nodes_color[i] = color;
+        }
+
+        wgpu_state.queue.write_buffer(
+            &wgpu_state.reality_buffer,
             0,
-            bytemuck::cast_slice(&[self.reality_uniform]),
+            bytemuck::cast_slice(&[wgpu_state.reality_uniform]),
         );
 
         let mut entity_instances = Vec::new();
@@ -1352,41 +2450,8 @@ impl State {
             scale: (p1.reality_signature.fidelity / 100.0).clamp(0.1, 1.0),
         });
 
-        // 2. Add NPCs
-        for npc in &self.engine.world_state.npcs {
-            let color = match npc.reality_signature.active_style.archetype {
-                crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
-                crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
-                crate::reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],
-                crate::reality_types::RealityArchetype::HyperNature => [0.0, 0.8, 0.2, 1.0],
-                crate::reality_types::RealityArchetype::Genie => [1.0, 0.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::Void => [0.1, 0.1, 0.1, 1.0],
-                crate::reality_types::RealityArchetype::Glitch => [0.0, 1.0, 0.0, 1.0],
-                crate::reality_types::RealityArchetype::Steampunk => [0.8, 0.5, 0.2, 1.0],
-                crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
-                crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
-                crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
-                crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
-                crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
-                crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
-            };
-            let scale = if npc.reality_signature.active_style.archetype == crate::reality_types::RealityArchetype::Tron {
-                -1.0 // negative scale triggers the bit geometry logic in shader_lambda if added
-            } else {
-                1.0
-            };
-
-            entity_instances.push(visual_lambda::LambdaInstance {
-                position: [npc.location.x, npc.location.y - 1.0, npc.location.z],
-                color,
-                scale,
-            });
-        }
+        // 2. NPCs are now rendered using Gaussian Splats further down in active_splats processing
+        // (Removed LambdaInstance rendering for NPCs)
 
         // 3. Add Dropped Items
         for item in &self.engine.world_state.dropped_items {
@@ -1397,38 +2462,24 @@ impl State {
             });
         }
 
-        // 4. Add Spell Effects (Particles)
-        for effect in &self.engine.spell_effects {
-            let progress = effect.timer / effect.max_time;
-            // Scale expands over time
-            let current_scale = effect.scale * (progress * 2.0).min(1.0);
-
-            // Pulse opacity
-            let alpha = 1.0 - progress;
-            let mut color = effect.color;
-            color[3] = alpha;
-
-            entity_instances.push(visual_lambda::LambdaInstance {
-                position: [effect.position.x, effect.position.y, effect.position.z],
-                color,
-                scale: current_scale,
-            });
-        }
+        // 4. Add Spell Effects (Particles) - NOW MOVED TO GAUSSIAN SPLATS
+        // We will render these down below in the active_splats section
 
         self.num_entities = entity_instances.len() as u32;
 
-        if self.num_entities > self.max_entities {
-            self.max_entities = self.num_entities * 2;
+        if self.num_entities > wgpu_state.max_entities {
+            wgpu_state.max_entities = self.num_entities * 2;
             let instances = vec![
                 visual_lambda::LambdaInstance {
                     position: [0.0, 0.0, 0.0],
                     color: [1.0, 1.0, 1.0, 1.0],
                     scale: 0.0,
                 };
-                self.max_entities as usize
+                wgpu_state.max_entities as usize
             ];
-            self.entities_instance_buffer =
-                self.device
+            wgpu_state.entities_instance_buffer =
+                wgpu_state
+                    .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Entities Instance Buffer Resized"),
                         contents: bytemuck::cast_slice(&instances),
@@ -1436,8 +2487,8 @@ impl State {
                     });
         }
 
-        self.queue.write_buffer(
-            &self.entities_instance_buffer,
+        wgpu_state.queue.write_buffer(
+            &wgpu_state.entities_instance_buffer,
             0,
             bytemuck::cast_slice(&entity_instances),
         );
@@ -1446,10 +2497,32 @@ impl State {
         let view_proj = self.engine.camera.build_view_projection_matrix();
         let stability_hash = self.engine.world_state.root_hash.clone();
 
-        let needs_update = match &self.last_view_proj {
-            Some(last_vp) => *last_vp != view_proj || self.last_stability_hash != stability_hash,
-            None => true,
-        };
+        let player_pos = self.engine.player_projector.location;
+        let chunk_size = voxel::CHUNK_SIZE as f32;
+        let player_chunk_x = (player_pos.x / chunk_size).floor() as i32;
+        let player_chunk_z = (player_pos.z / chunk_size).floor() as i32;
+
+        // Re-generate chunk_data dynamically based on player's chunk
+        self.chunk_data.clear();
+        let grid_count = self.grid_count;
+        let half_grid = grid_count / 2; // e.g., 1 for 3x3
+
+        for z in (player_chunk_z - half_grid)..=(player_chunk_z + half_grid) {
+            for x in (player_chunk_x - half_grid)..=(player_chunk_x + half_grid) {
+                let x_pos = x as f32 * chunk_size + chunk_size / 2.0;
+                let z_pos = z as f32 * chunk_size + chunk_size / 2.0;
+                let half_size = chunk_size / 2.0;
+
+                self.chunk_data.push(ChunkData {
+                    position: cgmath::Vector3::new(x_pos, 0.0, z_pos),
+                    aabb_min: cgmath::Point3::new(x_pos - half_size, -10.0, z_pos - half_size),
+                    aabb_max: cgmath::Point3::new(x_pos + half_size, 10.0, z_pos + half_size),
+                });
+            }
+        }
+
+        // We should always update instance positions now since they can move
+        let needs_update = true;
 
         if needs_update {
             // Optimization: Extract frustum planes once per frame instead of per-instance
@@ -1460,7 +2533,7 @@ impl State {
                     let model = cgmath::Matrix4::from_translation(chunk_data.position);
 
                     // Get Stability from World State
-                    let chunk_size = 10.0;
+                    let chunk_size = voxel::CHUNK_SIZE as f32;
                     let id = world::ChunkId::from_world_pos(
                         chunk_data.position.x,
                         chunk_data.position.z,
@@ -1480,10 +2553,31 @@ impl State {
                 }
             }
 
-            self.num_instances = visible_instances.len() as u32;
-            if self.num_instances > 0 {
-                self.queue.write_buffer(
-                    &self.instance_buffer,
+            wgpu_state.num_instances = visible_instances.len() as u32;
+
+            if wgpu_state.num_instances > wgpu_state.max_instances {
+                wgpu_state.max_instances = (wgpu_state.num_instances * 2).next_power_of_two();
+                let instances = vec![
+                    Instance {
+                        model: cgmath::Matrix4::identity().into(),
+                        stability: 1.0,
+                        padding: [0.0; 3]
+                    };
+                    wgpu_state.max_instances as usize
+                ];
+                wgpu_state.instance_buffer =
+                    wgpu_state
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Instance Buffer Resized"),
+                            contents: bytemuck::cast_slice(&instances),
+                            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        });
+            }
+
+            if wgpu_state.num_instances > 0 {
+                wgpu_state.queue.write_buffer(
+                    &wgpu_state.instance_buffer,
                     0,
                     bytemuck::cast_slice(&visible_instances),
                 );
@@ -1494,9 +2588,9 @@ impl State {
         }
 
         // Update Lambda System buffers
-        self.lambda_renderer.update_buffers(
-            &self.device,
-            &self.queue,
+        wgpu_state.lambda_renderer.update_buffers(
+            &wgpu_state.device,
+            &wgpu_state.queue,
             &self.engine.lambda_system.nodes,
             &self.engine.lambda_system.edges,
             self.engine.lambda_system.hovered_node,
@@ -1505,6 +2599,13 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let wgpu_state = match &mut self.wgpu_state {
+            Some(w) => w,
+            None => {
+                self.render_cpu();
+                return Ok(());
+            }
+        };
         let view_proj = self.engine.camera.build_view_projection_matrix();
         let camera_pos = self.engine.camera.eye;
 
@@ -1532,19 +2633,522 @@ impl State {
             self.queue.write_buffer(&self.splat_buffer, 0, bytemuck::cast_slice(&self.splats));
         }
 
-        let output = self.surface.get_current_texture()?;
+        let output = wgpu_state.surface.get_current_texture()?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
+        let mut encoder =
+            wgpu_state
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder"),
+                });
+
+        let mut active_splats = Vec::new();
+        let frustum_planes = extract_frustum_planes(&view_proj);
+        let cam_pos = self.engine.camera.eye;
+
+        // Software Occlusion Culling setup
+        self.software_culler.clear();
+        let view_matrix = self.engine.camera.build_view_matrix();
+        use cgmath::InnerSpace;
+        let view_rot_mat4 = view_matrix;
+        let view_rot = cgmath::Matrix3::new(
+            view_rot_mat4.x.x,
+            view_rot_mat4.x.y,
+            view_rot_mat4.x.z,
+            view_rot_mat4.y.x,
+            view_rot_mat4.y.y,
+            view_rot_mat4.y.z,
+            view_rot_mat4.z.x,
+            view_rot_mat4.z.y,
+            view_rot_mat4.z.z,
+        );
+        let view_trans =
+            cgmath::Vector3::new(view_rot_mat4.w.x, view_rot_mat4.w.y, view_rot_mat4.w.z);
+        let proj_matrix = self.engine.camera.build_projection_matrix();
+        let focal_len_px = cgmath::Vector2::new(
+            proj_matrix.x.x * (self.software_culler.width as f32 * 0.5),
+            proj_matrix.y.y * (self.software_culler.height as f32 * 0.5),
+        );
+        let near_plane = 0.1; // Camera near plane
+
+        // 1. Collect and sort chunks front-to-back
+        let mut sorted_chunks: Vec<_> = self.voxel_world.chunks.values().collect();
+        sorted_chunks.sort_by(|a, b| {
+            let size = voxel::CHUNK_SIZE as f32;
+            let ca = cgmath::Point3::new(
+                a.key.x as f32 * size + size * 0.5,
+                a.key.y as f32 * size + size * 0.5,
+                a.key.z as f32 * size + size * 0.5,
+            );
+            let cb = cgmath::Point3::new(
+                b.key.x as f32 * size + size * 0.5,
+                b.key.y as f32 * size + size * 0.5,
+                b.key.z as f32 * size + size * 0.5,
+            );
+            let da = (ca - cam_pos).magnitude2();
+            let db = (cb - cam_pos).magnitude2();
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Track occluded chunks to skip them in the voxel mesh pass later
+        let mut occluded_chunks = std::collections::HashSet::new();
+
+        for chunk in sorted_chunks {
+            let size = voxel::CHUNK_SIZE as f32;
+            let min_x = chunk.key.x as f32 * size;
+            let min_y = chunk.key.y as f32 * size;
+            let min_z = chunk.key.z as f32 * size;
+
+            let aabb_min = cgmath::Point3::new(min_x, min_y, min_z);
+            let aabb_max = cgmath::Point3::new(min_x + size, min_y + size, min_z + size);
+
+            if is_aabb_visible(aabb_min, aabb_max, &frustum_planes) {
+                // Query Software Occlusion Culler
+                if !self.software_culler.is_occluded(
+                    aabb_min,
+                    aabb_max,
+                    &view_rot,
+                    &view_trans,
+                    &focal_len_px,
+                    near_plane,
+                ) {
+                    active_splats.extend(chunk.splats.iter().cloned());
+
+                    // If it's a fully solid occluder, rasterize it to depth buffer
+                    if chunk.is_fully_solid {
+                        self.software_culler.rasterize_occluder(
+                            aabb_min,
+                            aabb_max,
+                            &view_rot,
+                            &view_trans,
+                            &focal_len_px,
+                            near_plane,
+                        );
+                    }
+                } else {
+                    // It is occluded, so we skip it (and we track it for the voxel mesh pass)
+                    let key_str = format!("{}:{}:{}", chunk.key.x, chunk.key.y, chunk.key.z);
+                    occluded_chunks.insert(key_str);
+                }
+            } else {
+                let key_str = format!("{}:{}:{}", chunk.key.x, chunk.key.y, chunk.key.z);
+                occluded_chunks.insert(key_str);
+            }
+        }
+
+        // Add Spell Effects (Particles) as Splats
+        for effect in &self.engine.spell_effects {
+            let progress = effect.timer / effect.max_time;
+            // Scale expands over time
+            let current_scale = effect.scale * (progress * 2.0).min(1.0);
+
+            // Pulse opacity
+            let alpha = 1.0 - progress;
+            let mut color = effect.color;
+            color[3] = alpha;
+
+            active_splats.push(splat::SplatVertex {
+                position: [effect.position.x, effect.position.y, effect.position.z],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [current_scale, current_scale, current_scale],
+                color,
+                previous_position: [effect.position.x, effect.position.y, effect.position.z],
+                archetype_id: 0,
+                target_archetype_id: 0,
+                morph_weight: 0.0,
+                bone_index: -1,
+            });
+        }
+
+        // Add 3D Inventory Splats
+        if self.engine.show_3d_inventory {
+            let inventory_count = self.engine.world_state.player_inventory.len();
+            for (i, item) in self.engine.world_state.player_inventory.iter().enumerate() {
+                let angle = (i as f32 / inventory_count as f32) * std::f32::consts::PI * 2.0;
+                let radius = 2.0;
+                use cgmath::EuclideanSpace;
+                let item_pos = self.engine.camera.eye
+                    + cgmath::InnerSpace::normalize(self.engine.camera.target.to_vec()) * 3.0;
+                let offset = cgmath::Vector3::new(angle.cos() * radius, angle.sin() * radius, 0.0);
+
+                let bubble_center = cgmath::Vector3::new(
+                    item_pos.x + offset.x,
+                    item_pos.y + offset.y,
+                    item_pos.z + offset.z,
+                );
+
+                // Generate a translucent splat-bubble
+                let num_splats = 64;
+                let bubble_radius = 0.4;
+                let mut bubble_color = item.color;
+                bubble_color[3] = 0.4; // translucent
+
+                for j in 0..num_splats {
+                    let phi = std::f32::consts::PI * (3.0 - 5.0f32.sqrt()); // golden angle
+                    let y = 1.0 - (j as f32 / (num_splats - 1) as f32) * 2.0; // y goes from 1 to -1
+                    let radius_at_y = (1.0 - y * y).sqrt();
+                    let theta = phi * j as f32 + self.engine.time * 2.0;
+
+                    let x = theta.cos() * radius_at_y;
+                    let z = theta.sin() * radius_at_y;
+
+                    let splat_pos = [
+                        bubble_center.x + x * bubble_radius,
+                        bubble_center.y + y * bubble_radius,
+                        bubble_center.z + z * bubble_radius,
+                    ];
+
+                    active_splats.push(splat::SplatVertex {
+                        position: splat_pos,
+                        rotation: [0.0, 0.0, 0.0, 1.0],
+                        scale: [0.05, 0.05, 0.05], // small individual splats forming the bubble
+                        color: bubble_color,
+                        previous_position: splat_pos,
+                        archetype_id: 0,
+                        target_archetype_id: 0,
+                        morph_weight: 0.0,
+                        bone_index: -1,
+                    });
+                }
+            }
+        }
+
+            // Draw Splats
+            if !self.splats.is_empty() {
+                render_pass.set_pipeline(&self.splat_pipeline);
+                // Bind groups from voxel pipeline are the same
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
+
+                render_pass.set_vertex_buffer(0, self.splat_buffer.slice(..));
+                // We draw 6 vertices (2 triangles) per splat instance
+                render_pass.draw(0..6, 0..self.splats.len() as u32);
+            }
+
+            if !self.engine.lambda_system.nodes.is_empty() {
+                self.lambda_renderer.render(
+                    &mut render_pass,
+                    &self.camera_bind_group,
+        // Add NPC Splats (with Neural Blending)
+        for npc in &mut self.engine.world_state.npcs {
+            let color = match npc.reality_signature.active_style.archetype {
+                crate::reality_types::RealityArchetype::SciFi => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Horror => [1.0, 0.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Fantasy => [0.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Toon => [1.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::HyperNature => [0.0, 0.8, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Genie => [1.0, 0.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Void => [0.1, 0.1, 0.1, 1.0],
+                crate::reality_types::RealityArchetype::Glitch => [0.0, 1.0, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Steampunk => [0.8, 0.5, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Vaporwave => [1.0, 0.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Noir => [0.5, 0.5, 0.5, 1.0],
+                crate::reality_types::RealityArchetype::CyberSpace => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::Dream => [0.8, 0.6, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::ObraDinn => [0.9, 0.9, 0.8, 1.0],
+                crate::reality_types::RealityArchetype::SolarPunk => [0.2, 0.9, 0.4, 1.0],
+                crate::reality_types::RealityArchetype::Biopunk => [0.8, 0.2, 0.4, 1.0],
+                crate::reality_types::RealityArchetype::Tron => [0.0, 1.0, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::ColdStorage => [0.6, 0.9, 1.0, 1.0],
+                crate::reality_types::RealityArchetype::LiminalSpace => [0.95, 0.95, 0.8, 1.0],
+                crate::reality_types::RealityArchetype::Clockwork => [0.8, 0.6, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Cottagecore => [0.4, 0.7, 0.3, 1.0],
+                crate::reality_types::RealityArchetype::WildWest => [0.8, 0.5, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Fractal => [1.0, 0.5, 0.0, 1.0],
+                crate::reality_types::RealityArchetype::Prehistoric => [0.3, 0.4, 0.1, 1.0],
+                crate::reality_types::RealityArchetype::PostApocalyptic => [0.4, 0.3, 0.2, 1.0],
+                crate::reality_types::RealityArchetype::Underwater => [0.0, 0.5, 0.8, 1.0],
+            };
+
+            let mut final_splats = Vec::new();
+
+            if let Some(behavior) = &mut npc.behavior {
+                if let Some(playback) = &mut behavior.animation_playback {
+                    // Update timer and frame
+                    playback.timer += 0.016;
+                    if playback.timer > 1.0 / playback.frame_rate {
+                        playback.timer = 0.0;
+                        playback.current_frame += 1;
+                    }
+
+                    // Handle Blending progression
+                    if playback.next_state.is_some() {
+                        playback.blend_timer += 0.016;
+                        if playback.blend_timer >= playback.blend_duration {
+                            playback.current_state = playback.next_state.take().unwrap();
+                            playback.blend_timer = 0.0;
+                            playback.current_frame = 0;
+                        }
+                    }
+
+                    // Determine current frames list to extract source
+                    let mut source_splats = &self.npc_splats; // Fallback
+                    if let Some(frames) = self.npc_animations.get(&playback.current_state) {
+                        if !frames.is_empty() {
+                            if playback.current_frame >= frames.len() {
+                                playback.current_frame = 0; // Loop by default
+                            }
+                            source_splats = &frames[playback.current_frame];
+                        }
+                    }
+
+                    // Perform blending if next_state is active
+                    if let Some(next) = playback.next_state {
+                        let mut target_splats = &self.npc_splats; // Fallback
+                        if let Some(frames) = self.npc_animations.get(&next) {
+                            if !frames.is_empty() {
+                                let mut t_frame = playback.current_frame;
+                                if t_frame >= frames.len() {
+                                    t_frame = 0;
+                                }
+                                target_splats = &frames[t_frame];
+                            }
+                        }
+
+                        let t = (playback.blend_timer / playback.blend_duration).clamp(0.0, 1.0);
+                        let limit = std::cmp::min(source_splats.len(), target_splats.len());
+
+                        for i in 0..limit {
+                            let mut s = source_splats[i].clone();
+                            let tg = &target_splats[i];
+
+                            s.position[0] = s.position[0] * (1.0 - t) + tg.position[0] * t;
+                            s.position[1] = s.position[1] * (1.0 - t) + tg.position[1] * t;
+                            s.position[2] = s.position[2] * (1.0 - t) + tg.position[2] * t;
+
+                            s.scale[0] = s.scale[0] * (1.0 - t) + tg.scale[0] * t;
+                            s.scale[1] = s.scale[1] * (1.0 - t) + tg.scale[1] * t;
+                            s.scale[2] = s.scale[2] * (1.0 - t) + tg.scale[2] * t;
+
+                            s.color[0] = s.color[0] * (1.0 - t) + tg.color[0] * t;
+                            s.color[1] = s.color[1] * (1.0 - t) + tg.color[1] * t;
+                            s.color[2] = s.color[2] * (1.0 - t) + tg.color[2] * t;
+                            s.color[3] = s.color[3] * (1.0 - t) + tg.color[3] * t;
+
+                            // SLERP rotation
+                            let q1 = cgmath::Quaternion::new(
+                                s.rotation[3],
+                                s.rotation[0],
+                                s.rotation[1],
+                                s.rotation[2],
+                            );
+                            let q2 = cgmath::Quaternion::new(
+                                tg.rotation[3],
+                                tg.rotation[0],
+                                tg.rotation[1],
+                                tg.rotation[2],
+                            );
+                            let q3 = q1.slerp(q2, t);
+                            s.rotation = [q3.v.x, q3.v.y, q3.v.z, q3.s];
+
+                            final_splats.push(s);
+                        }
+                    } else {
+                        // No blend
+                        final_splats = source_splats.clone();
+                    }
+                }
+            } else {
+                final_splats = self.npc_splats.clone();
+            }
+
+            if final_splats.is_empty() {
+                final_splats = self.npc_splats.clone();
+            }
+
+            for mut splat in final_splats {
+                splat.position[0] += npc.location.x;
+                splat.position[1] += npc.location.y - 1.0;
+                splat.position[2] += npc.location.z;
+
+                splat.previous_position[0] += npc.location.x;
+                splat.previous_position[1] += npc.location.y - 1.0;
+                splat.previous_position[2] += npc.location.z;
+
+                // Modulate the splat's base color with the NPC's archetype color
+                splat.color[0] *= color[0];
+                splat.color[1] *= color[1];
+                splat.color[2] *= color[2];
+                // Keep the splat's original opacity
+
+                active_splats.push(splat);
+            }
+        }
+
+        // Add Procedural Splats (Splat4DPlayer)
+        for player in &self.engine.active_4d_splats {
+            if let Some(frames) = player.animations.get(&player.current_state) {
+                if player.current_frame < frames.len() {
+                    let mut final_splats = frames[player.current_frame].clone();
+
+                    // Pass bone mappings to GPU
+                    if let Some(_skeleton) = &player.skeleton {
+                        if player.splat_bone_indices.len() == final_splats.len() {
+                            for (i, splat) in final_splats.iter_mut().enumerate() {
+                                splat.bone_index = player.splat_bone_indices[i] as i32;
+                            }
+                        }
+                    }
+
+                    for mut splat in final_splats {
+                        splat.position[0] += player.position.x;
+                        splat.position[1] += player.position.y;
+                        splat.position[2] += player.position.z;
+                        splat.previous_position[0] += player.position.x;
+                        splat.previous_position[1] += player.position.y;
+                        splat.previous_position[2] += player.position.z;
+
+                        if let Some(arch_id) = player.archetype_override {
+                            splat.archetype_id = arch_id;
+                            splat.target_archetype_id = arch_id;
+                        }
+
+                        active_splats.push(splat);
+                    }
+                }
+            }
+        }
+
+        self.num_splats = active_splats.len() as u32;
+
+        if self.num_splats > 0 {
+            let next_pot = self.num_splats.next_power_of_two();
+            let target_capacity = std::cmp::max(wgpu_state.max_splat_capacity, next_pot);
+
+            // Reallocate if capacity exceeded
+            if target_capacity > wgpu_state.max_splat_capacity {
+                wgpu_state.max_splat_capacity = target_capacity;
+
+                wgpu_state.splat_buffer =
+                    wgpu_state.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("Splat Instance Buffer"),
+                        size: (wgpu_state.max_splat_capacity as usize
+                            * std::mem::size_of::<splat::SplatVertex>())
+                            as wgpu::BufferAddress,
+                        usage: wgpu::BufferUsages::VERTEX
+                            | wgpu::BufferUsages::STORAGE
+                            | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+
+                wgpu_state.unsorted_splat_buffer =
+                    wgpu_state.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("Unsorted Splat Buffer"),
+                        size: (wgpu_state.max_splat_capacity as usize
+                            * std::mem::size_of::<splat::SplatVertex>())
+                            as wgpu::BufferAddress,
+                        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+
+                wgpu_state.sort_entries_buffer =
+                    wgpu_state.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("Sort Entries Buffer"),
+                        size: (wgpu_state.max_splat_capacity as usize
+                            * std::mem::size_of::<splat::SortEntry>())
+                            as wgpu::BufferAddress,
+                        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+            }
+
+            wgpu_state.queue.write_buffer(
+                &wgpu_state.unsorted_splat_buffer,
+                0,
+                bytemuck::cast_slice(&active_splats),
+            );
+
+            // Setup Sort Uniforms
+            let sort_uniforms = splat::SortUniforms {
+                camera_pos: [cam_pos.x, cam_pos.y, cam_pos.z],
+                num_splats: self.num_splats,
+            };
+            wgpu_state.queue.write_buffer(
+                &wgpu_state.sort_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[sort_uniforms]),
+            );
+
+            // Create ephemeral Bind Group 0 (since it relies on dynamically resized buffers)
+            let sort_bind_group_0 =
+                wgpu_state
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Sort Bind Group 0"),
+                        layout: &wgpu_state.sort_bind_group_layout_0,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu_state.unsorted_splat_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu_state.sort_entries_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu_state.sort_uniform_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: wgpu_state.splat_buffer.as_entire_binding(),
+                            },
+                        ],
+                    });
+
+            let num_elements = next_pot;
+            let workgroups = ((num_elements + 255) / 256).max(1);
+
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Sort Compute Pass"),
+                timestamp_writes: None,
             });
 
+            compute_pass.set_bind_group(0, &sort_bind_group_0, &[]);
+            // Set bind group 1 with a default offset of 0. Even if compute_distances doesn't use it,
+            // the pipeline layout requires it to be set.
+            compute_pass.set_bind_group(1, &wgpu_state.sort_bind_group_1, &[0]);
+
+            compute_pass.set_pipeline(&wgpu_state.compute_distances_pipeline);
+            compute_pass.dispatch_workgroups(workgroups, 1, 1);
+
+            // Bitonic Sort
+            // Note: max_k in State::new is set to 262144 (2^18).
+            // We cap num_elements here to avoid uniform offset index out of bounds.
+            // A more robust production approach would be dynamically generating the bitonic_uniforms buffer
+            // if num_elements exceeds max_k, but 262,144 is quite large for standard use-cases in this engine.
+            let safe_num_elements = num_elements.min(262144);
+            let mut uniform_offset_index = 0;
+            let mut k = 2;
+            while k <= safe_num_elements {
+                let mut j = k >> 1;
+                while j > 0 {
+                    compute_pass.set_pipeline(&wgpu_state.sort_step_pipeline);
+                    compute_pass.set_bind_group(
+                        1,
+                        &wgpu_state.sort_bind_group_1,
+                        &[uniform_offset_index * 256],
+                    );
+                    compute_pass.dispatch_workgroups(workgroups, 1, 1);
+
+                    uniform_offset_index += 1;
+                    j >>= 1;
+                }
+                k <<= 1;
+            }
+
+            // Apply final sorted indices back to splat array
+            compute_pass.set_pipeline(&wgpu_state.apply_sort_pipeline);
+            // Group 1 remains bound from the last iteration or the initial set_bind_group call
+            compute_pass.dispatch_workgroups(workgroups, 1, 1);
+        }
+
         {
-            let clear_color = if self.in_xr {
+            let clear_color = if self.in_xr && !self.in_vr {
                 wgpu::Color {
                     r: 0.0,
                     g: 0.0,
@@ -1571,7 +3175,7 @@ impl State {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture.view,
+                    view: &wgpu_state.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -1582,31 +3186,43 @@ impl State {
                 timestamp_writes: None,
             });
 
-            // Draw Terrain
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
+            // Draw Sky (fullscreen quad)
+            if !self.in_xr || self.in_vr {
+                // Don't draw sky in AR
+                render_pass.set_pipeline(&wgpu_state.sky_pipeline);
+                render_pass.set_bind_group(0, &wgpu_state.camera_bind_group, &[]);
+                render_pass.draw(0..3, 0..1);
+            }
 
-            if self.num_instances > 0 {
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            // Draw Terrain
+            render_pass.set_pipeline(&wgpu_state.render_pipeline);
+            render_pass.set_bind_group(0, &wgpu_state.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &wgpu_state.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &wgpu_state.reality_bind_group, &[]);
+
+            if wgpu_state.num_instances > 0 {
+                render_pass.set_vertex_buffer(0, wgpu_state.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, wgpu_state.instance_buffer.slice(..));
                 render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
+                    .set_index_buffer(wgpu_state.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..wgpu_state.num_indices, 0, 0..wgpu_state.num_instances);
             }
 
             // Draw Voxels
-            render_pass.set_pipeline(&self.voxel_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
+            render_pass.set_pipeline(&wgpu_state.voxel_pipeline);
+            render_pass.set_bind_group(0, &wgpu_state.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &wgpu_state.voxel_bind_group, &[]);
+            render_pass.set_bind_group(2, &wgpu_state.reality_bind_group, &[]);
 
             // Optimization: Extract frustum planes once per frame instead of per-chunk
-            let frustum_planes = extract_frustum_planes(&view_proj);
-            for mesh in self.voxel_meshes.values() {
-                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &frustum_planes) {
+            // Note: frustum_planes already calculated above for splats
+            for (key, mesh) in &self.voxel_meshes {
+                let key_str = format!("{}:{}:{}", key.x, key.y, key.z);
+                if occluded_chunks.contains(&key_str) {
                     continue;
+                }
+                if !is_aabb_visible(mesh.aabb_min, mesh.aabb_max, &frustum_planes) {
+                    continue; // Double check just in case, though it should be handled above
                 }
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 render_pass
@@ -1615,38 +3231,347 @@ impl State {
             }
 
             // Draw Splats
-            if !self.splats.is_empty() {
-                render_pass.set_pipeline(&self.splat_pipeline);
-                // Bind groups from voxel pipeline are the same
-                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
-                render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
-
-                render_pass.set_vertex_buffer(0, self.splat_buffer.slice(..));
-                // We draw 6 vertices (2 triangles) per splat instance
-                render_pass.draw(0..6, 0..self.splats.len() as u32);
+            if self.num_splats > 0 {
+                render_pass.set_pipeline(&wgpu_state.splat_pipeline);
+                render_pass.set_bind_group(0, &wgpu_state.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &wgpu_state.voxel_bind_group, &[]);
+                render_pass.set_bind_group(2, &wgpu_state.reality_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, wgpu_state.splat_buffer.slice(..));
+                render_pass.draw(0..6, 0..self.num_splats);
             }
 
             if !self.engine.lambda_system.nodes.is_empty() {
-                self.lambda_renderer.render(
+                wgpu_state.lambda_renderer.render(
                     &mut render_pass,
-                    &self.camera_bind_group,
+                    &wgpu_state.camera_bind_group,
                     self.engine.lambda_system.nodes.len() as u32,
                 );
             }
 
-            self.lambda_renderer.render_entities(
+            wgpu_state.lambda_renderer.render_entities(
                 &mut render_pass,
-                &self.camera_bind_group,
-                &self.entities_instance_buffer,
+                &wgpu_state.camera_bind_group,
+                &wgpu_state.entities_instance_buffer,
                 self.num_entities,
             );
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        wgpu_state.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
+    }
+
+    fn project_point(
+        &self,
+        p: cgmath::Point3<f32>,
+        view_proj: &cgmath::Matrix4<f32>,
+    ) -> Option<(f32, f32)> {
+        let pos = cgmath::Vector4::new(p.x, p.y, p.z, 1.0);
+        let clip_space_pos = view_proj * pos;
+
+        if clip_space_pos.w > 0.0 {
+            let ndc_x = clip_space_pos.x / clip_space_pos.w;
+            let ndc_y = clip_space_pos.y / clip_space_pos.w;
+            let ndc_z = clip_space_pos.z / clip_space_pos.w;
+
+            // Check if within clip depth limits (WGPU uses 0..1)
+            if ndc_z >= 0.0 && ndc_z <= 1.0 {
+                // Map to canvas pixel space
+                let x = (ndc_x + 1.0) * 0.5 * self.width as f32;
+                let y = (1.0 - ndc_y) * 0.5 * self.height as f32; // Invert Y for canvas
+                return Some((x, y));
+            }
+        }
+        None
+    }
+
+    pub fn render_cpu(&mut self) {
+        let canvas = &self.canvas;
+        let context = match canvas.get_context("2d") {
+            Ok(Some(ctx)) => match ctx.dyn_into::<web_sys::CanvasRenderingContext2d>() {
+                Ok(ctx2d) => ctx2d,
+                Err(_) => return,
+            },
+            _ => return,
+        };
+
+        // 1. Clear background / draw sky gradient
+        context.clear_rect(0.0, 0.0, self.width as f64, self.height as f64);
+
+        let grad = context.create_linear_gradient(0.0, 0.0, 0.0, self.height as f64);
+        grad.add_color_stop(0.0, "#0a0a20").ok(); // Dark space
+        grad.add_color_stop(0.5, "#1a1230").ok(); // Horizon glow
+        grad.add_color_stop(1.0, "#080612").ok(); // Ground fog
+        context.set_fill_style_canvas_gradient(&grad);
+        context.fill_rect(0.0, 0.0, self.width as f64, self.height as f64);
+
+        let view_proj = self.engine.camera.build_view_projection_matrix();
+
+        // 2. Draw ground grid / wireframe chunks
+        context.set_line_width(1.0);
+        for chunk in self.voxel_world.chunks.values() {
+            let size = voxel::CHUNK_SIZE as f32;
+            let min_x = chunk.key.x as f32 * size;
+            let min_y = chunk.key.y as f32 * size;
+            let min_z = chunk.key.z as f32 * size;
+            let max_x = min_x + size;
+            let max_y = min_y + size;
+            let max_z = min_z + size;
+
+            // Draw bounding box wireframe
+            let corners = [
+                cgmath::Point3::new(min_x, min_y, min_z),
+                cgmath::Point3::new(max_x, min_y, min_z),
+                cgmath::Point3::new(max_x, max_y, min_z),
+                cgmath::Point3::new(min_x, max_y, min_z),
+                cgmath::Point3::new(min_x, min_y, max_z),
+                cgmath::Point3::new(max_x, min_y, max_z),
+                cgmath::Point3::new(max_x, max_y, max_z),
+                cgmath::Point3::new(min_x, max_y, max_z),
+            ];
+
+            let proj: Vec<Option<(f32, f32)>> = corners
+                .iter()
+                .map(|&c| self.project_point(c, &view_proj))
+                .collect();
+
+            // Connect edges
+            let edges = [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0), // back
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 4), // front
+                (0, 4),
+                (1, 5),
+                (2, 6),
+                (3, 7), // connections
+            ];
+
+            context.set_stroke_style_str("rgba(0, 240, 255, 0.15)");
+            for &(u, v) in &edges {
+                if let (Some(p1), Some(p2)) = (proj[u], proj[v]) {
+                    context.begin_path();
+                    context.move_to(p1.0 as f64, p1.1 as f64);
+                    context.line_to(p2.0 as f64, p2.1 as f64);
+                    context.stroke();
+                }
+            }
+        }
+
+        // 3. Draw Voxels / Splats (Point cloud style)
+        for chunk in self.voxel_world.chunks.values() {
+            for splat in &chunk.splats {
+                let pos =
+                    cgmath::Point3::new(splat.position[0], splat.position[1], splat.position[2]);
+                if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
+                    let r = (splat.color[0] * 255.0) as u8;
+                    let g = (splat.color[1] * 255.0) as u8;
+                    let b = (splat.color[2] * 255.0) as u8;
+                    let a = splat.color[3];
+                    let fill_style = format!("rgba({}, {}, {}, {})", r, g, b, a);
+
+                    context.set_fill_style_str(&fill_style);
+                    context.begin_path();
+                    context
+                        .arc(sx as f64, sy as f64, 2.0, 0.0, std::f64::consts::TAU)
+                        .ok();
+                    context.fill();
+                }
+            }
+        }
+
+        // 4. Draw Spell Effects (Particles)
+        for effect in &self.engine.spell_effects {
+            let pos = effect.position;
+            if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
+                let r = (effect.color[0] * 255.0) as u8;
+                let g = (effect.color[1] * 255.0) as u8;
+                let b = (effect.color[2] * 255.0) as u8;
+                let a = effect.color[3];
+                let fill_style = format!("rgba({}, {}, {}, {})", r, g, b, a);
+
+                context.set_fill_style_str(&fill_style);
+                context.begin_path();
+                context
+                    .arc(sx as f64, sy as f64, 6.0, 0.0, std::f64::consts::TAU)
+                    .ok();
+                context.fill();
+            }
+        }
+
+        // 5. Draw NPCs
+        for npc in &self.engine.world_state.npcs {
+            let pos = npc.location;
+            if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
+                context.set_fill_style_str("rgba(255, 42, 109, 0.85)");
+                context.begin_path();
+                context
+                    .arc(sx as f64, sy as f64, 10.0, 0.0, std::f64::consts::TAU)
+                    .ok();
+                context.fill();
+
+                context.set_stroke_style_str("#ffffff");
+                context.set_line_width(1.5);
+                context.stroke();
+
+                context.set_font("10px monospace");
+                context.set_fill_style_str("#ffffff");
+                let name = format!("{:?}", npc.reality_signature.active_style.archetype);
+                context
+                    .fill_text(&name, sx as f64 - 15.0, sy as f64 - 15.0)
+                    .ok();
+            }
+        }
+
+        // 6. Draw 3D Lambda Network
+        for (node_idx, node) in self.engine.lambda_system.nodes.iter().enumerate() {
+            let pos = node.position;
+            if let Some((sx, sy)) = self.project_point(pos, &view_proj) {
+                let col_str = format!(
+                    "rgba({}, {}, {}, 0.9)",
+                    (node.color[0] * 255.0) as u8,
+                    (node.color[1] * 255.0) as u8,
+                    (node.color[2] * 255.0) as u8
+                );
+                context.set_fill_style_str(&col_str);
+                context.begin_path();
+                context
+                    .arc(sx as f64, sy as f64, 12.0, 0.0, std::f64::consts::TAU)
+                    .ok();
+                context.fill();
+
+                let is_hovered = self.engine.lambda_system.hovered_node == Some(node_idx);
+                if is_hovered {
+                    context.set_stroke_style_str("#ffffff");
+                    context.set_line_width(2.0);
+                    context.stroke();
+                }
+
+                context.set_font("bold 11px Courier New");
+                context.set_fill_style_str("#ffffff");
+
+                let text = match &node.node_type {
+                    visual_lambda::NodeType::Var(s) => s.clone(),
+                    visual_lambda::NodeType::Abs(s) => format!("λ{}", s),
+                    visual_lambda::NodeType::Prim(p) => format!("{:?}", p).to_uppercase(),
+                    visual_lambda::NodeType::Port => {
+                        if let crate::lambda::Term::Var(name) = &*node.term {
+                            name.clone()
+                        } else {
+                            "•".to_string()
+                        }
+                    }
+                    visual_lambda::NodeType::App => "@".to_string(),
+                };
+
+                context
+                    .fill_text(&text, sx as f64 - 10.0, sy as f64 + 4.0)
+                    .ok();
+            }
+        }
+
+        for edge in &self.engine.lambda_system.edges {
+            if let (Some(n1), Some(n2)) = (
+                self.engine.lambda_system.nodes.get(edge.0),
+                self.engine.lambda_system.nodes.get(edge.1),
+            ) {
+                let p1 = n1.position;
+                let p2 = n2.position;
+                if let (Some(proj1), Some(proj2)) = (
+                    self.project_point(p1, &view_proj),
+                    self.project_point(p2, &view_proj),
+                ) {
+                    context.set_stroke_style_str("rgba(0, 255, 120, 0.5)");
+                    context.set_line_width(2.0);
+                    context.begin_path();
+                    context.move_to(proj1.0 as f64, proj1.1 as f64);
+                    context.line_to(proj2.0 as f64, proj2.1 as f64);
+                    context.stroke();
+                }
+            }
+        }
+
+        // 7. Render Debug HUD overlay
+        context.set_fill_style_str("rgba(0, 0, 0, 0.65)");
+        context.fill_rect(10.0, 10.0, 310.0, 150.0);
+        context.set_stroke_style_str("#00f0ff");
+        context.set_line_width(1.0);
+        context.stroke_rect(10.0, 10.0, 310.0, 150.0);
+
+        context.set_font("bold 12px Courier New");
+        context.set_fill_style_str("#00f0ff");
+        context
+            .fill_text("SYSTEM STATUS: CPU FALLBACK ACTIVE", 20.0, 30.0)
+            .ok();
+
+        context.set_font("11px Courier New");
+        context.set_fill_style_str("#cccccc");
+
+        let cam = &self.engine.camera;
+        context
+            .fill_text(
+                &format!(
+                    "CAM EYE   : [{:.2}, {:.2}, {:.2}]",
+                    cam.eye.x, cam.eye.y, cam.eye.z
+                ),
+                20.0,
+                50.0,
+            )
+            .ok();
+        context
+            .fill_text(
+                &format!("CAM YAW/P : [{:.2}, {:.2}]", cam.yaw, cam.pitch),
+                20.0,
+                70.0,
+            )
+            .ok();
+
+        let chunk_count = self.voxel_world.chunks.len();
+        let npc_count = self.engine.world_state.npcs.len();
+        context
+            .fill_text(
+                &format!("CHUNKS/NPC: {} / {}", chunk_count, npc_count),
+                20.0,
+                90.0,
+            )
+            .ok();
+
+        let archetypes_str = format!(
+            "{:?}",
+            self.engine
+                .player_projector
+                .reality_signature
+                .active_style
+                .archetype
+        );
+        context
+            .fill_text(&format!("ACTIVE STY: {}", archetypes_str), 20.0, 110.0)
+            .ok();
+
+        context
+            .fill_text(
+                &format!(
+                    "FPS/FRAMES: {:.1} / {}",
+                    self.fps_moving_average, self.frame_count
+                ),
+                20.0,
+                130.0,
+            )
+            .ok();
+
+        let net_status = if self.engine.world_state.chunks.is_empty() {
+            "UPLINK..."
+        } else {
+            "SYNCHRONIZED"
+        };
+        context
+            .fill_text(&format!("NETWORK   : {}", net_status), 20.0, 150.0)
+            .ok();
     }
 }
 
@@ -1670,43 +3595,57 @@ pub struct GameClient {
 #[wasm_bindgen]
 impl GameClient {
     pub fn process_inscription(&self, text: String) {
-        let mut state = self.state.borrow_mut();
-        state.engine.process_inscription(&text);
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.process_inscription(&text);
+        } else {
+            log::warn!("process_inscription skipped: State already borrowed.");
+        }
     }
 
     pub fn get_node_labels_flat(&self) -> js_sys::Uint8Array {
-        let mut state_ref = self.state.borrow_mut();
-        let state = &mut *state_ref;
-        state.engine.get_node_labels_flat(&mut state.labels_buffer);
-        // Optimization: Use `js_sys::Uint8Array::view` to create a direct view into WASM memory.
-        // This entirely eliminates the O(N) allocation and copying of bytes at the JS/WASM boundary
-        // every single frame, significantly improving performance.
-        unsafe {
-            js_sys::Uint8Array::view(&state.labels_buffer)
+        if let Ok(mut state_ref) = self.state.try_borrow_mut() {
+            let state = &mut *state_ref;
+            state.engine.get_node_labels_flat(&mut state.labels_buffer);
+            // Optimization: Use `js_sys::Uint8Array::view` to create a direct view into WASM memory.
+            // This entirely eliminates the O(N) allocation and copying of bytes at the JS/WASM boundary
+            // every single frame, significantly improving performance.
+            unsafe { js_sys::Uint8Array::view(&state.labels_buffer) }
+        } else {
+            // Return an empty array if we cannot borrow the state to avoid panicking
+            js_sys::Uint8Array::new(&js_sys::ArrayBuffer::new(0))
         }
     }
 
     pub fn set_anomaly_params(&self, roughness: f32, scale: f32, distortion: f32) {
-        let mut state = self.state.borrow_mut();
-        if let Some(ref mut anomaly) = state.engine.active_anomaly {
-            anomaly.reality_signature.active_style.roughness = roughness;
-            anomaly.reality_signature.active_style.scale = scale;
-            anomaly.reality_signature.active_style.distortion = distortion;
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            if let Some(ref mut anomaly) = state.engine.active_anomaly {
+                anomaly.reality_signature.active_style.roughness = roughness;
+                anomaly.reality_signature.active_style.scale = scale;
+                anomaly.reality_signature.active_style.distortion = distortion;
+            }
+            self.save_state(&state);
+        } else {
+            log::warn!("set_anomaly_params skipped: State already borrowed.");
         }
-        self.save_state(&state);
     }
 
     pub fn set_world_origin(&self, lat: f32, lon: f32) {
-        let mut state = self.state.borrow_mut();
-        let scale = 111000.0;
-        let x = lon * scale * 0.1;
-        let z = lat * scale * 0.1;
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let scale = 111000.0;
+            let x = lon * scale * 0.1;
+            let z = lat * scale * 0.1;
 
-        state.engine.set_global_offset(x, z);
+            state.engine.set_global_offset(x, z);
+        } else {
+            log::warn!("set_world_origin skipped: State already borrowed.");
+        }
     }
 
     pub fn set_anomaly_archetype(&self, archetype_id: i32) {
-        let mut state = self.state.borrow_mut();
+        let mut state = match self.state.try_borrow_mut() {
+            Ok(s) => s,
+            Err(_) => return, // Ignore if already borrowed by requestAnimationFrame
+        };
         let archetype = match archetype_id {
             0 => reality_types::RealityArchetype::Fantasy,
             1 => reality_types::RealityArchetype::SciFi,
@@ -1726,6 +3665,13 @@ impl GameClient {
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
             17 => reality_types::RealityArchetype::LiminalSpace,
+            18 => reality_types::RealityArchetype::Clockwork,
+            19 => reality_types::RealityArchetype::Cottagecore,
+            20 => reality_types::RealityArchetype::WildWest,
+            21 => reality_types::RealityArchetype::Fractal,
+            22 => reality_types::RealityArchetype::Prehistoric,
+            23 => reality_types::RealityArchetype::PostApocalyptic,
+            24 => reality_types::RealityArchetype::Underwater,
             _ => reality_types::RealityArchetype::Void,
         };
         if let Some(ref mut anomaly) = state.engine.active_anomaly {
@@ -1756,6 +3702,13 @@ impl GameClient {
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
             17 => reality_types::RealityArchetype::LiminalSpace,
+            18 => reality_types::RealityArchetype::Clockwork,
+            19 => reality_types::RealityArchetype::Cottagecore,
+            20 => reality_types::RealityArchetype::WildWest,
+            21 => reality_types::RealityArchetype::Fractal,
+            22 => reality_types::RealityArchetype::Prehistoric,
+            23 => reality_types::RealityArchetype::PostApocalyptic,
+            24 => reality_types::RealityArchetype::Underwater,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1778,6 +3731,13 @@ impl GameClient {
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
             17 => reality_types::RealityArchetype::LiminalSpace,
+            18 => reality_types::RealityArchetype::Clockwork,
+            19 => reality_types::RealityArchetype::Cottagecore,
+            20 => reality_types::RealityArchetype::WildWest,
+            21 => reality_types::RealityArchetype::Fractal,
+            22 => reality_types::RealityArchetype::Prehistoric,
+            23 => reality_types::RealityArchetype::PostApocalyptic,
+            24 => reality_types::RealityArchetype::Underwater,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1811,6 +3771,13 @@ impl GameClient {
             15 => reality_types::RealityArchetype::Tron,
             16 => reality_types::RealityArchetype::ColdStorage,
             17 => reality_types::RealityArchetype::LiminalSpace,
+            18 => reality_types::RealityArchetype::Clockwork,
+            19 => reality_types::RealityArchetype::Cottagecore,
+            20 => reality_types::RealityArchetype::WildWest,
+            21 => reality_types::RealityArchetype::Fractal,
+            22 => reality_types::RealityArchetype::Prehistoric,
+            23 => reality_types::RealityArchetype::PostApocalyptic,
+            24 => reality_types::RealityArchetype::Underwater,
             _ => reality_types::RealityArchetype::Void,
         };
 
@@ -1839,6 +3806,13 @@ impl GameClient {
                 reality_types::RealityArchetype::Tron => 15,
                 reality_types::RealityArchetype::ColdStorage => 16,
                 reality_types::RealityArchetype::LiminalSpace => 17,
+                reality_types::RealityArchetype::Clockwork => 18,
+                reality_types::RealityArchetype::Cottagecore => 19,
+                reality_types::RealityArchetype::WildWest => 20,
+                reality_types::RealityArchetype::Fractal => 21,
+                reality_types::RealityArchetype::Prehistoric => 22,
+                reality_types::RealityArchetype::PostApocalyptic => 23,
+                reality_types::RealityArchetype::Underwater => 24,
                 reality_types::RealityArchetype::Void => -1,
             }
         } else {
@@ -1846,7 +3820,11 @@ impl GameClient {
         }
     }
 
-    pub fn set_custom_spell_binding(&self, key_code: js_sys::JsString, spell_str: js_sys::JsString) {
+    pub fn set_custom_spell_binding(
+        &self,
+        key_code: js_sys::JsString,
+        spell_str: js_sys::JsString,
+    ) {
         let mut state = self.state.borrow_mut();
         const MAX_KEY_CODE_LEN: u32 = 64;
         const MAX_SPELL_LEN: u32 = 256;
@@ -1856,7 +3834,11 @@ impl GameClient {
         }
         let key_code_str: String = key_code.into();
         let spell_string: String = spell_str.into();
-        state.engine.input_config.custom_spell_bindings.insert(key_code_str, spell_string);
+        state
+            .engine
+            .input_config
+            .custom_spell_bindings
+            .insert(key_code_str, spell_string);
         self.save_state(&state);
     }
 
@@ -1867,7 +3849,12 @@ impl GameClient {
             return "".to_string();
         }
         let key_code_str: String = key_code.into();
-        if let Some(spell) = state.engine.input_config.custom_spell_bindings.get(&key_code_str) {
+        if let Some(spell) = state
+            .engine
+            .input_config
+            .custom_spell_bindings
+            .get(&key_code_str)
+        {
             return spell.clone();
         }
         "".to_string()
@@ -1880,13 +3867,18 @@ impl GameClient {
             return;
         }
         let key_code_str: String = key_code.into();
-        state.engine.input_config.custom_spell_bindings.remove(&key_code_str);
+        state
+            .engine
+            .input_config
+            .custom_spell_bindings
+            .remove(&key_code_str);
         self.save_state(&state);
     }
 
     pub fn get_all_custom_spell_bindings_json(&self) -> String {
         let state = self.state.borrow();
-        serde_json::to_string(&state.engine.input_config.custom_spell_bindings).unwrap_or_else(|_| "{}".to_string())
+        serde_json::to_string(&state.engine.input_config.custom_spell_bindings)
+            .unwrap_or_else(|_| "{}".to_string())
     }
 
     pub fn get_key_binding(&self, action_name: js_sys::JsString) -> String {
@@ -1930,6 +3922,65 @@ impl GameClient {
         }
     }
 
+    #[wasm_bindgen]
+    pub fn companion_recruit_to_party(&mut self, config_json: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+
+        let profile: reality_genie::dit::UserProfileConfig =
+            serde_json::from_str(config_json).unwrap_or_default();
+        let new_companion =
+            reality_genie::dit::AgenticCompanion::generate_personalized(profile, player_pos);
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .recruit_companion(new_companion);
+            state.engine.companion_manager.get_party_roster_json()
+        } else {
+            "[]".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_switch_active(&mut self, name: &str) -> bool {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.companion_manager.switch_active_companion(name)
+        } else {
+            false
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_trigger_party_banter(&mut self) -> String {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .simulate_party_banter()
+                .unwrap_or_else(|| "No other companions in party yet.".to_string())
+        } else {
+            "".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_get_party_roster(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.companion_manager.get_party_roster_json()
+        } else {
+            "[]".to_string()
+        }
+    }
+
     pub fn save_game(&self, slot_name: js_sys::JsString) {
         // Security Enhancement: Prevent DoS by limiting save slot name length
         const MAX_SLOT_NAME_LEN: u32 = 64;
@@ -1939,9 +3990,14 @@ impl GameClient {
         }
 
         let slot_name_str: String = slot_name.into();
-        *self.current_save_slot.borrow_mut() = slot_name_str;
-        let state = self.state.borrow();
-        self.save_state(&state);
+        if let Ok(mut current) = self.current_save_slot.try_borrow_mut() {
+            *current = slot_name_str;
+        }
+        if let Ok(state) = self.state.try_borrow() {
+            self.save_state(&state);
+        } else {
+            log::warn!("save_game skipped: State already borrowed.");
+        }
     }
 
     pub fn load_game(&self, slot_name: js_sys::JsString) {
@@ -1953,62 +4009,105 @@ impl GameClient {
         }
 
         let slot_name_str: String = slot_name.into();
-        *self.current_save_slot.borrow_mut() = slot_name_str.clone();
+        if let Ok(mut current) = self.current_save_slot.try_borrow_mut() {
+            *current = slot_name_str.clone();
+        }
         let key = persistence::get_save_key(&slot_name_str);
-        if let Some(loaded_state) = persistence::load_from_local_storage(&key) {
-            let mut state = self.state.borrow_mut();
-
-            state.engine.world_state = loaded_state.world;
-            state.engine.player_projector = loaded_state.player.projector;
-            state.engine.camera.eye = state.engine.player_projector.location;
-
-            use cgmath::Point3;
-            let mut anomaly_sig = reality_types::RealitySignature::default();
-            anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
-            anomaly_sig.active_style.roughness = 0.8;
-            anomaly_sig.active_style.scale = 5.0;
-            anomaly_sig.active_style.distortion = 0.8;
-            anomaly_sig.fidelity = 100.0;
-            state.engine.active_anomaly = Some(projector::RealityProjector::new(
-                Point3::new(0.0, 0.0, 0.0),
-                anomaly_sig,
-            ));
-
-            state.engine.lambda_system = visual_lambda::LambdaSystem::new();
-            state.engine.input_config = loaded_state.input_config;
-
-            // Restore Voxel World
-            if let Some(voxel_world) = loaded_state.voxel_world {
-                state.voxel_world = voxel_world;
-                state.voxel_dirty = true;
-                state.update_voxel_texture();
-                state.update_lods(true);
+        let state_rc = self.state.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut loaded_state = persistence::load_from_indexed_db(&key).await;
+            if loaded_state.is_none() {
+                loaded_state = persistence::load_from_local_storage(&key);
             }
 
-            // Restore Lambda State
-            let source = if loaded_state.lambda_source.is_empty() {
-                "FIRE".to_string()
-            } else {
-                loaded_state.lambda_source
-            };
-            if let Some(term) = lambda::parse(&source) {
-                state.engine.lambda_system.set_term(term);
-                if !loaded_state.lambda_layout.is_empty() {
-                    state
-                        .engine
-                        .lambda_system
-                        .apply_layout(loaded_state.lambda_layout);
+            if let Some(loaded_state) = loaded_state {
+                let mut borrowed_state = None;
+                for _ in 0..10 {
+                    if let Ok(state) = state_rc.try_borrow_mut() {
+                        borrowed_state = Some(state);
+                        break;
+                    }
+                    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(
+                        &wasm_bindgen::JsValue::UNDEFINED,
+                    ))
+                    .await
+                    .ok();
+                }
+
+                if let Some(mut state) = borrowed_state {
+                    state.engine.world_state = loaded_state.world;
+                    state.engine.player_projector = loaded_state.player.projector;
+                    state.engine.camera.eye = state.engine.player_projector.location;
+
+                    use cgmath::Point3;
+                    let mut anomaly_sig = reality_types::RealitySignature::default();
+                    anomaly_sig.active_style.archetype = reality_types::RealityArchetype::SciFi;
+                    anomaly_sig.active_style.roughness = 0.8;
+                    anomaly_sig.active_style.scale = 5.0;
+                    anomaly_sig.active_style.distortion = 0.8;
+                    anomaly_sig.fidelity = 100.0;
+                    state.engine.active_anomaly = Some(projector::RealityProjector::new(
+                        Point3::new(0.0, 0.0, 0.0),
+                        anomaly_sig,
+                    ));
+
+                    state.engine.lambda_system = visual_lambda::LambdaSystem::new();
+                    state.engine.input_config = loaded_state.input_config;
+
+                    // Restore Voxel World
+                    if let Some(voxel_world) = loaded_state.voxel_world {
+                        state.voxel_world = voxel_world;
+                        state.voxel_dirty = true;
+                        state.update_voxel_texture();
+                        state.update_lods(true);
+                    }
+
+                    // Restore Companion State & Long-Horizon Memory
+                    if let Some(comp_json) = loaded_state.companion_state_json {
+                        if let Ok(deserialized) =
+                            serde_json::from_str::<reality_genie::dit::AgenticCompanion>(&comp_json)
+                        {
+                            state.engine.companion_manager.companion = deserialized;
+                        }
+                    }
+
+                    if let Some(party_json) = loaded_state.companion_party_state_json {
+                        if let Ok(deserialized_party) = serde_json::from_str::<
+                            Vec<reality_genie::dit::AgenticCompanion>,
+                        >(&party_json)
+                        {
+                            state.engine.companion_manager.companion_party = deserialized_party;
+                        }
+                    }
+
+                    // Restore Lambda State
+                    let source = if loaded_state.lambda_source.is_empty() {
+                        "FIRE".to_string()
+                    } else {
+                        loaded_state.lambda_source
+                    };
+                    if let Some(term) = lambda::parse(&source) {
+                        state.engine.lambda_system.set_term(term);
+                        if !loaded_state.lambda_layout.is_empty() {
+                            state
+                                .engine
+                                .lambda_system
+                                .apply_layout(loaded_state.lambda_layout);
+                        }
+                    } else {
+                        // Fallback
+                        let term = lambda::parse("FIRE").unwrap();
+                        state.engine.lambda_system.set_term(term);
+                    }
+
+                    log::info!("Game Loaded from slot: {}", slot_name_str);
+                } else {
+                    log::warn!("load_game failed: State already borrowed.");
                 }
             } else {
-                // Fallback
-                let term = lambda::parse("FIRE").unwrap();
-                state.engine.lambda_system.set_term(term);
+                log::warn!("Failed to load save slot: {}", slot_name_str);
             }
-
-            log::info!("Game Loaded from slot: {}", slot_name_str);
-        } else {
-            log::warn!("Failed to load save slot: {}", slot_name_str);
-        }
+        });
     }
 
     pub fn list_saves(&self) -> String {
@@ -2050,14 +4149,396 @@ impl GameClient {
             lambda_layout: state.engine.lambda_system.get_layout(),
             input_config: state.engine.input_config.clone(),
             voxel_world: Some(state.voxel_world.clone()),
+            companion_state_json: Some(state.engine.companion_manager.get_companion_state_json()),
+            companion_party_state_json: Some(
+                state.engine.companion_manager.get_party_roster_json(),
+            ),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
         let slot = self.current_save_slot.borrow().clone();
         let key = persistence::get_save_key(&slot);
-        persistence::save_to_local_storage(&key, &game_state);
+        let game_state_clone = game_state.clone();
+        let key_clone = key.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let success = persistence::save_to_indexed_db(&key_clone, &game_state_clone).await;
+            if !success {
+                persistence::save_to_local_storage(&key_clone, &game_state_clone);
+            }
+        });
     }
 
+    pub async fn enter_vr_session(&self) -> Result<(), JsValue> {
+        if !xr::is_vr_supported().await? {
+            return Err(JsValue::from_str("VR not supported"));
+        }
+
+        let session: XrSession = xr::request_vr_session().await?;
+
+        // 1. Get State & Canvas (Brief Borrow)
+        let canvas = {
+            let mut state = self.state.borrow_mut();
+            state.in_xr = true;
+            state.in_vr = true;
+            state.canvas.clone()
+        };
+
+        // 2. Get Context (No Borrow)
+        let gl_context = canvas
+            .get_context("webgl2")?
+            .ok_or_else(|| JsValue::from_str("No WebGL2 context found"))?
+            .dyn_into::<web_sys::WebGl2RenderingContext>()?;
+
+        // 3. Create Layer (No Borrow)
+        let layer = XrWebGlLayer::new_with_web_gl2_rendering_context(&session, &gl_context)?;
+
+        let render_state_init = XrRenderStateInit::new();
+        render_state_init.set_base_layer(Some(&layer));
+        session.update_render_state_with_state(&render_state_init);
+
+        // 4. Request Reference Space (Async - Must not hold borrow)
+        let reference_space = wasm_bindgen_futures::JsFuture::from(
+            session.request_reference_space(XrReferenceSpaceType::Local),
+        )
+        .await?
+        .unchecked_into::<XrReferenceSpace>();
+
+        let state_xr = self.state.clone();
+        let session_clone = session.clone();
+        let reference_space_clone = reference_space.clone();
+
+        let f_xr: Rc<RefCell<Option<Closure<dyn FnMut(f64, XrFrame)>>>> =
+            Rc::new(RefCell::new(None));
+        let g_xr = f_xr.clone();
+
+        let last_trigger_state = Rc::new(RefCell::new(false));
+        // Used to debounce trigger action per controller (Left/Right index approximation)
+        let mut last_palm_pressed = vec![false; 4];
+        let mut last_fist_pressed = vec![false; 4];
+
+        *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
+            let mut state = state_xr.borrow_mut();
+
+            let pose = frame.get_viewer_pose(&reference_space_clone);
+            let viewer_pose = pose.map(|p| p.unchecked_into::<XrViewerPose>());
+            if let Some(pose) = viewer_pose {
+                let views = pose.views();
+                if views.length() > 0 {
+                    let view = views.get(0).unchecked_into::<XrView>();
+                    let _eye: XrEye = view.eye();
+
+                    // Tracking
+                    let transform = view.transform();
+                    let pos = transform.position();
+                    let orient = transform.orientation();
+
+                    let q = cgmath::Quaternion::new(
+                        orient.w() as f32,
+                        orient.x() as f32,
+                        orient.y() as f32,
+                        orient.z() as f32,
+                    );
+                    let forward = q.rotate_vector(cgmath::Vector3::new(0.0, 0.0, -1.0));
+                    let up = q.rotate_vector(cgmath::Vector3::new(0.0, 1.0, 0.0));
+
+                    state.engine.camera.eye =
+                        cgmath::Point3::new(pos.x() as f32, pos.y() as f32, pos.z() as f32);
+                    state.engine.camera.target = state.engine.camera.eye + forward;
+                    state.engine.camera.up = up;
+
+                    // Projection
+                    let proj_data = view.projection_matrix();
+
+                    if proj_data.len() >= 16 {
+                        state.engine.camera.projection_override = Some(cgmath::Matrix4::from_cols(
+                            cgmath::Vector4::new(
+                                proj_data[0],
+                                proj_data[1],
+                                proj_data[2],
+                                proj_data[3],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[4],
+                                proj_data[5],
+                                proj_data[6],
+                                proj_data[7],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[8],
+                                proj_data[9],
+                                proj_data[10],
+                                proj_data[11],
+                            ),
+                            cgmath::Vector4::new(
+                                proj_data[12],
+                                proj_data[13],
+                                proj_data[14],
+                                proj_data[15],
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            // Poll Input Sources
+            let input_sources = session_clone.input_sources();
+            let mut trigger_pressed = false;
+
+            for i in 0..input_sources.length() {
+                if let Some(input_source) = input_sources
+                    .get(i)
+                    .map(|s| s.unchecked_into::<web_sys::XrInputSource>())
+                {
+                    // Check for Hand Tracking (Pinch gesture to CastSpell)
+                    let hand_val = js_sys::Reflect::get(&input_source, &JsValue::from_str("hand"));
+                    if let Ok(h) = hand_val {
+                        if h.is_object() {
+                            let index_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("index-finger-tip"));
+                            let thumb_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("thumb-tip"));
+                            let middle_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("middle-finger-tip"));
+                            let ring_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("ring-finger-tip"));
+                            let pinky_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("pinky-finger-tip"));
+                            let wrist_val = js_sys::Reflect::get(&h, &JsValue::from_str("wrist"));
+
+                            if let (
+                                Ok(index),
+                                Ok(thumb),
+                                Ok(middle),
+                                Ok(ring),
+                                Ok(pinky),
+                                Ok(wrist),
+                            ) = (
+                                index_val, thumb_val, middle_val, ring_val, pinky_val, wrist_val,
+                            ) {
+                                if !index.is_undefined()
+                                    && !thumb.is_undefined()
+                                    && !middle.is_undefined()
+                                    && !ring.is_undefined()
+                                    && !pinky.is_undefined()
+                                    && !wrist.is_undefined()
+                                {
+                                    let index_space: web_sys::XrSpace = index.unchecked_into();
+                                    let thumb_space: web_sys::XrSpace = thumb.unchecked_into();
+                                    let middle_space: web_sys::XrSpace = middle.unchecked_into();
+                                    let ring_space: web_sys::XrSpace = ring.unchecked_into();
+                                    let pinky_space: web_sys::XrSpace = pinky.unchecked_into();
+                                    let wrist_space: web_sys::XrSpace = wrist.unchecked_into();
+
+                                    let index_pose =
+                                        frame.get_pose(&index_space, &reference_space_clone);
+                                    let thumb_pose =
+                                        frame.get_pose(&thumb_space, &reference_space_clone);
+                                    let middle_pose =
+                                        frame.get_pose(&middle_space, &reference_space_clone);
+                                    let ring_pose =
+                                        frame.get_pose(&ring_space, &reference_space_clone);
+                                    let pinky_pose =
+                                        frame.get_pose(&pinky_space, &reference_space_clone);
+                                    let wrist_pose =
+                                        frame.get_pose(&wrist_space, &reference_space_clone);
+
+                                    if let (
+                                        Some(ip),
+                                        Some(tp),
+                                        Some(mp),
+                                        Some(rp),
+                                        Some(pp),
+                                        Some(wp),
+                                    ) = (
+                                        index_pose,
+                                        thumb_pose,
+                                        middle_pose,
+                                        ring_pose,
+                                        pinky_pose,
+                                        wrist_pose,
+                                    ) {
+                                        let ip_pos = ip.transform().position();
+                                        let tp_pos = tp.transform().position();
+                                        let mp_pos = mp.transform().position();
+                                        let rp_pos = rp.transform().position();
+                                        let pp_pos = pp.transform().position();
+                                        let wp_pos = wp.transform().position();
+
+                                        // Pinch Gesture (Index to Thumb)
+                                        let dx = ip_pos.x() as f32 - tp_pos.x() as f32;
+                                        let dy = ip_pos.y() as f32 - tp_pos.y() as f32;
+                                        let dz = ip_pos.z() as f32 - tp_pos.z() as f32;
+                                        let dist_sq = dx * dx + dy * dy + dz * dz;
+
+                                        if dist_sq < 0.02 * 0.02 {
+                                            trigger_pressed = true; // Maps to process_click below
+                                        }
+
+                                        // Palm / Fist Distances from Wrist
+                                        let calc_dist_sq =
+                                            |finger: &web_sys::DomPointReadOnly,
+                                             wrist: &web_sys::DomPointReadOnly|
+                                             -> f32 {
+                                                let dwx = finger.x() as f32 - wrist.x() as f32;
+                                                let dwy = finger.y() as f32 - wrist.y() as f32;
+                                                let dwz = finger.z() as f32 - wrist.z() as f32;
+                                                dwx * dwx + dwy * dwy + dwz * dwz
+                                            };
+
+                                        let d_thumb_sq = calc_dist_sq(&tp_pos, &wp_pos);
+                                        let d_index_sq = calc_dist_sq(&ip_pos, &wp_pos);
+                                        let d_middle_sq = calc_dist_sq(&mp_pos, &wp_pos);
+                                        let d_ring_sq = calc_dist_sq(&rp_pos, &wp_pos);
+                                        let d_pinky_sq = calc_dist_sq(&pp_pos, &wp_pos);
+
+                                        let mut palm_pressed = false;
+                                        let mut fist_pressed = false;
+
+                                        // Open Palm: Trigger Inscribe
+                                        if d_thumb_sq > 0.08 * 0.08
+                                            && d_index_sq > 0.11 * 0.11
+                                            && d_middle_sq > 0.11 * 0.11
+                                            && d_ring_sq > 0.10 * 0.10
+                                            && d_pinky_sq > 0.09 * 0.09
+                                        {
+                                            palm_pressed = true;
+                                        }
+
+                                        // Fist: Trigger Jump
+                                        if d_thumb_sq < 0.08 * 0.08
+                                            && d_index_sq < 0.08 * 0.08
+                                            && d_middle_sq < 0.08 * 0.08
+                                            && d_ring_sq < 0.08 * 0.08
+                                            && d_pinky_sq < 0.08 * 0.08
+                                        {
+                                            fist_pressed = true;
+                                        }
+
+                                        let idx = (i as usize).min(3);
+
+                                        if palm_pressed && !last_palm_pressed[idx] {
+                                            state
+                                                .engine
+                                                .camera_controller
+                                                .process_action(input::Action::Inscribe, true);
+                                            state
+                                                .engine
+                                                .camera_controller
+                                                .process_action(input::Action::Inscribe, false);
+
+                                            // Bimanual Companion Gesture: High-Five / Beckon Samantha
+                                            state
+                                                .engine
+                                                .companion_manager
+                                                .companion
+                                                .personality
+                                                .current_mood = "Celebratory".to_string();
+                                            state.engine.companion_manager.companion.current_dialogue = Some("Samantha: *High-five!* Our resonance is perfectly synchronized!".to_string());
+                                        }
+                                        last_palm_pressed[idx] = palm_pressed;
+
+                                        if fist_pressed && !last_fist_pressed[idx] {
+                                            state
+                                                .engine
+                                                .camera_controller
+                                                .process_action(input::Action::Jump, true);
+                                            state
+                                                .engine
+                                                .camera_controller
+                                                .process_action(input::Action::Jump, false);
+                                        }
+                                        last_fist_pressed[idx] = fist_pressed;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback to Gamepad
+                    if let Some(gamepad) = input_source.gamepad() {
+                        let buttons = gamepad.buttons();
+                        let axes = gamepad.axes();
+
+                        let trigger = js_sys::Reflect::get(&buttons, &JsValue::from(0)).ok();
+                        if let Some(t) = trigger {
+                            let pressed = js_sys::Reflect::get(&t, &JsValue::from_str("pressed"))
+                                .ok()
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            if pressed {
+                                trigger_pressed = true;
+                            }
+                        }
+
+                        let x_axis = js_sys::Reflect::get(&axes, &JsValue::from(2))
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0) as f32;
+                        let y_axis = js_sys::Reflect::get(&axes, &JsValue::from(3))
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0) as f32;
+
+                        if x_axis.abs() > 0.1 || y_axis.abs() > 0.1 {
+                            // E.g. basic controller look/move logic
+                        }
+                    }
+                }
+            }
+
+            // Handle debounced click (maps to spell casting implicitly)
+            let mut last_trigger = last_trigger_state.borrow_mut();
+            if trigger_pressed && !*last_trigger {
+                state.engine.process_click(0.0, 0.0);
+            }
+            *last_trigger = trigger_pressed;
+
+            // Render to wgpu canvas first
+            state.update();
+            state.render().expect("Render failed");
+
+            // Blit Canvas to XR Framebuffer
+            let width = state.width as i32;
+            let height = state.height as i32;
+            let framebuffer = layer.framebuffer();
+
+            gl_context.bind_framebuffer(web_sys::WebGl2RenderingContext::READ_FRAMEBUFFER, None);
+            gl_context.bind_framebuffer(
+                web_sys::WebGl2RenderingContext::DRAW_FRAMEBUFFER,
+                framebuffer.as_ref(),
+            );
+
+            gl_context.blit_framebuffer(
+                0,
+                height,
+                width,
+                0,
+                0,
+                0,
+                width,
+                height,
+                web_sys::WebGl2RenderingContext::COLOR_BUFFER_BIT,
+                web_sys::WebGl2RenderingContext::NEAREST,
+            );
+
+            session_clone
+                .request_animation_frame(f_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+        }));
+
+        session.request_animation_frame(g_xr.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+
+        let state_end = self.state.clone();
+        let onend_closure = Closure::wrap(Box::new(move |_| {
+            let mut state = state_end.borrow_mut();
+            state.in_xr = false;
+            state.in_vr = false;
+            log::info!("XR VR Session Ended");
+        }) as Box<dyn FnMut(JsValue)>);
+        session.set_onend(Some(onend_closure.as_ref().unchecked_ref()));
+        onend_closure.forget();
+
+        Ok(())
+    }
     pub async fn enter_ar_session(&self) -> Result<(), JsValue> {
         if !xr::is_ar_supported().await? {
             return Err(JsValue::from_str("AR not supported"));
@@ -2100,8 +4581,244 @@ impl GameClient {
             Rc::new(RefCell::new(None));
         let g_xr = f_xr.clone();
 
+        // Used to debounce trigger action per controller (Left/Right index approximation)
+        let mut last_trigger_pressed = vec![false; 4];
+        let mut last_palm_pressed = vec![false; 4];
+        let mut last_fist_pressed = vec![false; 4];
+
         *g_xr.borrow_mut() = Some(Closure::new(move |_time: f64, frame: XrFrame| {
             let mut state = state_xr.borrow_mut();
+
+            // Process XR Inputs
+            let input_sources = session_clone.input_sources();
+            for i in 0..input_sources.length() {
+                if let Some(input_source) = input_sources
+                    .get(i)
+                    .map(|s| s.unchecked_into::<web_sys::XrInputSource>())
+                {
+                    // Check for Hand Tracking (Pinch gesture to CastSpell)
+                    let hand_val = js_sys::Reflect::get(&input_source, &JsValue::from_str("hand"));
+                    if let Ok(h) = hand_val {
+                        if h.is_object() {
+                            let index_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("index-finger-tip"));
+                            let thumb_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("thumb-tip"));
+                            let middle_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("middle-finger-tip"));
+                            let ring_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("ring-finger-tip"));
+                            let pinky_val =
+                                js_sys::Reflect::get(&h, &JsValue::from_str("pinky-finger-tip"));
+                            let wrist_val = js_sys::Reflect::get(&h, &JsValue::from_str("wrist"));
+
+                            let mut pinch_pressed = false;
+
+                            if let (
+                                Ok(index),
+                                Ok(thumb),
+                                Ok(middle),
+                                Ok(ring),
+                                Ok(pinky),
+                                Ok(wrist),
+                            ) = (
+                                index_val, thumb_val, middle_val, ring_val, pinky_val, wrist_val,
+                            ) {
+                                if !index.is_undefined()
+                                    && !thumb.is_undefined()
+                                    && !middle.is_undefined()
+                                    && !ring.is_undefined()
+                                    && !pinky.is_undefined()
+                                    && !wrist.is_undefined()
+                                {
+                                    let index_space: web_sys::XrSpace = index.unchecked_into();
+                                    let thumb_space: web_sys::XrSpace = thumb.unchecked_into();
+                                    let middle_space: web_sys::XrSpace = middle.unchecked_into();
+                                    let ring_space: web_sys::XrSpace = ring.unchecked_into();
+                                    let pinky_space: web_sys::XrSpace = pinky.unchecked_into();
+                                    let wrist_space: web_sys::XrSpace = wrist.unchecked_into();
+
+                                    let index_pose =
+                                        frame.get_pose(&index_space, &reference_space_clone);
+                                    let thumb_pose =
+                                        frame.get_pose(&thumb_space, &reference_space_clone);
+                                    let middle_pose =
+                                        frame.get_pose(&middle_space, &reference_space_clone);
+                                    let ring_pose =
+                                        frame.get_pose(&ring_space, &reference_space_clone);
+                                    let pinky_pose =
+                                        frame.get_pose(&pinky_space, &reference_space_clone);
+                                    let wrist_pose =
+                                        frame.get_pose(&wrist_space, &reference_space_clone);
+
+                                    if let (
+                                        Some(ip),
+                                        Some(tp),
+                                        Some(mp),
+                                        Some(rp),
+                                        Some(pp),
+                                        Some(wp),
+                                    ) = (
+                                        index_pose,
+                                        thumb_pose,
+                                        middle_pose,
+                                        ring_pose,
+                                        pinky_pose,
+                                        wrist_pose,
+                                    ) {
+                                        let ip_pos = ip.transform().position();
+                                        let tp_pos = tp.transform().position();
+                                        let mp_pos = mp.transform().position();
+                                        let rp_pos = rp.transform().position();
+                                        let pp_pos = pp.transform().position();
+                                        let wp_pos = wp.transform().position();
+
+                                        // Pinch Gesture (Index to Thumb)
+                                        let dx = ip_pos.x() as f32 - tp_pos.x() as f32;
+                                        let dy = ip_pos.y() as f32 - tp_pos.y() as f32;
+                                        let dz = ip_pos.z() as f32 - tp_pos.z() as f32;
+                                        let dist_sq = dx * dx + dy * dy + dz * dz;
+
+                                        if dist_sq < 0.02 * 0.02 {
+                                            pinch_pressed = true;
+                                        }
+
+                                        // Palm / Fist Distances from Wrist
+                                        let calc_dist_sq =
+                                            |finger: &web_sys::DomPointReadOnly,
+                                             wrist: &web_sys::DomPointReadOnly|
+                                             -> f32 {
+                                                let dwx = finger.x() as f32 - wrist.x() as f32;
+                                                let dwy = finger.y() as f32 - wrist.y() as f32;
+                                                let dwz = finger.z() as f32 - wrist.z() as f32;
+                                                dwx * dwx + dwy * dwy + dwz * dwz
+                                            };
+
+                                        let d_thumb_sq = calc_dist_sq(&tp_pos, &wp_pos);
+                                        let d_index_sq = calc_dist_sq(&ip_pos, &wp_pos);
+                                        let d_middle_sq = calc_dist_sq(&mp_pos, &wp_pos);
+                                        let d_ring_sq = calc_dist_sq(&rp_pos, &wp_pos);
+                                        let d_pinky_sq = calc_dist_sq(&pp_pos, &wp_pos);
+
+                                        let mut palm_pressed = false;
+                                        let mut fist_pressed = false;
+
+                                        // Open Palm: Trigger Inscribe
+                                        if d_thumb_sq > 0.08 * 0.08
+                                            && d_index_sq > 0.11 * 0.11
+                                            && d_middle_sq > 0.11 * 0.11
+                                            && d_ring_sq > 0.10 * 0.10
+                                            && d_pinky_sq > 0.09 * 0.09
+                                        {
+                                            palm_pressed = true;
+                                        }
+
+                                        // Fist: Trigger Jump
+                                        if d_thumb_sq < 0.08 * 0.08
+                                            && d_index_sq < 0.08 * 0.08
+                                            && d_middle_sq < 0.08 * 0.08
+                                            && d_ring_sq < 0.08 * 0.08
+                                            && d_pinky_sq < 0.08 * 0.08
+                                        {
+                                            fist_pressed = true;
+                                        }
+
+                                        let idx = (i as usize).min(3);
+
+                                        if palm_pressed && !last_palm_pressed[idx] {
+                                            state
+                                                .engine
+                                                .camera_controller
+                                                .process_action(input::Action::Inscribe, true);
+                                            state
+                                                .engine
+                                                .camera_controller
+                                                .process_action(input::Action::Inscribe, false);
+                                        }
+                                        last_palm_pressed[idx] = palm_pressed;
+
+                                        if fist_pressed && !last_fist_pressed[idx] {
+                                            state
+                                                .engine
+                                                .camera_controller
+                                                .process_action(input::Action::Jump, true);
+                                            state
+                                                .engine
+                                                .camera_controller
+                                                .process_action(input::Action::Jump, false);
+                                        }
+                                        last_fist_pressed[idx] = fist_pressed;
+                                    }
+                                }
+                            }
+
+                            let idx = (i as usize).min(3);
+                            if pinch_pressed && !last_trigger_pressed[idx] {
+                                state
+                                    .engine
+                                    .camera_controller
+                                    .process_action(input::Action::CastSpell, true);
+                                state
+                                    .engine
+                                    .camera_controller
+                                    .process_action(input::Action::CastSpell, false);
+                            }
+                            last_trigger_pressed[idx] = pinch_pressed;
+                        }
+                    }
+
+                    if let Some(gamepad) = input_source.gamepad() {
+                        let buttons = gamepad.buttons();
+
+                        // Mapping based on XR_VALVE_frame_controller_interaction and generic XR Gamepad
+                        // A standard WebXR gamepad places the primary trigger at index 0.
+                        // For the Steam Frame controller, we'll map the primary trigger to CastSpell or jump
+                        // For demonstration, map Trigger (button 0) to CastSpell
+                        if buttons.length() > 0 {
+                            let trigger_button =
+                                buttons.get(0).unchecked_into::<web_sys::GamepadButton>();
+                            let pressed = trigger_button.pressed();
+                            let idx = (i as usize).min(3);
+                            if pressed && !last_trigger_pressed[idx] {
+                                state
+                                    .engine
+                                    .camera_controller
+                                    .process_action(input::Action::CastSpell, true);
+                                state
+                                    .engine
+                                    .camera_controller
+                                    .process_action(input::Action::CastSpell, false);
+                            }
+                            last_trigger_pressed[idx] = pressed;
+                        }
+
+                        // Map Thumbstick (axes 2 and 3 usually) to movement
+                        let axes = gamepad.axes();
+                        if axes.length() >= 4 {
+                            let x_axis = axes.get(2).as_f64().unwrap_or(0.0) as f32;
+                            let y_axis = axes.get(3).as_f64().unwrap_or(0.0) as f32;
+
+                            const DEADZONE: f32 = 0.1;
+                            state
+                                .engine
+                                .camera_controller
+                                .process_action(input::Action::MoveRight, x_axis > DEADZONE);
+                            state
+                                .engine
+                                .camera_controller
+                                .process_action(input::Action::MoveLeft, x_axis < -DEADZONE);
+                            state
+                                .engine
+                                .camera_controller
+                                .process_action(input::Action::MoveBackward, y_axis > DEADZONE);
+                            state
+                                .engine
+                                .camera_controller
+                                .process_action(input::Action::MoveForward, y_axis < -DEADZONE);
+                        }
+                    }
+                }
+            }
 
             let pose = frame.get_viewer_pose(&reference_space_clone);
             let viewer_pose = pose.map(|p| p.unchecked_into::<XrViewerPose>());
@@ -2238,9 +4955,10 @@ pub fn main() -> Result<(), JsValue> {
 
     let is_ar_supported_func = Closure::wrap(Box::new(|| {
         wasm_bindgen_futures::future_to_promise(async {
+            // Workaround for headless environments where xr might be missing or panic
             match xr::is_ar_supported().await {
                 Ok(supported) => Ok(JsValue::from_bool(supported)),
-                Err(e) => Err(e),
+                Err(_) => Ok(JsValue::from_bool(false)),
             }
         })
     }) as Box<dyn FnMut() -> js_sys::Promise>);
@@ -2266,12 +4984,7 @@ pub fn main() -> Result<(), JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
-    std::panic::set_hook(Box::new(|info| {
-        web_sys::console::error_1(&wasm_bindgen::JsValue::from_str(&format!(
-            "Panic: {}",
-            info
-        )));
-    }));
+    crash_report::install_crash_hook();
     console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
 
     let window = web_sys::window().expect("No global `window` exists");
@@ -2312,13 +5025,14 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let code = event.code();
 
         // Check for Inscribe Key
-        let is_inscribe = {
-            let state = state_keydown.borrow();
+        let is_inscribe = if let Ok(state) = state_keydown.try_borrow() {
             state
                 .engine
                 .input_config
                 .get_binding(input::Action::Inscribe)
                 == Some(&code)
+        } else {
+            false
         };
 
         if is_inscribe {
@@ -2328,7 +5042,10 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
                     document.exit_pointer_lock();
                 }
 
-                if let Ok(js_val) = js_sys::Reflect::get(&window, &wasm_bindgen::JsValue::from_str("showInscribeOverlay")) {
+                if let Ok(js_val) = js_sys::Reflect::get(
+                    &window,
+                    &wasm_bindgen::JsValue::from_str("showInscribeOverlay"),
+                ) {
                     if let Ok(func) = js_val.dyn_into::<js_sys::Function>() {
                         let _ = func.call0(&wasm_bindgen::JsValue::NULL);
                     }
@@ -2337,7 +5054,13 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             return;
         }
 
-        state_keydown.borrow_mut().process_keyboard(&code);
+        if code == "Tab" {
+            event.prevent_default();
+        }
+
+        if let Ok(mut state) = state_keydown.try_borrow_mut() {
+            state.process_keyboard(&code);
+        }
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -2347,7 +5070,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 
     let state_keyup = state.clone();
     let keyup_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
-        state_keyup.borrow_mut().process_keyup(&event.code());
+        if let Ok(mut state) = state_keyup.try_borrow_mut() {
+            state.process_keyup(&event.code());
+        }
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -2372,7 +5097,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let ndc_y = -((y / height) * 2.0 - 1.0);
 
         // Pass a middle click logic or special action
-        state_mouse.borrow_mut().process_click(ndc_x, ndc_y, true);
+        if let Ok(mut state) = state_mouse.try_borrow_mut() {
+            state.process_click(ndc_x, ndc_y, true);
+        }
     }) as Box<dyn FnMut(_)>);
 
     canvas
@@ -2387,10 +5114,12 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     struct MouseState {
         down_pos: Option<(f32, f32)>,
         down_time: f64,
+        button: i16,
     }
     let mouse_state = Rc::new(RefCell::new(MouseState {
         down_pos: None,
         down_time: 0.0,
+        button: -1,
     }));
 
     let state_down = state.clone();
@@ -2416,12 +5145,15 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         };
 
         let button = event.button();
-        state_down
-            .borrow_mut()
-            .process_mouse_down(ndc_x, ndc_y, button);
+        if let Ok(mut state) = state_down.try_borrow_mut() {
+            state.process_mouse_down(ndc_x, ndc_y, button);
+        }
 
-        mouse_state_down.borrow_mut().down_pos = Some((ndc_x, ndc_y));
-        mouse_state_down.borrow_mut().down_time = js_sys::Date::now();
+        if let Ok(mut ms) = mouse_state_down.try_borrow_mut() {
+            ms.down_pos = Some((ndc_x, ndc_y));
+            ms.down_time = js_sys::Date::now();
+            ms.button = button;
+        }
     }) as Box<dyn FnMut(_)>);
 
     canvas
@@ -2435,23 +5167,24 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let document = web_sys::window().unwrap().document().unwrap();
         let locked = document.pointer_lock_element().is_some();
 
-        if locked {
-            state_move
-                .borrow_mut()
-                .engine
-                .process_mouse_look(event.movement_x() as f32, event.movement_y() as f32);
-            // Also update drag with center ray to allow carrying items
-            state_move.borrow_mut().process_mouse_move(0.0, 0.0);
-        } else {
-            let rect = canvas_move.get_bounding_client_rect();
-            let x = event.client_x() as f32 - rect.left() as f32;
-            let y = event.client_y() as f32 - rect.top() as f32;
-            let width = rect.width() as f32;
-            let height = rect.height() as f32;
-            let ndc_x = (x / width) * 2.0 - 1.0;
-            let ndc_y = -((y / height) * 2.0 - 1.0);
+        if let Ok(mut state) = state_move.try_borrow_mut() {
+            if locked {
+                state
+                    .engine
+                    .process_mouse_look(event.movement_x() as f32, event.movement_y() as f32);
+                // Also update drag with center ray to allow carrying items
+                state.process_mouse_move(0.0, 0.0);
+            } else {
+                let rect = canvas_move.get_bounding_client_rect();
+                let x = event.client_x() as f32 - rect.left() as f32;
+                let y = event.client_y() as f32 - rect.top() as f32;
+                let width = rect.width() as f32;
+                let height = rect.height() as f32;
+                let ndc_x = (x / width) * 2.0 - 1.0;
+                let ndc_y = -((y / height) * 2.0 - 1.0);
 
-            state_move.borrow_mut().process_mouse_move(ndc_x, ndc_y);
+                state.process_mouse_move(ndc_x, ndc_y);
+            }
         }
     }) as Box<dyn FnMut(_)>);
 
@@ -2460,6 +5193,41 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         .add_event_listener_with_callback("mousemove", mousemove_closure.as_ref().unchecked_ref())
         .unwrap();
     mousemove_closure.forget();
+
+    let state_dblclick = state.clone();
+    let canvas_dblclick = canvas.clone();
+    let dblclick_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let rect = canvas_dblclick.get_bounding_client_rect();
+        let x = event.client_x() as f32 - rect.left() as f32;
+        let y = event.client_y() as f32 - rect.top() as f32;
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+        let ndc_x = (x / width) * 2.0 - 1.0;
+        let ndc_y = -((y / height) * 2.0 - 1.0);
+
+        if let Ok(mut state) = state_dblclick.try_borrow_mut() {
+            state.engine.process_double_click(ndc_x, ndc_y);
+        }
+    }) as Box<dyn FnMut(_)>);
+
+    canvas
+        .add_event_listener_with_callback("dblclick", dblclick_closure.as_ref().unchecked_ref())
+        .unwrap();
+    dblclick_closure.forget();
+
+    // Wheel event handler
+    let state_wheel = state.clone();
+    let wheel_closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
+        let delta_y = event.delta_y() as f32;
+        if let Ok(mut state) = state_wheel.try_borrow_mut() {
+            state.engine.process_mouse_wheel(delta_y);
+        }
+    }) as Box<dyn FnMut(_)>);
+
+    canvas
+        .add_event_listener_with_callback("wheel", wheel_closure.as_ref().unchecked_ref())
+        .unwrap();
+    wheel_closure.forget();
 
     let state_up = state.clone();
     let canvas_up = canvas.clone();
@@ -2473,24 +5241,36 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
         let ndc_x = (x / width) * 2.0 - 1.0;
         let ndc_y = -((y / height) * 2.0 - 1.0);
 
-        state_up.borrow_mut().process_mouse_up();
+        if let Ok(mut state) = state_up.try_borrow_mut() {
+            state.process_mouse_up();
 
-        // Check for click
-        let mut ms = mouse_state_up.borrow_mut();
-        if let Some((sx, sy)) = ms.down_pos {
-            let dx = ndc_x - sx;
-            let dy = ndc_y - sy;
-            let dist_sq = dx * dx + dy * dy;
-            let elapsed = js_sys::Date::now() - ms.down_time;
+            // Check for click
+            if let Ok(mut ms) = mouse_state_up.try_borrow_mut() {
+                if let Some((sx, sy)) = ms.down_pos {
+                    let dx = ndc_x - sx;
+                    let dy = ndc_y - sy;
+                    let dist_sq = dx * dx + dy * dy;
+                    let elapsed = js_sys::Date::now() - ms.down_time;
+                    let button = ms.button;
 
-            // dist < 0.05 is equivalent to dist_sq < 0.0025
-            if dist_sq < 0.0025 && elapsed < 300.0 {
-                state_up
-                    .borrow_mut()
-                    .process_click(ndc_x, ndc_y, event.shift_key());
+                    if button == 2 {
+                        // Right click behavior
+                        if elapsed < 300.0 {
+                            state.engine.process_right_click(ndc_x, ndc_y);
+                        } else {
+                            state.engine.process_right_hold(ndc_x, ndc_y);
+                        }
+                    } else if button == 0 {
+                        // Left click behavior (will update in next step)
+                        // dist < 0.05 is equivalent to dist_sq < 0.0025
+                        if dist_sq < 0.0025 && elapsed < 300.0 {
+                            state.process_click(ndc_x, ndc_y, event.shift_key());
+                        }
+                    }
+                }
+                ms.down_pos = None;
             }
         }
-        ms.down_pos = None;
     }) as Box<dyn FnMut(_)>);
 
     window
@@ -2507,8 +5287,9 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
             let yaw = -alpha.to_radians() as f32;
             let pitch = (beta - 90.0).to_radians() as f32;
 
-            let mut state = state_orient.borrow_mut();
-            state.engine.camera.set_rotation(yaw, pitch);
+            if let Ok(mut state) = state_orient.try_borrow_mut() {
+                state.engine.camera.set_rotation(yaw, pitch);
+            }
         }
     }) as Box<dyn FnMut(_)>);
 
@@ -2560,6 +5341,27 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let state_copy = state.clone();
     *g.borrow_mut() = Some(Closure::new(move || {
         let mut state = state_copy.borrow_mut();
+
+        let now = web_sys::window().unwrap().performance().unwrap().now();
+        let dt = (now - state.last_frame_time) / 1000.0;
+        state.last_frame_time = now;
+
+        if dt > 0.0 && dt < 1.0 {
+            // Ignore huge spikes
+            let current_fps = 1.0 / dt as f32;
+            // Moving average
+            state.fps_moving_average = state.fps_moving_average * 0.9 + current_fps * 0.1;
+        }
+
+        state.frame_count += 1;
+        if state.frame_count % 60 == 0 {
+            if state.fps_moving_average > 55.0 && state.grid_count < 25 {
+                state.grid_count += 2;
+            } else if state.fps_moving_average < 45.0 && state.grid_count > 3 {
+                state.grid_count -= 2;
+            }
+        }
+
         if !state.in_xr {
             state.update();
             state.render().expect("Render failed");
@@ -2572,25 +5374,36 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     // Initialize Network
     let network_manager = match network::NetworkManager::new("ws://localhost:9000/ws") {
         Ok(m) => {
+            // Graceful Exit Handling
+            let m_exit = m.clone();
+            let on_beforeunload = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                m_exit.borrow().send_graceful_exit();
+            }) as Box<dyn FnMut(web_sys::Event)>);
+            window.set_onbeforeunload(Some(on_beforeunload.as_ref().unchecked_ref()));
+            on_beforeunload.forget();
+
             // Setup Sync Callback
             let state_sync = state.clone();
             m.borrow_mut().set_sync_callback(move |msg| match msg {
                 network::SyncMessage::WorldUpdate(remote_world) => {
-                    let mut state = state_sync.borrow_mut();
-                    if state.engine.world_state.merge(remote_world) {
-                        log::info!("Anomaly Conflict Resolved! World merged.");
+                    if let Ok(mut state) = state_sync.try_borrow_mut() {
+                        if state.engine.world_state.merge(remote_world) {
+                            log::info!("Anomaly Conflict Resolved! World merged.");
+                        }
                     }
                 }
                 network::SyncMessage::ChunkUpdate(chunks) => {
-                    let mut state = state_sync.borrow_mut();
-                    if state.engine.world_state.merge_chunks(chunks) {
-                        log::info!("Chunk Update Merged.");
+                    if let Ok(mut state) = state_sync.try_borrow_mut() {
+                        if state.engine.world_state.merge_chunks(chunks) {
+                            log::info!("Chunk Update Merged.");
+                        }
                     }
                 }
                 network::SyncMessage::RequestSync => {
-                    let mut state = state_sync.borrow_mut();
-                    state.engine.pending_full_sync = true;
-                    log::info!("Received Sync Request. Scheduled Full Broadcast.");
+                    if let Ok(mut state) = state_sync.try_borrow_mut() {
+                        state.engine.pending_full_sync = true;
+                        log::info!("Received Sync Request. Scheduled Full Broadcast.");
+                    }
                 }
             });
             Some(m)
@@ -2607,50 +5420,68 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     let slot_autosave = current_save_slot.clone();
 
     let autosave_closure = Closure::wrap(Box::new(move || {
-        let mut state = state_autosave.borrow_mut();
-        let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
-            term.to_string()
-        } else {
-            "".to_string()
-        };
+        if let Ok(mut state) = state_autosave.try_borrow_mut() {
+            let lambda_source = if let Some(term) = &state.engine.lambda_system.root_term {
+                term.to_string()
+            } else {
+                "".to_string()
+            };
 
-        let game_state = persistence::GameState {
-            player: persistence::PlayerState {
-                projector: state.engine.player_projector.clone(),
-            },
-            world: state.engine.world_state.clone(),
-            lambda_source,
-            lambda_layout: state.engine.lambda_system.get_layout(),
-            input_config: state.engine.input_config.clone(),
-            voxel_world: Some(state.voxel_world.clone()),
-            timestamp: js_sys::Date::now() as u64,
-            version: persistence::SAVE_VERSION,
-        };
-        let slot = slot_autosave.borrow().clone();
-        let key = persistence::get_save_key(&slot);
-        persistence::save_to_local_storage(&key, &game_state);
-
-        // Pollinate (Broadcast Presence)
-        if let Some(net) = &network_autosave {
-            let loc = state.engine.player_projector.location;
-            let net = net.borrow();
-
-            net.pollinate(&state.engine.world_state.root_hash, [loc.x, loc.y, loc.z]);
-
-            // Check pending full sync
-            if state.engine.pending_full_sync {
-                net.broadcast_world_state(&state.engine.world_state);
-                state.engine.pending_full_sync = false;
+            let game_state = persistence::GameState {
+                player: persistence::PlayerState {
+                    projector: state.engine.player_projector.clone(),
+                },
+                world: state.engine.world_state.clone(),
+                lambda_source,
+                lambda_layout: state.engine.lambda_system.get_layout(),
+                input_config: state.engine.input_config.clone(),
+                voxel_world: Some(state.voxel_world.clone()),
+                companion_state_json: Some(
+                    state.engine.companion_manager.get_companion_state_json(),
+                ),
+                companion_party_state_json: Some(
+                    state.engine.companion_manager.get_party_roster_json(),
+                ),
+                timestamp: js_sys::Date::now() as u64,
+                version: persistence::SAVE_VERSION,
+            };
+            if let Ok(slot_ref) = slot_autosave.try_borrow() {
+                let slot = slot_ref.clone();
+                let key = persistence::get_save_key(&slot);
+                let game_state_clone = game_state.clone();
+                let key_clone = key.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let success =
+                        persistence::save_to_indexed_db(&key_clone, &game_state_clone).await;
+                    if !success {
+                        persistence::save_to_local_storage(&key_clone, &game_state_clone);
+                    }
+                });
             }
-            // Check if world empty (Request Sync)
-            else if state.engine.world_state.chunks.is_empty() {
-                net.broadcast_request_sync();
-            }
-            // Check dirty chunks (Delta Sync)
-            else {
-                let dirty = state.engine.world_state.extract_dirty_chunks();
-                if !dirty.is_empty() {
-                    net.broadcast_chunk_update(dirty);
+
+            // Pollinate (Broadcast Presence)
+            if let Some(net_rc) = &network_autosave {
+                if let Ok(net) = net_rc.try_borrow() {
+                    let loc = state.engine.player_projector.location;
+
+                    net.pollinate(&state.engine.world_state.root_hash, [loc.x, loc.y, loc.z]);
+
+                    // Check pending full sync
+                    if state.engine.pending_full_sync {
+                        net.broadcast_world_state(&state.engine.world_state);
+                        state.engine.pending_full_sync = false;
+                    }
+                    // Check if world empty (Request Sync)
+                    else if state.engine.world_state.chunks.is_empty() {
+                        net.broadcast_request_sync();
+                    }
+                    // Check dirty chunks (Delta Sync)
+                    else {
+                        let dirty = state.engine.world_state.extract_dirty_chunks();
+                        if !dirty.is_empty() {
+                            net.broadcast_chunk_update(dirty);
+                        }
+                    }
                 }
             }
         }
@@ -2659,7 +5490,7 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
     window
         .set_interval_with_callback_and_timeout_and_arguments_0(
             autosave_closure.as_ref().unchecked_ref(),
-            5000, // 5 seconds
+            10000, // 10 seconds
         )
         .expect("Failed to set autosave interval");
     autosave_closure.forget();
@@ -2674,39 +5505,234 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl GameClient {
+    pub fn get_minimap_data_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            let chunks: Vec<[i32; 2]> = state
+                .engine
+                .world_state
+                .chunks
+                .keys()
+                .map(|id| [id.x, id.z])
+                .collect();
+            let player_pos = [
+                state.engine.player_projector.location.x,
+                state.engine.player_projector.location.y,
+                state.engine.player_projector.location.z,
+            ];
+
+            let data = serde_json::json!({
+                "chunks": chunks,
+                "player_pos": player_pos
+            });
+
+            serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string())
+        } else {
+            "{}".to_string()
+        }
+    }
+
+    pub fn toggle_3d_inventory(&self) -> bool {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.show_3d_inventory = !state.engine.show_3d_inventory;
+            state.engine.show_3d_inventory
+        } else {
+            false
+        }
+    }
+
+    pub fn is_minimap_visible(&self) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.show_minimap
+        } else {
+            false
+        }
+    }
+
+    pub fn is_ui_visible(&self) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.show_ui
+        } else {
+            true
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn import_splat_from_string(
+        &mut self,
+        splat_data: js_sys::JsString,
+        label: js_sys::JsString,
+    ) -> bool {
+        let splat_str: String = splat_data.into();
+        let label_str: String = label.into();
+
+        let mut new_splats = Vec::new();
+        for line in splat_str.lines() {
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() == 14 {
+                if let (
+                    Ok(px),
+                    Ok(py),
+                    Ok(pz),
+                    Ok(rx),
+                    Ok(ry),
+                    Ok(rz),
+                    Ok(rw),
+                    Ok(sx),
+                    Ok(sy),
+                    Ok(sz),
+                    Ok(cr),
+                    Ok(cg),
+                    Ok(cb),
+                    Ok(ca),
+                ) = (
+                    parts[0].parse::<f32>(),
+                    parts[1].parse::<f32>(),
+                    parts[2].parse::<f32>(),
+                    parts[3].parse::<f32>(),
+                    parts[4].parse::<f32>(),
+                    parts[5].parse::<f32>(),
+                    parts[6].parse::<f32>(),
+                    parts[7].parse::<f32>(),
+                    parts[8].parse::<f32>(),
+                    parts[9].parse::<f32>(),
+                    parts[10].parse::<f32>(),
+                    parts[11].parse::<f32>(),
+                    parts[12].parse::<f32>(),
+                    parts[13].parse::<f32>(),
+                ) {
+                    new_splats.push(crate::splat::SplatVertex {
+                        position: [px, py, pz],
+                        rotation: [rx, ry, rz, rw],
+                        scale: [sx, sy, sz],
+                        color: [cr, cg, cb, ca],
+                        previous_position: [px, py, pz],
+                        archetype_id: 0,
+                        target_archetype_id: 0,
+                        morph_weight: 0.0,
+                        bone_index: -1,
+                    });
+                }
+            }
+        }
+
+        if new_splats.is_empty() {
+            log::warn!("No valid splats parsed from import data.");
+            return false;
+        }
+
+        log::info!("Imported {} splats for '{}'", new_splats.len(), label_str);
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let forward = (state.engine.camera.target - state.engine.camera.eye).normalize();
+            let spawn_pos = state.engine.camera.eye + forward * 5.0;
+
+            for splat in &mut new_splats {
+                splat.position[0] += spawn_pos.x;
+                splat.position[1] += spawn_pos.y;
+                splat.position[2] += spawn_pos.z;
+                splat.previous_position = splat.position;
+            }
+
+            // --- Auto-Rigging ---
+            let mut min_y = f32::MAX;
+            let mut max_y = f32::MIN;
+            for splat in &new_splats {
+                if splat.position[1] < min_y {
+                    min_y = splat.position[1];
+                }
+                if splat.position[1] > max_y {
+                    max_y = splat.position[1];
+                }
+            }
+            let height = max_y - min_y;
+            let mid_y = min_y + height * 0.5;
+
+            let mut skeleton = crate::rigging::Skeleton::new();
+            // Bone 0: Root
+            let root_idx = skeleton.add_bone(crate::rigging::Bone::new("root", None));
+            // Bone 1: Head (relative to Root)
+            let mut head_bone = crate::rigging::Bone::new("head", Some(root_idx));
+            head_bone.local_translation = cgmath::Vector3::new(0.0, height * 0.5, 0.0);
+            let head_idx = skeleton.add_bone(head_bone);
+
+            let mut splat_bone_indices = Vec::with_capacity(new_splats.len());
+            for splat in &new_splats {
+                if splat.position[1] > mid_y {
+                    splat_bone_indices.push(head_idx);
+                } else {
+                    splat_bone_indices.push(root_idx);
+                }
+            }
+            // --------------------
+
+            let mut animations = std::collections::HashMap::new();
+            animations.insert(crate::engine::AnimationState::Idle, vec![new_splats]);
+
+            let player = crate::engine::Splat4DPlayer {
+                animations,
+                current_state: crate::engine::AnimationState::Idle,
+                next_state: None,
+                current_frame: 0,
+                timer: 0.0,
+                blend_timer: 0.0,
+                blend_duration: 0.5,
+                frame_rate: 1.0,
+                loop_playback: true,
+                position: spawn_pos,
+                archetype_override: None,
+                skeleton: Some(skeleton),
+                splat_bone_indices,
+            };
+
+            state.engine.active_4d_splats.push(player);
+            return true;
+        }
+        false
+    }
+
     pub fn get_inventory_json(&self) -> String {
-        let state = self.state.borrow();
-        serde_json::to_string(&state.engine.world_state.player_inventory).unwrap_or_else(|_| "[]".to_string())
+        if let Ok(state) = self.state.try_borrow() {
+            serde_json::to_string(&state.engine.world_state.player_inventory)
+                .unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
     }
 
     pub fn world_to_screen(&self, x: f32, y: f32, z: f32) -> js_sys::Float32Array {
-        let mut state_ref = self.state.borrow_mut();
-        let state = &mut *state_ref;
+        if let Ok(mut state_ref) = self.state.try_borrow_mut() {
+            let state = &mut *state_ref;
 
-        let view_proj = state.engine.camera.build_view_projection_matrix();
-        let pos = cgmath::Vector4::new(x, y, z, 1.0);
-        let mut clip_space_pos = view_proj * pos;
+            let view_proj = state.engine.camera.build_view_projection_matrix();
+            let pos = cgmath::Vector4::new(x, y, z, 1.0);
+            let mut clip_space_pos = view_proj * pos;
 
-        let mut result = [0.0, 0.0, -1.0]; // -1.0 z means offscreen
+            let mut result = [0.0, 0.0, -1.0]; // -1.0 z means offscreen
 
-        if clip_space_pos.w > 0.0 {
-            clip_space_pos.x /= clip_space_pos.w;
-            clip_space_pos.y /= clip_space_pos.w;
-            clip_space_pos.z /= clip_space_pos.w;
+            if clip_space_pos.w > 0.0 {
+                clip_space_pos.x /= clip_space_pos.w;
+                clip_space_pos.y /= clip_space_pos.w;
+                clip_space_pos.z /= clip_space_pos.w;
 
-            // Map to 0-1 range
-            result[0] = (clip_space_pos.x + 1.0) * 0.5;
-            result[1] = (1.0 - clip_space_pos.y) * 0.5; // Flip Y
-            result[2] = clip_space_pos.z;
+                // Map to 0-1 range
+                result[0] = (clip_space_pos.x + 1.0) * 0.5;
+                result[1] = (1.0 - clip_space_pos.y) * 0.5; // Flip Y
+                result[2] = clip_space_pos.z;
+            }
+
+            js_sys::Float32Array::from(&result[..])
+        } else {
+            let result = [0.0, 0.0, -1.0];
+            js_sys::Float32Array::from(&result[..])
         }
-
-        js_sys::Float32Array::from(&result[..])
     }
 
     pub fn get_npc_state_json(&self, uuid: js_sys::JsString) -> String {
         const MAX_UUID_LEN: u32 = 64;
         if uuid.length() > MAX_UUID_LEN {
-            log::warn!("Security Warning: UUID exceeded length limit. Rejecting get_npc_state_json.");
+            log::warn!(
+                "Security Warning: UUID exceeded length limit. Rejecting get_npc_state_json."
+            );
             return "{}".to_string();
         }
         let uuid_str: String = uuid.into();
@@ -2737,18 +5763,25 @@ impl GameClient {
     }
 
     pub fn get_all_npcs_json(&self) -> String {
-        let state = self.state.borrow();
-        let uuids: Vec<String> = state
-            .engine
-            .world_state
-            .npcs
-            .iter()
-            .map(|n| n.uuid.clone())
-            .collect();
-        serde_json::to_string(&uuids).unwrap_or_else(|_| "[]".to_string())
+        if let Ok(state) = self.state.try_borrow() {
+            let uuids: Vec<String> = state
+                .engine
+                .world_state
+                .npcs
+                .iter()
+                .map(|n| n.uuid.clone())
+                .collect();
+            serde_json::to_string(&uuids).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
     }
 
-    pub fn execute_npc_action_json(&self, uuid: js_sys::JsString, action_json: js_sys::JsString) -> bool {
+    pub fn execute_npc_action_json(
+        &self,
+        uuid: js_sys::JsString,
+        action_json: js_sys::JsString,
+    ) -> bool {
         let mut state = self.state.borrow_mut();
 
         // Security Enhancement: Prevent DoS by limiting JSON payload length
@@ -2765,7 +5798,8 @@ impl GameClient {
         let uuid_str: String = uuid.into();
         let action_json_str: String = action_json.into();
 
-        if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(&action_json_str) {
+        if let Ok(action) = serde_json::from_str::<crate::genie_bridge::NpcAction>(&action_json_str)
+        {
             if let Some(npc) = state
                 .engine
                 .world_state
@@ -2802,7 +5836,8 @@ impl GameClient {
                         .collect();
 
                     log::info!("NPC {} says: {}", uuid_str, sanitized);
-                    npc.chat_message = Some((sanitized.clone(), crate::projector::get_current_timestamp()));
+                    npc.chat_message =
+                        Some((sanitized.clone(), crate::projector::get_current_timestamp()));
                     // Could add to an in-game chat log here
                 }
                 return true;
@@ -2810,4 +5845,936 @@ impl GameClient {
         }
         false
     }
+
+    pub fn set_world_model_cfg_scale(&self, scale: f64) {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.world_model_cfg_scale = scale.clamp(1.0, 10.0);
+        }
+    }
+
+    pub fn set_world_model_steps(&self, steps: u32) {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.world_model_steps = (steps as usize).clamp(1, 10);
+        }
+    }
+
+    pub fn trigger_world_model_rollout(&self) -> bool {
+        self.trigger_world_model_rollout_prompt("".to_string())
+    }
+
+    pub fn trigger_world_model_rollout_prompt(&self, prompt: String) -> bool {
+        if let Ok(state) = self.state.try_borrow_mut() {
+            let dummy_actions = vec![1, 1, 5, 2];
+            let steps = state.engine.world_model_steps;
+            let scale = state.engine.world_model_cfg_scale;
+            let prompt_opt = if prompt.trim().is_empty() {
+                None
+            } else {
+                Some(prompt)
+            };
+            state
+                .voxel_world
+                .genie
+                .request_action_dit_rollout_multimodal(dummy_actions, prompt_opt, steps, scale);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn rewind_world_model(&self, steps: u32) -> u32 {
+        if let Ok(state) = self.state.try_borrow() {
+            state.voxel_world.genie.rewind_world_model(steps as usize) as u32
+        } else {
+            0
+        }
+    }
+
+    pub fn get_world_model_drift_telemetry(&self) -> f32 {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(anchors) = state.voxel_world.genie.anchor_buffer.lock() {
+                anchors.compute_drift_variance().unwrap_or(0.0)
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+    }
+
+    pub fn branch_timeline(&self, name: String) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            state.voxel_world.genie.branch_timeline(&name)
+        } else {
+            false
+        }
+    }
+
+    pub fn switch_timeline(&self, name: String) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            state.voxel_world.genie.switch_timeline(&name)
+        } else {
+            false
+        }
+    }
+
+    pub fn list_timelines_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            serde_json::to_string(&state.voxel_world.genie.list_timelines())
+                .unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
+    }
+
+    pub fn export_trajectory_dataset(&self) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Some(ckpt) = state.voxel_world.genie.checkpoint_world_model() {
+                log::info!(
+                    "Exported trajectory checkpoint containing {} frames",
+                    ckpt.frames.len()
+                );
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn toggle_world_model_autopilot(&self) -> bool {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.engine.toggle_world_model_autopilot()
+        } else {
+            false
+        }
+    }
+
+    pub fn get_action_confidence_entropy(&self) -> Vec<f32> {
+        if let Ok(state) = self.state.try_borrow() {
+            let (conf, entropy) = state.voxel_world.genie.get_action_confidence_metric();
+            vec![entropy, conf]
+        } else {
+            vec![0.15, 0.85]
+        }
+    }
+
+    pub fn get_multiverse_tree_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state.voxel_world.genie.get_multiverse_tree_json()
+        } else {
+            "[]".to_string()
+        }
+    }
+
+    pub fn trigger_world_model_inpaint_box(
+        &self,
+        x_min: f32,
+        y_min: f32,
+        x_max: f32,
+        y_max: f32,
+    ) -> bool {
+        if let Ok(state) = self.state.try_borrow_mut() {
+            let inpaint_actions = vec![8u32, 8u32];
+            let steps = state.engine.world_model_steps;
+            let scale = state.engine.world_model_cfg_scale;
+            log::info!(
+                "Inpainting box region: ({}, {}) to ({}, {})",
+                x_min,
+                y_min,
+                x_max,
+                y_max
+            );
+            state
+                .voxel_world
+                .genie
+                .request_action_dit_rollout_multimodal(inpaint_actions, None, steps, scale);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn trigger_world_model_inpaint_sphere(&self, u: f32, v: f32, radius: f32) -> bool {
+        if let Ok(state) = self.state.try_borrow_mut() {
+            let inpaint_actions = vec![8u32, 8u32];
+            let steps = state.engine.world_model_steps;
+            let scale = state.engine.world_model_cfg_scale;
+            log::info!(
+                "Inpainting spherical region at ({}, {}) with radius {}",
+                u,
+                v,
+                radius
+            );
+            state
+                .voxel_world
+                .genie
+                .request_action_dit_rollout_multimodal(inpaint_actions, None, steps, scale);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn set_world_model_resolution_mode(&self, mode: &str) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut res) = state.voxel_world.genie.resolution_mode.lock() {
+                *res = match mode {
+                    "coarse" => reality_genie::dit::ResolutionPyramidMode::Coarse16,
+                    "pyramid" => reality_genie::dit::ResolutionPyramidMode::PyramidCoarseToFine,
+                    _ => reality_genie::dit::ResolutionPyramidMode::Full64,
+                };
+            }
+        }
+    }
+
+    pub fn toggle_narrative_director(&self, enable: bool) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut director) = state.voxel_world.genie.narrative_director.lock() {
+                director.enabled = enable;
+            }
+        }
+    }
+
+    pub fn get_active_narrative_prompt(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.active_narrative_prompt.clone()
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn set_time_echo_scrub(&self, pct: f32) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut replay) = state.voxel_world.genie.time_echo.lock() {
+                replay.set_scrub_percentage(pct);
+            }
+        }
+    }
+
+    pub fn get_time_echo_replay_info_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(replay) = state.voxel_world.genie.time_echo.lock() {
+                return serde_json::json!({
+                    "count": replay.frames.len(),
+                    "scrub_index": replay.scrub_index,
+                    "is_replaying": replay.is_replaying,
+                })
+                .to_string();
+            }
+        }
+        "{}".to_string()
+    }
+
+    pub fn set_celestial_time_of_day(&self, val: f32) {
+        if let Ok(_state) = self.state.try_borrow() {
+            // Modulate ambient atmospheric params in voxel world
+            log::info!("Setting celestial time of day: {}", val);
+        }
+    }
+
+    pub fn set_weather_preset(&self, preset: &str) {
+        if let Ok(_state) = self.state.try_borrow() {
+            log::info!("Setting weather preset: {}", preset);
+        }
+    }
+
+    pub fn set_quantization_mode(&self, mode: &str) {
+        log::info!("Setting DiT quantization mode: {}", mode);
+    }
+
+    pub fn get_p2p_consensus_telemetry_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(consensus) = state.voxel_world.genie.p2p_consensus.lock() {
+                return serde_json::json!({
+                    "peers": consensus.connected_peers_count,
+                    "drift": consensus.last_consensus_drift,
+                    "status": "CONNECTED",
+                })
+                .to_string();
+            }
+        }
+        r#"{"peers":0,"drift":0.0,"status":"IDLE"}"#.to_string()
+    }
+
+    pub fn spawn_latent_rigidbody(&self, mass: f32, restitution: f32, radius: f32) -> u32 {
+        if let Ok(state) = self.state.try_borrow() {
+            let cam_pos = state.engine.camera.eye;
+            let (sin_y, cos_y) = state.engine.camera.yaw.sin_cos();
+            let (sin_p, cos_p) = state.engine.camera.pitch.sin_cos();
+            let forward = [cos_p * sin_y, sin_p, cos_p * cos_y];
+            let spawn_pos = [
+                cam_pos.x + forward[0] * 3.0,
+                cam_pos.y + forward[1] * 3.0 + 1.0,
+                cam_pos.z + forward[2] * 3.0,
+            ];
+            let throw_vel = [
+                forward[0] * 12.0,
+                forward[1] * 12.0 + 3.0,
+                forward[2] * 12.0,
+            ];
+            if let Ok(mut physics) = state.voxel_world.genie.latent_physics.lock() {
+                return physics.spawn_body(spawn_pos, throw_vel, mass, restitution, radius);
+            }
+        }
+        0
+    }
+
+    pub fn get_latent_rigidbodies_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(physics) = state.voxel_world.genie.latent_physics.lock() {
+                return serde_json::to_string(&physics.bodies).unwrap_or_else(|_| "[]".to_string());
+            }
+        }
+        "[]".to_string()
+    }
+
+    pub fn set_lora_preset(&self, preset_name: &str, blend_weight: f32) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut lora_slot) = state.voxel_world.genie.active_lora.lock() {
+                if preset_name == "none" || preset_name.is_empty() {
+                    *lora_slot = None;
+                } else {
+                    let mut adapter =
+                        reality_genie::dit::LoraAdapter::preset_style(preset_name, 64, 64, 4);
+                    adapter.blend_weight = blend_weight.clamp(0.0, 1.0);
+                    *lora_slot = Some(adapter);
+                }
+            }
+        }
+    }
+
+    pub fn load_lora_json(&self, json_str: &str) -> bool {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(adapter) = serde_json::from_str::<reality_genie::dit::LoraAdapter>(json_str) {
+                if let Ok(mut lora_slot) = state.voxel_world.genie.active_lora.lock() {
+                    *lora_slot = Some(adapter);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn get_swarm_telemetry_json(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(swarm) = state.voxel_world.genie.swarm_engine.lock() {
+                return serde_json::json!({
+                    "agents_count": swarm.agents.len(),
+                    "cohesion_weight": swarm.cohesion_weight,
+                    "alignment_weight": swarm.alignment_weight,
+                })
+                .to_string();
+            }
+        }
+        r#"{"agents_count":0,"cohesion_weight":0.0,"alignment_weight":0.0}"#.to_string()
+    }
+
+    pub fn trigger_neural_sculptor_brush(
+        &self,
+        center_x: f32,
+        center_y: f32,
+        center_z: f32,
+        radius: f32,
+        prompt_tag: &str,
+    ) -> bool {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            log::info!(
+                "Neural Sculptor Brush triggered at [{}, {}, {}], radius: {}, prompt: {}",
+                center_x,
+                center_y,
+                center_z,
+                radius,
+                prompt_tag
+            );
+            let steps = state.engine.world_model_steps;
+            let scale = state.engine.world_model_cfg_scale;
+            let prompt_opt = if prompt_tag.is_empty() {
+                None
+            } else {
+                Some(prompt_tag.to_string())
+            };
+            let inpaint_actions = vec![9u32, 9u32];
+            state
+                .voxel_world
+                .genie
+                .request_action_dit_rollout_multimodal(inpaint_actions, prompt_opt, steps, scale);
+            state.voxel_dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn set_webgpu_compute_acceleration(&self, enabled: bool) {
+        log::info!(
+            "Setting WebGPU WGSL compute acceleration for DiT: {}",
+            enabled
+        );
+    }
+
+    pub fn trigger_mcts_planning(&self, objective: &str) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            let obj = match objective {
+                "obstacle_avoid" => reality_genie::dit::MctsGoalObjective::ObstacleAvoidance,
+                "novelty_explore" => reality_genie::dit::MctsGoalObjective::NoveltyExploration,
+                _ => reality_genie::dit::MctsGoalObjective::TargetSeek,
+            };
+
+            if let Ok(mut planner) = state.voxel_world.genie.mcts_planner.lock() {
+                planner.goal_objective = obj;
+                let root_pos = [
+                    state.engine.camera.eye.x,
+                    state.engine.camera.eye.y,
+                    state.engine.camera.eye.z,
+                ];
+                let dummy_latents = vec![0.1f32; 64];
+                let paths = planner.plan_paths(&dummy_latents, root_pos);
+                if let Ok(mut store) = state.voxel_world.genie.mcts_candidate_paths.lock() {
+                    *store = paths.clone();
+                }
+                return serde_json::to_string(&paths).unwrap_or_else(|_| "[]".to_string());
+            }
+        }
+        "[]".to_string()
+    }
+
+    pub fn set_network_jitter_sim(&self, jitter_ms: f32) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut netcode) = state.voxel_world.genie.rollback_netcode.lock() {
+                netcode.simulated_jitter_ms = jitter_ms;
+            }
+        }
+    }
+
+    pub fn solve_inverse_actions_to_target(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            let predictor = reality_genie::dit::InverseDynamicsPredictor::new(16);
+            let current_latents = vec![0.1f32; 16];
+            let current_pos = [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ];
+            let target_pos = [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z - 8.0,
+            ];
+            let steps =
+                predictor.infer_action_sequence(&current_latents, current_pos, target_pos, 8);
+            return serde_json::to_string(&steps).unwrap_or_else(|_| "[]".to_string());
+        }
+        "[]".to_string()
+    }
+
+    pub fn emit_fluid_particles(&self, count: usize) {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let cam_pos = state.engine.camera.eye;
+            for i in 0..count {
+                let off_x = ((i as f32 * 0.7).sin()) * 1.5;
+                let off_y = ((i as f32 * 0.9).cos()) * 0.5 + 0.5;
+                let off_z = ((i as f32 * 1.3).sin()) * 1.5;
+                state.npc_splats.push(crate::splat::SplatVertex {
+                    position: [
+                        cam_pos.x + off_x,
+                        cam_pos.y + off_y,
+                        cam_pos.z - 2.0 + off_z,
+                    ],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    scale: [0.15, 0.15, 0.15],
+                    color: [0.0, 0.8, 1.0, 0.8],
+                    previous_position: [cam_pos.x, cam_pos.y, cam_pos.z],
+                    archetype_id: 1,
+                    target_archetype_id: 1,
+                    morph_weight: 0.0,
+                    bone_index: -1,
+                });
+            }
+        }
+    }
+
+    pub fn run_rl_gym_benchmark(&self, num_steps: u32) -> String {
+        let mut env = reality_genie::dit::WorldModelGymEnv::new(16, num_steps + 10);
+        let start_ms = crate::projector::get_current_timestamp();
+        let mut cumulative_reward = 0.0f32;
+        for i in 0..num_steps {
+            let act = (i % 5) + 1;
+            let res = env.step(act);
+            cumulative_reward += res.reward;
+            if res.terminated || res.truncated {
+                env.reset();
+            }
+        }
+        let end_ms = crate::projector::get_current_timestamp();
+        let elapsed_sec = ((end_ms.saturating_sub(start_ms)) as f64 / 1000.0).max(0.0001);
+        let fps = num_steps as f64 / elapsed_sec;
+
+        serde_json::json!({
+            "steps": num_steps,
+            "elapsed_sec": elapsed_sec,
+            "fps": fps,
+            "cumulative_reward": cumulative_reward,
+        })
+        .to_string()
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_customize_personality(&mut self, config_json: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+
+        let profile: reality_genie::dit::UserProfileConfig =
+            serde_json::from_str(config_json).unwrap_or_default();
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .customize_personality(profile, player_pos);
+            state.engine.companion_manager.get_companion_state_json()
+        } else {
+            "{}".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_chat_interact(&mut self, user_message: &str) -> String {
+        let timestamp = crate::projector::get_current_timestamp();
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .chat_interact(user_message, timestamp)
+        } else {
+            "I hear you through the static.".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_get_conversation_history(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state
+                .engine
+                .companion_manager
+                .get_conversation_history_json()
+        } else {
+            "[]".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_get_state(&self) -> String {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.companion_manager.get_companion_state_json()
+        } else {
+            "{}".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn spawn_personalized_npc(&mut self, config_json: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+
+        let parsed: serde_json::Value = serde_json::from_str(config_json).unwrap_or_default();
+        let name = parsed
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Wanderer");
+        let role = parsed
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Guide");
+        let archetype_str = parsed
+            .get("archetype")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Fantasy");
+
+        let npc_id = (crate::projector::get_current_timestamp() % 10000) as u32;
+        let dynamic_profile = reality_genie::dit::DynamicNpcProfile::new_procedural(
+            npc_id,
+            name,
+            role,
+            archetype_str,
+        );
+
+        let archetype = match archetype_str {
+            "SciFi" => reality_types::RealityArchetype::SciFi,
+            "Horror" => reality_types::RealityArchetype::Horror,
+            "Tron" => reality_types::RealityArchetype::Tron,
+            "Biopunk" => reality_types::RealityArchetype::Biopunk,
+            "Fractal" => reality_types::RealityArchetype::Fractal,
+            "Cottagecore" => reality_types::RealityArchetype::Cottagecore,
+            "SolarPunk" => reality_types::RealityArchetype::SolarPunk,
+            "LiminalSpace" => reality_types::RealityArchetype::LiminalSpace,
+            _ => reality_types::RealityArchetype::Fantasy,
+        };
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let offset_x = (npc_id as f32 * 0.1).sin() * 5.0;
+            let offset_z = (npc_id as f32 * 0.1).cos() * 5.0;
+            let loc = cgmath::Point3::new(
+                player_pos[0] + offset_x,
+                player_pos[1],
+                player_pos[2] + offset_z,
+            );
+            let mut signature = reality_types::RealitySignature::default();
+            signature.active_style.archetype = archetype;
+            let mut projector = crate::projector::RealityProjector::new(loc, signature);
+            projector.chat_message = Some((
+                format!("[{}] \"Greetings wanderer!\"", name),
+                crate::projector::get_current_timestamp(),
+            ));
+            projector.behavior = Some(crate::projector::NpcBehavior {
+                preferred_archetype: archetype,
+                energy: 1.0,
+                mutation_progress: 0.0,
+                health: 100.0,
+                hostile: false,
+                goal_stack: vec![crate::projector::Goal::Wander],
+                animation_playback: None,
+            });
+            state.engine.world_state.npcs.push(projector);
+        }
+
+        serde_json::to_string(&dynamic_profile).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_voice_sculpt_world(&mut self, speech_prompt: &str) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+
+        let prompt_lower = speech_prompt.to_lowercase();
+        let (structure_name, voxel_type, radius) =
+            if prompt_lower.contains("pillar") || prompt_lower.contains("tower") {
+                ("Harmonic Spire", 2u8, 2i32)
+            } else if prompt_lower.contains("clear")
+                || prompt_lower.contains("trench")
+                || prompt_lower.contains("hollow")
+            {
+                ("Excavated Sanctuary", 0u8, 3i32)
+            } else if prompt_lower.contains("crystal") || prompt_lower.contains("beacon") {
+                ("Crystalline Beacon", 3u8, 2i32)
+            } else {
+                ("Resonant Archway", 1u8, 2i32)
+            };
+
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let cx = (player_pos[0] + 4.0).round() as i32;
+            let cy = player_pos[1].round() as i32;
+            let cz = player_pos[2].round() as i32;
+
+            for dx in -radius..=radius {
+                for dz in -radius..=radius {
+                    for dy in 0..=(radius * 2) {
+                        let is_wall = dx.abs() == radius || dz.abs() == radius || dy == radius * 2;
+                        let id = if voxel_type == 0 {
+                            0
+                        } else if is_wall {
+                            voxel_type
+                        } else {
+                            0
+                        };
+                        state.voxel_world.set_voxel_at(
+                            cx + dx,
+                            cy + dy,
+                            cz + dz,
+                            crate::voxel::Voxel { id },
+                        );
+                    }
+                }
+            }
+            state.voxel_dirty = true;
+            state
+                .engine
+                .companion_manager
+                .register_player_activity("voxel_build");
+
+            let coords = [cx as f32, cy as f32, cz as f32];
+            let co_creation = reality_genie::dit::CompanionCoCreation {
+                structure_name: structure_name.to_string(),
+                coords,
+
+                archetype_id: voxel_type as u32,
+                companion_comment: format!(
+                    "I hear you. Materializing {} at your coordinates.",
+                    structure_name
+                ),
+            };
+
+            state
+                .engine
+                .companion_manager
+                .companion
+                .past_co_creations
+                .push(co_creation.clone());
+            state.engine.companion_manager.companion.current_dialogue =
+                Some(co_creation.companion_comment.clone());
+
+            // Trigger banter if multiple companions are present
+            if state.engine.companion_manager.companion_party.len() > 1 {
+                let _ = state.engine.companion_manager.simulate_party_banter();
+            }
+
+            serde_json::to_string(&co_creation).unwrap_or_else(|_| "{}".to_string())
+        } else {
+            "{}".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_propose_cocreation(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let arche_id = 1u32;
+
+        let creation = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .companion
+                .propose_co_creation(player_pos, arche_id)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.propose_co_creation(player_pos, arche_id)
+        };
+
+        // Dynamic Terraforming: Carve space and spawn the structure into VoxelWorld
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            let cx = creation.coords[0].round() as i32;
+            let cy = creation.coords[1].round() as i32;
+            let cz = creation.coords[2].round() as i32;
+            let voxel_type = arche_id as u8;
+
+            // Carve foundation & construct a 3x4x3 resonant pedestal/arch
+            for dx in -1i32..=1i32 {
+                for dz in -1i32..=1i32 {
+                    for dy in -1i32..3i32 {
+                        let is_arch_pillar = (dx.abs() == 1 || dz.abs() == 1) || dy >= 2;
+                        if is_arch_pillar {
+                            state.voxel_world.set_voxel_at(
+                                cx + dx,
+                                cy + dy,
+                                cz + dz,
+                                crate::voxel::Voxel { id: voxel_type },
+                            );
+                        } else {
+                            state.voxel_world.set_voxel_at(
+                                cx + dx,
+                                cy + dy,
+                                cz + dz,
+                                crate::voxel::Voxel { id: 0 },
+                            ); // air clearance
+                        }
+                    }
+                }
+            }
+            state.voxel_dirty = true;
+        }
+
+        serde_json::to_string(&creation).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_generate_challenge(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let challenge = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .companion
+                .generate_dynamic_challenge(player_pos)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.generate_dynamic_challenge(player_pos)
+        };
+        serde_json::to_string(&challenge).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_interact_with_npc(
+        &mut self,
+        npc_id: u32,
+        npc_name: &str,
+        archetype: &str,
+    ) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let interaction = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .companion
+                .interact_with_npc(npc_id, npc_name, archetype)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.interact_with_npc(npc_id, npc_name, archetype)
+        };
+        serde_json::to_string(&interaction).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_get_lore_journal(&self) -> String {
+        let bridge = crate::genie_bridge::LoreJournalBridge::new();
+        bridge.get_journal_json()
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_spawn_coop_puzzle(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let puzzle = reality_genie::dit::CompanionCoopPuzzle::new_random(1, player_pos);
+        serde_json::to_string(&puzzle).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_step_puzzle_resonance(&mut self, player_power: f32) -> String {
+        let mut puzzle = reality_genie::dit::CompanionCoopPuzzle::new_random(1, [0.0, 1.0, 0.0]);
+        let solved = puzzle.step_coop_resonance(player_power);
+        format!(
+            "{{\"solved\": {}, \"resonance\": {}}}",
+            solved, puzzle.current_resonance
+        )
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_scout_frontier(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let scout = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .companion
+                .scout_latent_frontier(player_pos)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.scout_latent_frontier(player_pos)
+        };
+        serde_json::to_string(&scout).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_generate_procedural_trial(&mut self) -> String {
+        let player_pos = if let Ok(state) = self.state.try_borrow() {
+            [
+                state.engine.camera.eye.x,
+                state.engine.camera.eye.y,
+                state.engine.camera.eye.z,
+            ]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let trial = if let Ok(mut state) = self.state.try_borrow_mut() {
+            state
+                .engine
+                .companion_manager
+                .companion
+                .author_procedural_trial(player_pos)
+        } else {
+            let mut companion = reality_genie::dit::AgenticCompanion::new("Samantha", player_pos);
+            companion.author_procedural_trial(player_pos)
+        };
+        serde_json::to_string(&trial).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn get_engine_version() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let branch = env!("GIT_BRANCH");
+    let hash = env!("GIT_HASH");
+    format!("{}-{}-{}", version, branch, hash)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn generate_splats_worker_entry(prompt: String) -> String {
+    use reality_genie::splat_gen::{GenieSplatGenerator, SplatGenerator};
+
+    let model_url = "/models/diffusion_model.safetensors";
+    let data = match reality_genie::fetch_weights::fetch_safetensors(model_url).await {
+        Ok(d) => d,
+        Err(e) => {
+            log::error!("Failed to fetch weights: {:?}", e);
+            return String::from("[]");
+        }
+    };
+
+    let gen = GenieSplatGenerator::from_safetensors(&data);
+    let raw_splats = gen.generate_splats_from_prompt(&prompt);
+
+    let mut direct_splats = Vec::new();
+    for s in raw_splats {
+        direct_splats.push(crate::splat::SplatVertex {
+            position: [s[0], s[1], s[2]],
+            rotation: [s[3], s[4], s[5], s[6]],
+            scale: [s[7], s[8], s[9]],
+            color: [s[10], s[11], s[12], s[13]],
+            previous_position: [s[0], s[1], s[2]],
+            archetype_id: 5, // Genie archetype default
+            target_archetype_id: 5,
+            morph_weight: 0.0,
+            bone_index: -1,
+        });
+    }
+
+    serde_json::to_string(&direct_splats).unwrap_or_else(|_| String::from("[]"))
 }

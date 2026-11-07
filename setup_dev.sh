@@ -12,9 +12,53 @@ fi
 
 echo "Rust is installed."
 
+if command -v rustup &> /dev/null; then
+    if ! rustup target list --installed | grep -q "^wasm32-unknown-unknown$"; then
+        echo "Installing wasm32-unknown-unknown target..."
+        rustup target add wasm32-unknown-unknown
+        echo "wasm32-unknown-unknown target installed successfully!"
+    else
+        echo "wasm32-unknown-unknown target is already installed."
+    fi
+else
+    echo "Warning: rustup is not available. Please ensure wasm32-unknown-unknown target is installed."
+fi
+
 if ! command -v trunk &> /dev/null; then
-    echo "trunk is missing. Installing..."
-    cargo install trunk
+    echo "trunk is missing. Downloading pre-compiled release..."
+    TRUNK_VERSION="v0.21.14"
+    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    ARCH=$(uname -m)
+
+    if [ "$OS" = "linux" ]; then
+        if [ "$ARCH" = "x86_64" ]; then
+            TARGET="x86_64-unknown-linux-gnu"
+        elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+            TARGET="aarch64-unknown-linux-gnu"
+        else
+            echo "Unsupported architecture: $ARCH"
+            exit 1
+        fi
+    elif [ "$OS" = "darwin" ]; then
+        if [ "$ARCH" = "x86_64" ]; then
+            TARGET="x86_64-apple-darwin"
+        elif [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+            TARGET="aarch64-apple-darwin"
+        else
+            echo "Unsupported architecture: $ARCH"
+            exit 1
+        fi
+    else
+        echo "Unsupported OS: $OS"
+        exit 1
+    fi
+
+    TRUNK_URL="https://github.com/trunk-rs/trunk/releases/download/${TRUNK_VERSION}/trunk-${TARGET}.tar.gz"
+    echo "Downloading trunk from ${TRUNK_URL}"
+    mkdir -p "$HOME/.cargo/bin"
+    curl -sL "${TRUNK_URL}" | tar -xzf - -C "$HOME/.cargo/bin" trunk
+
+    echo "trunk installed successfully!"
 else
     echo "trunk is already installed."
 fi

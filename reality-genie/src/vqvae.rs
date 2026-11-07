@@ -66,10 +66,9 @@ impl Encoder {
         let mut downsamples = Vec::new();
         let curr_channels = cfg.hidden_channels;
         for i in 0..cfg.num_downsample_layers {
-            // Strided conv for downsampling
             let conv = candle_nn::conv2d(
                 curr_channels,
-                curr_channels, // keeping channels same for simplicity in this demo, or usually double
+                curr_channels,
                 4,
                 Conv2dConfig { stride: 2, padding: 1, ..Default::default() },
                 vb.pp(format!("down_{}", i))
@@ -108,7 +107,7 @@ impl Module for Encoder {
 
 #[derive(Debug)]
 pub struct VectorQuantizer {
-    embedding: Tensor, // [num_embeddings, embedding_dim]
+    embedding: Tensor,
     num_embeddings: usize,
     embedding_dim: usize,
 }
@@ -124,65 +123,33 @@ impl VectorQuantizer {
     }
 
     pub fn forward(&self, z: &Tensor) -> Result<(Tensor, Tensor)> {
-        // z: [B, C, H, W] -> permute to [B, H, W, C]
         let (b, c, h, w) = z.dims4()?;
         let z_permuted = z.permute((0, 2, 3, 1))?;
         let z_flat = z_permuted.reshape((b * h * w, c))?;
 
-        // Distances: (z - e)^2 = z^2 + e^2 - 2ze
-        // z_flat: [N, C]
-        // embedding: [K, C]
+        let z2 = z_flat.sqr()?.sum_keepdim(1)?;
+        let e2 = self.embedding.sqr()?.sum_keepdim(1)?;
+        let e2 = e2.reshape((1, self.num_embeddings))?;
 
-        let z2 = z_flat.sqr()?.sum_keepdim(1)?; // [N, 1]
-        let e2 = self.embedding.sqr()?.sum_keepdim(1)?; // [K, 1]
-        let e2 = e2.reshape((1, self.num_embeddings))?; // [1, K]
-
-        let ze = z_flat.matmul(&self.embedding.t()?)?; // [N, K]
-
-        // z2 [N, 1] broadcasts to [N, K]
-        // e2 [1, K] broadcasts to [N, K]
+        let ze = z_flat.matmul(&self.embedding.t()?)?;
 
         let e2_broadcast = e2.broadcast_as((b*h*w, self.num_embeddings))?;
         let z2_broadcast = z2.broadcast_as((b*h*w, self.num_embeddings))?;
 
         let dist = ((z2_broadcast + e2_broadcast)? - (ze * 2.0)?)?;
 
-        let encoding_indices = dist.argmin(1)?; // [N]
+        let encoding_indices = dist.argmin(1)?;
 
-        // Quantize
-        // embedding: [K, C]
-        // indices: [N]
-        // We want to gather embeddings.
-        let quantized_flat = self.embedding.index_select(&encoding_indices, 0)?; // [N, C]
-
-        let quantized = quantized_flat.reshape((b, h, w, c))?.permute((0, 3, 1, 2))?; // [B, C, H, W]
-
-        // Straight-through estimator:
-        // We want gradients to flow from Decoder to Encoder, bypassing the quantization step mathematically during backprop.
-        // In PyTorch: z_q = z + (z_q - z).detach()
-        // In Candle, we can use `detach()`
-
+        let quantized_flat = self.embedding.index_select(&encoding_indices, 0)?;
+        let quantized = quantized_flat.reshape((b, h, w, c))?.permute((0, 3, 1, 2))?;
         let quantized_final = ((z - z.detach())? + quantized.detach())?;
 
         Ok((quantized_final, encoding_indices.reshape((b, h, w))?))
     }
 
-    // Helper to decode indices directly
     pub fn decode_indices(&self, indices: &Tensor) -> Result<Tensor> {
-        // indices: [B, H, W] or [N]
-        // Flatten
-        let _shape = indices.dims();
         let indices_flat = indices.flatten_all()?;
         let quantized_flat = self.embedding.index_select(&indices_flat, 0)?;
-
-        // If input was [B, H, W], output should be [B, C, H, W] (needs permutation)
-        // Here we just return flat or guess based on original shape?
-        // Better to assume caller handles reshape or we pass dims.
-        // For simplicity, assuming [B, H, W] input -> return [B, C, H, W] logic needs C.
-
-        // Actually this function is usually used by decoder which takes quantized tensor.
-        // But the Transformer predicts indices. So we need this.
-
         Ok(quantized_flat)
     }
 }
@@ -258,31 +225,162 @@ impl VqVae {
     }
 
     pub fn forward(&self, xs: &Tensor) -> Result<(Tensor, Tensor, Tensor)> {
-        // Returns (reconstruction, quantization_loss_info_ignored_here, indices)
         let z = self.encoder.forward(xs)?;
         let (quantized, indices) = self.quantizer.forward(&z)?;
         let reconstruction = self.decoder.forward(&quantized)?;
         Ok((reconstruction, quantized, indices))
     }
 
-    // For inference from tokens
     pub fn decode_from_indices(&self, indices: &Tensor) -> Result<Tensor> {
-         // indices: [B, H, W]
          let (b, h, w) = indices.dims3()?;
          let indices_flat = indices.flatten_all()?;
-         let quantized_flat = self.quantizer.embedding.index_select(&indices_flat, 0)?; // [B*H*W, C]
+         let quantized_flat = self.quantizer.embedding.index_select(&indices_flat, 0)?;
          let c = self.quantizer.embedding_dim;
 
-         // Reshape back to [B, H, W, C] then permute to [B, C, H, W]
          let quantized = quantized_flat.reshape((b, h, w, c))?.permute((0, 3, 1, 2))?;
-
          self.decoder.forward(&quantized)
     }
 
-    // For encoding to tokens
     pub fn encode_to_indices(&self, xs: &Tensor) -> Result<Tensor> {
         let z = self.encoder.forward(xs)?;
         let (_, indices) = self.quantizer.forward(&z)?;
         Ok(indices)
+    }
+}
+
+/// Latent-to-Voxel & Splat Visual Decoder
+#[derive(Debug)]
+pub struct LatentVoxelDecoder {
+    linear_out: candle_nn::Linear,
+    pub vocab_size: usize,
+}
+
+impl LatentVoxelDecoder {
+    pub fn new(d_model: usize, vocab_size: usize, vb: VarBuilder) -> Result<Self> {
+        let linear_out = candle_nn::linear(d_model, vocab_size, vb.pp("linear_out"))?;
+        Ok(Self {
+            linear_out,
+            vocab_size,
+        })
+    }
+
+    /// Decode continuous latents [B, T, S, C] or [B, S, C] into discrete Voxel IDs
+    pub fn decode_voxels(&self, latents: &Tensor) -> Result<Tensor> {
+        let logits = self.linear_out.forward(latents)?;
+        let last_dim = logits.rank() - 1;
+        logits.argmax(last_dim)
+    }
+
+    /// Decode continuous latents [B, T, S, C] into 3D Splat vertices float attributes
+    pub fn decode_splats(&self, latents: &Tensor) -> Result<Vec<Vec<f32>>> {
+        let flat_vec = latents.flatten_all()?.to_vec1::<f32>()?;
+        let chunk_len = 14;
+        let num_splats = flat_vec.len() / chunk_len;
+        let mut splats = Vec::with_capacity(num_splats);
+
+        for i in 0..num_splats {
+            let offset = i * chunk_len;
+            let slice = &flat_vec[offset..offset + chunk_len];
+            splats.push(slice.to_vec());
+        }
+
+        Ok(splats)
+    }
+
+    pub fn decode_splat_floats_from_latents_vec(flat_latents: &[f32]) -> Vec<[f32; 14]> {
+        let chunk_len = 14;
+        let num_splats = flat_latents.len() / chunk_len;
+        let mut splats = Vec::with_capacity(num_splats);
+
+        for i in 0..num_splats {
+            let offset = i * chunk_len;
+            if offset + chunk_len <= flat_latents.len() {
+                let slice = &flat_latents[offset..offset + chunk_len];
+                let mut arr = [0.0f32; 14];
+                arr.copy_from_slice(slice);
+                splats.push(arr);
+            }
+        }
+
+        splats
+    }
+
+    /// End-to-end direct latent-to-3DGS primitive decoder.
+    /// Projects continuous frame latent features directly into 3D Gaussian Splats:
+    /// - Position [x, y, z]
+    /// - Scale ellipsoid [sx, sy, sz]
+    /// - Orientation quaternion [qx, qy, qz, qw]
+    /// - Spherical Harmonics color & opacity [r, g, b, alpha]
+    pub fn decode_direct_3dgs(flat_latents: &[f32], base_position: [f32; 3]) -> Vec<[f32; 14]> {
+        let splat_dim = 14;
+        let num_primitives = flat_latents.len() / splat_dim;
+        let mut gs_primitives = Vec::with_capacity(num_primitives);
+
+        for i in 0..num_primitives {
+            let offset = i * splat_dim;
+            let slice = &flat_latents[offset..offset + splat_dim];
+
+            // 1. Position projection centered around base_position
+            let px = base_position[0] + slice[0] * 4.0;
+            let py = base_position[1] + slice[1] * 4.0;
+            let pz = base_position[2] + slice[2] * 4.0;
+
+            // 2. Quaternion orientation normalization
+            let qx = slice[3];
+            let qy = slice[4];
+            let qz = slice[5];
+            let qw = slice[6].max(0.001);
+            let q_norm = (qx * qx + qy * qy + qz * qz + qw * qw).sqrt().max(1e-6);
+
+            // 3. Ellipsoid scale (strictly positive via exp)
+            let sx = (slice[7] * 0.5).exp().clamp(0.05, 2.5);
+            let sy = (slice[8] * 0.5).exp().clamp(0.05, 2.5);
+            let sz = (slice[9] * 0.5).exp().clamp(0.05, 2.5);
+
+            // 4. Color & Opacity (sigmoid into [0, 1])
+            let r = 1.0 / (1.0 + (-slice[10]).exp());
+            let g = 1.0 / (1.0 + (-slice[11]).exp());
+            let b = 1.0 / (1.0 + (-slice[12]).exp());
+            let alpha = (1.0 / (1.0 + (-slice[13]).exp())).clamp(0.1, 1.0);
+
+            gs_primitives.push([
+                px, py, pz,
+                qx / q_norm, qy / q_norm, qz / q_norm, qw / q_norm,
+                sx, sy, sz,
+                r, g, b, alpha,
+            ]);
+        }
+
+        gs_primitives
+    }
+
+    /// Verifies dynamic object solidity against a decoded point cloud / voxel list.
+    /// Returns true if an entity AABB penetrates solid decoded voxels, alongside penetration depth.
+    pub fn check_solidity_collision(
+        decoded_points: &[[f32; 3]],
+        entity_pos: [f32; 3],
+        entity_radius: f32,
+    ) -> (bool, f32) {
+        let mut max_penetration = 0.0f32;
+        let mut collision = false;
+        let r_sq = entity_radius * entity_radius;
+
+        for pt in decoded_points {
+            let dx = pt[0] - entity_pos[0];
+            let dy = pt[1] - entity_pos[1];
+            let dz = pt[2] - entity_pos[2];
+            let dist_sq = dx * dx + dy * dy + dz * dz;
+
+            if dist_sq < r_sq {
+                collision = true;
+                let dist = dist_sq.sqrt();
+                let pen = entity_radius - dist;
+                if pen > max_penetration {
+                    max_penetration = pen;
+                }
+            }
+        }
+
+        (collision, max_penetration)
     }
 }

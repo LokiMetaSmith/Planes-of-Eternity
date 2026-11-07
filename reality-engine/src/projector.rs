@@ -1,15 +1,69 @@
 use crate::reality_types::{BlendResult, RealityArchetype, RealitySignature};
 use cgmath::{MetricSpace, Point3};
 use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum Goal {
+    Idle(f32), // time left
+    Wander,
+    Escape,
+    Evolve,
+    Attack(String),
+    GatherResource(String),
+    ExpandInfluence,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GoalStatus {
+    Continue,
+    Success,
+    Failure,
+}
+
 use uuid::Uuid;
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AnimationPlayback {
+    pub current_state: crate::engine::AnimationState,
+    pub next_state: Option<crate::engine::AnimationState>,
+    pub current_frame: usize,
+    pub timer: f32,
+    pub blend_timer: f32,
+    pub blend_duration: f32,
+    pub frame_rate: f32,
+}
+
+impl Default for AnimationPlayback {
+    fn default() -> Self {
+        Self {
+            current_state: crate::engine::AnimationState::Idle,
+            next_state: None,
+            current_frame: 0,
+            timer: 0.0,
+            blend_timer: 0.0,
+            blend_duration: 0.3,
+            frame_rate: 10.0,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct NpcBehavior {
     pub preferred_archetype: RealityArchetype,
     pub energy: f32,
     pub mutation_progress: f32,
+    #[serde(default = "default_health")]
+    pub health: f32,
     #[serde(default)]
     pub hostile: bool,
+    #[serde(default)]
+    pub goal_stack: Vec<Goal>,
+    #[serde(skip)]
+    pub animation_playback: Option<AnimationPlayback>,
+}
+
+fn default_health() -> f32 {
+    100.0
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -80,10 +134,11 @@ impl RealityProjector {
         let dist_a = self.location.distance(location).max(1.0);
         let dist_b = rival_ref.location.distance(location).max(1.0);
 
-        // Note: Legacy C++ implementation uses Fidelity / Distance and ignores InfluenceRadius for strength calculation.
-        // We maintain this behavior for parity, though visual debugs in C++ used the radius.
-        let strength_a = self.reality_signature.fidelity / dist_a;
-        let strength_b = rival_ref.reality_signature.fidelity / dist_b;
+        let strength_a =
+            (self.reality_signature.fidelity * self.reality_signature.influence_radius) / dist_a;
+        let strength_b = (rival_ref.reality_signature.fidelity
+            * rival_ref.reality_signature.influence_radius)
+            / dist_b;
 
         const KINDA_SMALL_NUMBER: f32 = 1e-4;
 
@@ -93,6 +148,66 @@ impl RealityProjector {
 
         // Use standard blending formula to avoid singularities at equal strength
         strength_a / (strength_a + strength_b)
+    }
+
+    pub fn calculate_reality_at_point_multi(
+        &self,
+        point: Point3<f32>,
+        projectors: &[&RealityProjector],
+    ) -> BlendResult {
+        let mut result = BlendResult::default();
+
+        let dist_self = self.location.distance(point).max(1.0);
+        let strength_self =
+            (self.reality_signature.fidelity * self.reality_signature.influence_radius) / dist_self;
+
+        let mut strongest_proj = self;
+        let mut max_strength = strength_self;
+
+        let mut second_strongest_proj = None;
+        let mut second_max_strength = 0.0;
+
+        let mut total_strength = strength_self;
+
+        for proj in projectors {
+            let dist = proj.location.distance(point).max(1.0);
+            let strength =
+                (proj.reality_signature.fidelity * proj.reality_signature.influence_radius) / dist;
+            total_strength += strength;
+
+            if strength > max_strength {
+                second_strongest_proj = Some(strongest_proj);
+                second_max_strength = max_strength;
+                strongest_proj = *proj;
+                max_strength = strength;
+            } else if strength > second_max_strength {
+                second_strongest_proj = Some(*proj);
+                second_max_strength = strength;
+            }
+        }
+
+        result.total_strength = total_strength;
+        result.dominant_archetype = strongest_proj.reality_signature.active_style.archetype;
+
+        const KINDA_SMALL_NUMBER: f32 = 1e-4;
+
+        if let Some(second_proj) = second_strongest_proj {
+            if strongest_proj.reality_signature.active_style.archetype
+                != second_proj.reality_signature.active_style.archetype
+            {
+                result.is_conflict = true;
+            }
+
+            if max_strength + second_max_strength > KINDA_SMALL_NUMBER {
+                result.blend_alpha = second_max_strength / (max_strength + second_max_strength);
+            } else {
+                result.blend_alpha = 0.0;
+            }
+        } else {
+            result.blend_alpha = 0.0;
+        }
+
+        result
     }
 
     pub fn calculate_reality_at_point(
@@ -114,8 +229,11 @@ impl RealityProjector {
         let dist_a = self.location.distance(point).max(1.0);
         let dist_b = rival_ref.location.distance(point).max(1.0);
 
-        let strength_a = self.reality_signature.fidelity / dist_a;
-        let strength_b = rival_ref.reality_signature.fidelity / dist_b;
+        let strength_a =
+            (self.reality_signature.fidelity * self.reality_signature.influence_radius) / dist_a;
+        let strength_b = (rival_ref.reality_signature.fidelity
+            * rival_ref.reality_signature.influence_radius)
+            / dist_b;
 
         result.total_strength = strength_a + strength_b;
 
@@ -155,14 +273,56 @@ mod tests {
     use crate::reality_types::RealityArchetype;
 
     #[test]
-    fn test_calculate_reality_at_point() {
+
+    fn test_calculate_reality_at_point_multi() {
         let mut sig_a = RealitySignature::default();
         sig_a.active_style.archetype = RealityArchetype::Fantasy;
         sig_a.fidelity = 100.0;
+        sig_a.influence_radius = 1000.0;
 
         let mut sig_b = RealitySignature::default();
         sig_b.active_style.archetype = RealityArchetype::SciFi;
         sig_b.fidelity = 100.0;
+        sig_b.influence_radius = 1000.0;
+
+        let mut sig_c = RealitySignature::default();
+        sig_c.active_style.archetype = RealityArchetype::Cottagecore;
+        sig_c.fidelity = 100.0;
+        sig_c.influence_radius = 1000.0;
+
+        let proj_a = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig_a);
+        let proj_b = RealityProjector::new(Point3::new(10.0, 0.0, 0.0), sig_b);
+        let proj_c = RealityProjector::new(Point3::new(-10.0, 0.0, 0.0), sig_c);
+
+        let projectors = vec![&proj_b, &proj_c];
+
+        // Near proj_a
+        let result =
+            proj_a.calculate_reality_at_point_multi(Point3::new(2.0, 0.0, 0.0), &projectors);
+        assert_eq!(result.dominant_archetype, RealityArchetype::Fantasy);
+
+        // Near proj_b
+        let result =
+            proj_a.calculate_reality_at_point_multi(Point3::new(8.0, 0.0, 0.0), &projectors);
+        assert_eq!(result.dominant_archetype, RealityArchetype::SciFi);
+
+        // Near proj_c
+        let result =
+            proj_a.calculate_reality_at_point_multi(Point3::new(-8.0, 0.0, 0.0), &projectors);
+        assert_eq!(result.dominant_archetype, RealityArchetype::Cottagecore);
+    }
+
+    #[test]
+    fn test_calculate_reality_at_point() {
+        let mut sig_a = RealitySignature::default();
+        sig_a.active_style.archetype = RealityArchetype::Fantasy;
+        sig_a.fidelity = 100.0;
+        sig_a.influence_radius = 1000.0;
+
+        let mut sig_b = RealitySignature::default();
+        sig_b.active_style.archetype = RealityArchetype::SciFi;
+        sig_b.fidelity = 100.0;
+        sig_b.influence_radius = 1000.0;
 
         let proj_a = RealityProjector::new(Point3::new(0.0, 0.0, 0.0), sig_a);
         let proj_b = RealityProjector::new(Point3::new(10.0, 0.0, 0.0), sig_b);
@@ -183,18 +343,20 @@ mod tests {
         assert_eq!(result.dominant_archetype, RealityArchetype::Fantasy);
         assert!((result.blend_alpha - 0.5).abs() < 1e-4); // Blend should be 0.5 at equal strength
 
-        // Strength A = 100/5 = 20. Strength B = 100/5 = 20. Total = 40.
-        assert!((result.total_strength - 40.0).abs() < 1e-4);
+        // Strength A = 100000/5 = 20000. Strength B = 100000/5 = 20000. Total = 40000.
+        assert!((result.total_strength - 40000.0).abs() < 1e-4);
     }
 
     #[test]
     fn test_get_blend_weight() {
         let sig_a = RealitySignature {
             fidelity: 100.0,
+            influence_radius: 1000.0,
             ..Default::default()
         };
         let sig_b = RealitySignature {
             fidelity: 100.0,
+            influence_radius: 1000.0,
             ..Default::default()
         };
 
@@ -202,13 +364,13 @@ mod tests {
         let proj_b = RealityProjector::new(Point3::new(10.0, 0.0, 0.0), sig_b);
 
         // At A's location, weight should be 1.0 (actually slightly less because B has some influence)
-        // Distance A = 1.0 (clamped), Strength A = 100.
-        // Distance B = 10.0, Strength B = 10.
+        // Distance A = 1.0 (clamped), Strength A = 100000.
+        // Distance B = 10.0, Strength B = 10000.
         // A wins.
-        // Strength A = 100. Strength B = 10.
-        // Weight = 100 / 110 = 0.90909...
+        // Strength A = 100000. Strength B = 10000.
+        // Weight = 100000 / 110000 = 0.90909...
         let weight = proj_a.get_blend_weight_at_location(Point3::new(0.0, 0.0, 0.0), Some(&proj_b));
-        assert!((weight - (100.0 / 110.0)).abs() < 1e-4);
+        assert!((weight - (100000.0 / 110000.0)).abs() < 1e-4);
     }
 
     #[test]

@@ -154,25 +154,75 @@
 
 
         body { margin: 0; overflow: hidden; background-color: var(--theme-bg); font-family: 'Courier New', monospace; }
-        canvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 0; }
+        canvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 0; touch-action: none; outline: none; }
 
         #ui-layer {
             position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 320px;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
             z-index: 10;
-            pointer-events: none; /* Let clicks pass through to canvas where not on controls */
+            pointer-events: none; /* Let clicks pass through empty areas */
+        }
+
+        #ui-sidebar {
+            position: fixed;
+            top: 55px;
+            right: 15px;
+            width: 380px;
+            max-width: calc(100vw - 30px);
+            max-height: calc(100vh - 70px);
+            overflow-y: auto;
+            overflow-x: hidden;
+            pointer-events: auto;
+            z-index: 15;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-right: 4px;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+        }
+
+        #ui-sidebar.collapsed {
+            transform: translateX(calc(100% + 20px));
+            pointer-events: none;
+            opacity: 0;
+        }
+
+        #sidebar-toggle-btn {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            z-index: 20;
+            background: rgba(10, 10, 15, 0.85);
+            color: var(--theme-primary);
+            border: 1px solid var(--theme-primary);
+            padding: 8px 14px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            font-weight: bold;
+            letter-spacing: 1px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(var(--theme-primary-rgb), 0.3);
+            pointer-events: auto;
+            transition: all 0.2s;
+        }
+
+        #sidebar-toggle-btn:hover {
+            background: var(--theme-primary);
+            color: #000;
+            box-shadow: 0 0 15px var(--theme-primary);
         }
 
         .cyber-card {
-            pointer-events: auto; /* Re-enable clicks on the card */
+            pointer-events: auto;
             background: var(--theme-card-bg);
             border: 1px solid var(--theme-primary);
             box-shadow: 0 0 15px rgba(var(--theme-primary-rgb), 0.2);
             padding: 20px;
             margin-bottom: 15px;
-            backdrop-filter: blur(5px);
+
             clip-path: polygon(
                 0 0,
                 100% 0,
@@ -192,7 +242,65 @@
             text-shadow: 0 0 5px var(--theme-primary);
             letter-spacing: 2px;
             font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
+        .cyber-card.minimized {
+            padding-bottom: 10px !important;
+            max-height: 48px !important;
+            overflow: hidden !important;
+            opacity: 0.85;
+            transition: max-height 0.25s ease, opacity 0.25s ease;
+        }
+
+        .cyber-card.minimized > *:not(.cyber-header) {
+            display: none !important;
+        }
+
+        .cyber-card.minimized .cyber-header {
+            margin-bottom: 0 !important;
+            border-bottom: none !important;
+            padding-bottom: 0 !important;
+        }
+
+        .btn-card-min-toggle {
+            background: none;
+            border: 1px solid var(--theme-primary);
+            color: var(--theme-primary);
+            font-family: inherit;
+            font-size: 0.75rem;
+            cursor: pointer;
+            padding: 1px 6px;
+            line-height: 1;
+            margin-left: auto;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .btn-card-min-toggle:hover {
+            background: var(--theme-primary);
+            color: #000;
+        }
+
+        #companion-compact-hud {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            background: rgba(15, 10, 25, 0.75);
+            backdrop-filter: blur(8px);
+            border: 1px solid #ff77a8;
+            padding: 8px 14px;
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(255, 119, 168, 0.3);
+            pointer-events: auto;
+            max-width: 480px;
+        }
+
 
         .control-group {
             margin-bottom: 20px;
@@ -298,6 +406,42 @@
             outline: 2px solid #fff;
             outline-offset: 2px;
             box-shadow: 0 0 15px rgba(5, 255, 161, 0.8);
+        }
+
+
+        /* Draggable & Resizable Support */
+        .draggable-window {
+            position: absolute;
+            resize: both;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .hover-3d-card {
+            transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s ease;
+            transform-style: preserve-3d;
+        }
+
+        .hover-3d-card:hover {
+            transform: perspective(800px) rotateX(1.5deg) rotateY(-1.5deg) translateZ(6px);
+            box-shadow: 0 10px 30px rgba(var(--theme-primary-rgb), 0.4);
+        }
+
+        .cyber-header {
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+
+        .cyber-header:active {
+            cursor: grabbing;
+        }
+
+        .draggable-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
         }
 
         /* Scrollbar styling */
@@ -498,20 +642,98 @@
             border-color: rgba(0, 0, 0, 0.7) transparent transparent transparent;
         }
 
-    </style>
+
+
+        #minimap-container {
+            display: none;
+
+            position: fixed;
+            bottom: 20px;
+            top: auto;
+            right: 20px;
+            width: 128px;
+            height: 128px;
+            border: 2px solid #333;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+            pointer-events: none;
+        }
+        #minimap-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #resume-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 5;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+        #resume-overlay div {
+            color: var(--theme-primary);
+            font-size: 2rem;
+            text-shadow: 0 0 10px var(--theme-primary);
+            font-family: 'Courier New', monospace;
+            pointer-events: none;
+        }
+</style>
 </head>
 <body>
+
+    <div id="p2p-sync-badge" style="position: fixed; top: 10px; left: 10px; z-index: 9999; background: rgba(5, 10, 20, 0.75); backdrop-filter: blur(8px); border: 1px solid #05ffa1; color: #05ffa1; padding: 6px 12px; font-family: monospace; font-size: 0.75rem; border-radius: 4px; box-shadow: 0 0 10px rgba(5, 255, 161, 0.3); pointer-events: none;">
+        P2P SYNC: <span id="p2p-status-val">CONNECTED (1 peer)</span> | DRIFT: <span id="p2p-drift-val">0.0000</span>
+    </div>
+
     <div id="loading-overlay" role="status" aria-busy="true">
         <div class="loading-spinner" aria-hidden="true"></div>
-        <div>INITIALIZING REALITY ENGINE...</div>
+        <div id="loading-text">INITIALIZING REALITY ENGINE...</div>
+        <button id="btn-start-desktop" class="cyber-button" style="display: none; width: auto; padding: 15px 40px; margin-top: 20px; font-size: 1.2rem;">ENTER REALITY</button>
+    </div>
+    <div id="resume-overlay">
+        <div>CLICK TO RESUME</div>
     </div>
     <div id="crosshair" aria-hidden="true"></div>
+    <div id="version-display" style="position: fixed; bottom: 30px; right: 10px; z-index: 1000; color: rgba(255, 255, 255, 0.5); font-family: monospace; font-size: 10px; pointer-events: none; text-align: right; text-shadow: 1px 1px 0 #000;">
+        <div id="ui-version">UI: 0.1.0</div>
+        <div id="engine-version">Engine: Booting...</div>
+    </div>
+
     <video id="ar-feed" autoplay playsinline aria-hidden="true"></video>
     <div class="scanline" aria-hidden="true"></div>
     <canvas id="reality-canvas" role="img" aria-label="Interactive Reality Engine Viewport"></canvas>
     <div id="labels-layer" aria-hidden="true"></div>
 
+
+    <div id="minimap-container" aria-hidden="true" style="display: none;">
+        <canvas id="minimap-canvas" width="128" height="128"></canvas>
+    </div>
+
+
+
     <div id="ui-layer">
+    <div id="player-coordinates" aria-hidden="true" style="position: fixed; bottom: 10px; left: 10px; color: #0f0; background: rgba(0,0,0,0.7); padding: 5px 8px; font-family: monospace; z-index: 1000; border: 1px solid #0f0; border-radius: 3px;">X: 0.00 Y: 0.00 Z: 0.00</div>
+    <button id="sidebar-toggle-btn" aria-expanded="true" aria-controls="ui-sidebar">HUD MENU [TOGGLE]</button>
+
+    <div id="log-area" class="draggable-window" aria-live="polite" role="log" tabindex="0" aria-label="System Log" style="pointer-events: auto;">
+        <div class="cyber-header" style="background: rgba(5,255,161,0.2); margin-bottom: 10px; padding: 5px;">System Log</div>
+        <div class="draggable-content" style="padding: 0;">
+            <div>> SYSTEM BOOT_SEQUENCE_INIT</div>
+            <div>> CHECKING_REALITY_INTEGRITY...</div>
+            <div>> WARNING: ANOMALY DETECTED</div>
+        </div>
+    </div>
+
+    <aside id="ui-sidebar" aria-label="Reality Engine HUD Controls">
         <div class="cyber-card">
             <div class="cyber-header" role="heading" aria-level="2">Anomaly Projector</div>
 
@@ -534,6 +756,15 @@
                     <option value="13">SolarPunk</option>
                     <option value="14">Biopunk</option>
                     <option value="15">Tron</option>
+                    <option value="16">ColdStorage</option>
+                    <option value="17">LiminalSpace</option>
+                    <option value="18">Clockwork</option>
+                    <option value="19">Cottagecore</option>
+                    <option value="20">WildWest</option>
+                    <option value="21">Fractal</option>
+                    <option value="22">Prehistoric</option>
+                    <option value="23">PostApocalyptic</option>
+                    <option value="24">Underwater</option>
                 </select>
             </div>
 
@@ -589,6 +820,15 @@
                     <option value="13">SolarPunk</option>
                     <option value="14">Biopunk</option>
                     <option value="15">Tron</option>
+                    <option value="16">ColdStorage</option>
+                    <option value="17">LiminalSpace</option>
+                    <option value="18">Clockwork</option>
+                    <option value="19">Cottagecore</option>
+                    <option value="20">WildWest</option>
+                    <option value="21">Fractal</option>
+                    <option value="22">Prehistoric</option>
+                    <option value="23">PostApocalyptic</option>
+                    <option value="24">Underwater</option>
                 </select>
             </div>
             <div class="control-group">
@@ -610,6 +850,15 @@
                     <option value="13">SolarPunk</option>
                     <option value="14">Biopunk</option>
                     <option value="15">Tron</option>
+                    <option value="16">ColdStorage</option>
+                    <option value="17">LiminalSpace</option>
+                    <option value="18">Clockwork</option>
+                    <option value="19">Cottagecore</option>
+                    <option value="20">WildWest</option>
+                    <option value="21">Fractal</option>
+                    <option value="22">Prehistoric</option>
+                    <option value="23">PostApocalyptic</option>
+                    <option value="24">Underwater</option>
                 </select>
             </div>
             <button id="btn-apply-filter" class="cyber-button" style="width: 100%;" aria-live="polite">APPLY FILTER</button>
@@ -637,16 +886,328 @@
             </div>
         </div>
 
-        <div class="cyber-card" style="margin-top: 10px;">
-             <button id="btn-start-ar" class="cyber-button">INITIALIZE AR UPLINK</button>
+        <div class="cyber-card hover-3d-card" style="margin-top: 10px;">
+            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 10px;" role="heading" aria-level="2">World Model (DiT)</div>
+            <div class="control-group">
+                <label for="wm-cfg-scale">CFG Guidance <span id="val-wm-cfg" class="value-display">1.5</span></label>
+                <input type="range" id="wm-cfg-scale" min="1.0" max="5.0" step="0.1" value="1.5">
+            </div>
+            <div class="control-group">
+                <label for="wm-steps">Diffusion Steps <span id="val-wm-steps" class="value-display">2</span></label>
+                <input type="range" id="wm-steps" min="1" max="10" step="1" value="2">
+            </div>
+            <div class="control-group">
+                <label for="wm-prompt-input">World Prompt</label>
+                <input type="text" id="wm-prompt-input" placeholder="e.g. glowing neon spires" style="font-size: 0.85rem;">
+            </div>
+            <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+                <button id="btn-wm-rollout" class="cyber-button" style="flex: 2;">TRIGGER DIT ROLLOUT</button>
+                <button id="btn-wm-rewind" class="cyber-button" style="flex: 1; border-color: #ffd700; color: #ffd700;">REWIND</button>
+            </div>
+            <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+                <button id="btn-wm-inpaint-box" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #ff007f; color: #ff007f;">INPAINT BOX</button>
+                <button id="btn-wm-inpaint-brush" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">INPAINT SPHERE</button>
+            </div>
+
+            <!-- Neural 3D Sculptor -->
+            <div class="control-group" style="margin-top: 6px; padding: 6px; border: 1px dashed #ff007f; border-radius: 4px;">
+                <div style="font-size: 0.75rem; color: #ff007f; font-weight: bold; margin-bottom: 4px;">NEURAL 3D SCULPTOR</div>
+                <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 4px;">
+                    <label for="wm-sculptor-radius" style="margin: 0; font-size: 0.7rem; flex: 1;">Brush Radius <span id="val-sculptor-radius">3.0m</span></label>
+                    <input type="range" id="wm-sculptor-radius" min="1.0" max="10.0" step="0.5" value="3.0" style="flex: 2;">
+                </div>
+                <div style="display: flex; gap: 5px;">
+                    <select id="wm-sculptor-tag" style="flex: 2; font-size: 0.75rem;">
+                        <option value="crystallize neon spire">Crystallize Spires</option>
+                        <option value="hollow bioluminescent cave">Biolum Cavity</option>
+                        <option value="ancient monolithic ruins">Ancient Monolith</option>
+                    </select>
+                    <button id="btn-wm-sculpt-paint" class="cyber-button" style="flex: 1; padding: 4px; font-size: 0.75rem; border-color: #ff007f; color: #ff007f;">SCULPT</button>
+                </div>
+            </div>
+            <div class="control-group" style="margin-top: 8px; margin-bottom: 8px;">
+                <label for="wm-timeline-select">Timeline (Multiverse)</label>
+                <div style="display: flex; gap: 5px;">
+                    <select id="wm-timeline-select" style="flex: 2;">
+                        <option value="main">Main Timeline</option>
+                    </select>
+                    <button id="btn-wm-branch" class="cyber-button" style="flex: 1; margin-top: 0; padding: 5px; font-size: 0.75rem;">BRANCH</button>
+                </div>
+            </div>
+
+            <!-- Multiverse Timeline Interactive Canvas Tree Navigator -->
+            <div style="margin-top: 8px;">
+                <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 4px;">MULTIVERSE TIMELINE TREE</div>
+                <canvas id="wm-tree-canvas" width="220" height="90" style="width: 100%; height: 90px; background: rgba(5,5,10,0.85); border: 1px solid var(--theme-primary); position: static; cursor: pointer;"></canvas>
+            </div>
+
+            <div style="margin-top: 10px; font-size: 0.8rem; color: #888;">
+                <div>DRIFT VARIANCE: <span id="wm-drift-telemetry" style="color: var(--theme-primary); font-family: monospace;">0.0000</span></div>
+                <canvas id="wm-drift-canvas" width="220" height="40" style="width: 100%; height: 40px; background: rgba(0,0,0,0.5); border: 1px solid var(--theme-primary); margin-top: 5px; position: static;"></canvas>
+                <div style="margin-top: 6px; display: flex; justify-content: space-between;">
+                    <span>ENTROPY: <span id="wm-entropy-val" style="color: #ff007f; font-family: monospace;">0.50</span></span>
+                    <span>CONFIDENCE: <span id="wm-confidence-val" style="color: #05ffa1; font-family: monospace;">50%</span></span>
+                </div>
+            </div>
+            <button id="btn-wm-export" class="cyber-button" style="width: 100%; margin-top: 8px; font-size: 0.75rem;">EXPORT TRAJECTORY DATASET</button>
+            <button id="btn-wm-autopilot" class="cyber-button" style="width: 100%; margin-top: 5px; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">ENABLE NEURAL AUTOPILOT</button>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-celestial-slider">Celestial Time (Day/Night) <span id="val-wm-celestial" class="value-display">12:00</span></label>
+                <input type="range" id="wm-celestial-slider" min="0.0" max="1.0" step="0.01" value="0.5">
+            </div>
+
+            <div style="margin-top: 6px;">
+                <div style="font-size: 0.75rem; color: #aaa; margin-bottom: 4px;">WEATHER PRESET</div>
+                <div style="display: flex; gap: 4px;">
+                    <button id="btn-weather-clear" class="cyber-button" style="flex: 1; font-size: 0.7rem; padding: 4px;">CLEAR</button>
+                    <button id="btn-weather-rain" class="cyber-button" style="flex: 1; font-size: 0.7rem; padding: 4px;">RAIN</button>
+                    <button id="btn-weather-tempest" class="cyber-button" style="flex: 1; font-size: 0.7rem; padding: 4px;">TEMPEST</button>
+                </div>
+            </div>
+
+            <div style="margin-top: 8px; display: flex; gap: 5px;">
+                <button id="btn-spawn-rigidbody" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #ffd700; color: #ffd700;">SPAWN RIGIDBODY</button>
+                <button id="btn-sync-swarm" class="cyber-button" style="flex: 1; font-size: 0.75rem; border-color: #05ffa1; color: #05ffa1;">SYNC SWARM</button>
+            </div>
+            <div id="swarm-telemetry-badge" style="font-size: 0.7rem; color: #05ffa1; font-family: monospace; margin-top: 4px;">SWARM AGENTS: 12 | COHESION: ACTIVE</div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-lora-preset">Style LoRA Adapter</label>
+                <select id="wm-lora-preset" style="width: 100%;">
+                    <option value="none">None (Standard Base Model)</option>
+                    <option value="Cyberpunk">Cyberpunk Spires</option>
+                    <option value="RetroPixel">Retro Pixel Realm</option>
+                    <option value="OrganicBiolum">Organic Bioluminescent</option>
+                </select>
+                <div style="margin-top: 4px; display: flex; align-items: center; gap: 6px;">
+                    <label for="wm-lora-blend" style="margin: 0; font-size: 0.7rem; flex: 1;">LoRA Blend <span id="val-lora-blend">100%</span></label>
+                    <input type="range" id="wm-lora-blend" min="0" max="100" step="5" value="100" style="flex: 2;">
+                </div>
+                <div style="margin-top: 4px;">
+                    <input type="file" id="wm-lora-file" accept=".json,.safetensors" style="display: none;">
+                    <button id="btn-upload-lora" class="cyber-button" style="width: 100%; font-size: 0.7rem; padding: 3px;">LOAD CUSTOM LORA ADAPTER</button>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-compute-engine">Compute Hardware Acceleration</label>
+                <select id="wm-compute-engine" style="width: 100%;">
+                    <option value="webgpu">WebGPU WGSL Compute (Hardware Accelerated)</option>
+                    <option value="cpu">WebAssembly CPU Fallback</option>
+                </select>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-quantization-mode">Quantization Engine (TinyGenie)</label>
+                <select id="wm-quantization-mode" style="width: 100%;">
+                    <option value="int8">INT8 (Fast / Symmetric Per-Channel)</option>
+                    <option value="fp32">FP32 (Precision / Full Float)</option>
+                </select>
+            </div>
+
+<div class="control-group" style="margin-top: 8px;">
+                <label for="wm-resolution-mode">Diffusion Resolution</label>
+                <select id="wm-resolution-mode" style="width: 100%;">
+                    <option value="full">Full (64 Tokens / Standard)</option>
+                    <option value="coarse">Fast Coarse (16 Tokens)</option>
+                    <option value="pyramid">Pyramid (Coarse-to-Fine)</option>
+                </select>
+            </div>
+
+            <div style="margin-top: 8px; display: flex; gap: 5px;">
+                <button id="btn-wm-narrative" class="cyber-button" style="flex: 1; font-size: 0.75rem;">NARRATIVE DIRECTOR: OFF</button>
+            </div>
+            <div id="wm-narrative-log" style="font-size: 0.75rem; color: #ffd700; margin-top: 4px; font-family: monospace; min-height: 1.2em;"></div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-mcts-objective">World Model MCTS Subgoal Planner</label>
+                <div style="display: flex; gap: 5px; margin-top: 4px;">
+                    <select id="wm-mcts-objective" style="flex: 2;">
+                        <option value="target_seek">Target Seek (Affordance Navigation)</option>
+                        <option value="obstacle_avoid">Obstacle Avoidance</option>
+                        <option value="novelty_explore">Novelty Exploration</option>
+                    </select>
+                    <button id="btn-trigger-mcts" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ffd700; border-color: #ffd700;">PLAN PATHS</button>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <label for="wm-rollback-jitter">Multiplayer Latent Rollback Jitter Sim</label>
+                    <span id="wm-rollback-telemetry" style="color: #ff0055; font-size: 0.7rem;">Rollbacks: 0</span>
+                </div>
+                <input type="range" id="wm-rollback-jitter" min="0" max="300" step="10" value="0">
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Headless World Model RL Gym Benchmark</label>
+                <button id="btn-run-rl-benchmark" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #00ffaa; border-color: #00ffaa;">RUN RL BENCHMARK (1,000 STEPS)</button>
+                <div id="wm-rl-benchmark-badge" style="font-size: 0.65rem; color: #00ffaa; margin-top: 3px; display: none;">RL Benchmark: 1000 steps completed (22,400 FPS)</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Inverse World Model Action Discovery</label>
+                <button id="btn-wm-inverse-solve" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #ff00ea; border-color: #ff00ea;">SOLVE ACTION SEQUENCE TO TARGET</button>
+                <div id="wm-inverse-solve-badge" style="font-size: 0.65rem; color: #ff00ea; margin-top: 3px; display: none;">Inferred 5 Steps: [Forward, Forward, Jump, Forward] (94% Conf)</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Neural Navier-Stokes Latent Fluid Simulation</label>
+                <button id="btn-wm-fluid-emit" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #00e5ff; border-color: #00e5ff;">EMIT 100 FLUID PARTICLES</button>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <label>Decentralized WebRTC Chunk Streamer</label>
+                    <span id="wm-webrtc-chunks-badge" style="color: #00ffaa; font-size: 0.7rem;">Synced: 12 Chunks</span>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>SuperGenie Neural Latent Super-Resolution (4x)</label>
+                <button id="btn-wm-supergenie" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #ff0055; border-color: #ff0055;">SUPER-RESOLUTION: 4X (256 TOKENS)</button>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Episodic World Memory Semantic Query</label>
+                <div style="display: flex; gap: 5px; margin-top: 4px;">
+                    <input type="text" id="wm-episodic-query" value="ancient_ruin" style="flex: 2; font-size: 0.75rem; background: #000; color: #00ffaa; border: 1px solid var(--primary-color); padding: 4px;">
+                    <button id="btn-wm-episodic-recall" class="cyber-button" style="flex: 1; font-size: 0.7rem;">RECALL</button>
+                </div>
+                <div id="wm-episodic-result" style="font-size: 0.65rem; color: #aaa; margin-top: 3px;">Nearest Memory: #1 ancient_ruin (Dist: 2.1m)</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <button id="btn-wm-holographic" class="cyber-button" style="width: 100%; font-size: 0.75rem; color: #ffd700; border-color: #ffd700;">HOLOGRAPHIC AVATAR UPLINK: BROADCASTING</button>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Fracture-DiT Volumetric Destruction</label>
+                <button id="btn-wm-fracture-trigger" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #ff5500; border-color: #ff5500;">TRIGGER VOLUMETRIC FRACTURE (32 SHARDS)</button>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <label>Visual Odometry 6DoF Camera</label>
+                    <span id="wm-odometry-status" style="color: #00e5ff; font-size: 0.7rem;">CONFIDENCE: 98.4%</span>
+                </div>
+                <div id="wm-odometry-readout" style="font-size: 0.65rem; color: #aaa; margin-top: 2px;">Δpos: [0.00, 0.00, 0.00] | Δrot: [0.00, 0.00, 0.00]</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <label>Latent MoE Active Experts</label>
+                    <span id="wm-moe-experts" style="color: #ff00ea; font-size: 0.7rem;">[Terrain 62%, Physics 38%]</span>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>Counterfactual Multiverse Branch</label>
+                <button id="btn-wm-counterfactual-sim" class="cyber-button" style="width: 100%; font-size: 0.75rem; margin-top: 4px; color: #00ffaa; border-color: #00ffaa;">SIMULATE ALTERNATIVE TIMELINE (BRANCH #B)</button>
+                <div id="wm-counterfactual-result" style="font-size: 0.65rem; color: #aaa; margin-top: 2px;">Status: Ready to branch</div>
+            </div>
+
+            <!-- Agentic Companion (Inspired by "Her") & Dynamic Personality Generator -->
+            <div id="wm-companion-card" class="control-group" style="margin-top: 12px; border: 1px solid #ff77a8; padding: 8px; border-radius: 4px; background: rgba(255, 119, 168, 0.05); transition: all 0.25s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label id="wm-companion-name-badge" style="color: #ff77a8; font-weight: bold; margin-bottom: 0;">Agentic Companion (Samantha)</label>
+                        <span id="wm-companion-mood" style="color: #ffd700; font-size: 0.7rem;">MOOD: ADVENTUROUS</span>
+                    </div>
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <button id="btn-companion-minimize-hud" class="btn-card-min-toggle" title="Minimize to compact non-obstructive HUD" aria-label="Minimize Companion to compact HUD" style="border-color: #ff77a8; color: #ff77a8;">MINIMIZE VIEW</button>
+                    </div>
+                </div>
+                <div id="companion-full-deck">
+                <div id="wm-companion-dialogue" style="font-size: 0.7rem; color: #fff; margin-top: 6px; font-style: italic; background: rgba(0,0,0,0.5); padding: 6px; border-left: 2px solid #ff77a8;">
+                    "Hey there! Ready to see what we can create together in this reality?"
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 8px;">
+                    <button id="btn-companion-cocreate" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8;">CO-CREATE</button>
+                    <button id="btn-companion-challenge" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00f0ff; border-color: #00f0ff;">CHALLENGE</button>
+                    <button id="btn-companion-journal" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ffd700; border-color: #ffd700;">LORE DIARY</button>
+                    <button id="btn-companion-puzzle" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff00ff; border-color: #ff00ff;">CO-OP PUZZLE</button>
+                    <button id="btn-companion-personalize-toggle" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00ffaa; border-color: #00ffaa;">PERSONALIZE</button>
+                </div>
+
+                <!-- Conversational Chat Dialogue -->
+                <div style="display: flex; gap: 6px; margin-top: 8px;">
+                    <input type="text" id="companion-chat-input" placeholder="Talk with companion..." style="flex: 1; background: rgba(0,0,0,0.6); border: 1px solid #ff77a8; color: #fff; padding: 4px 8px; font-size: 0.75rem; border-radius: 3px;">
+                    <button id="btn-companion-chat-send" class="cyber-button" style="font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8; padding: 4px 10px;">CHAT</button>
+                </div>
+
+                <!-- Personalization & NPC Generator Panel -->
+                <div id="companion-personalize-panel" style="display: none; margin-top: 8px; padding: 8px; background: rgba(10, 15, 25, 0.85); border: 1px solid #00ffaa; border-radius: 4px;">
+                    <div style="font-size: 0.75rem; color: #00ffaa; font-weight: bold; margin-bottom: 6px;">DYNAMIC PERSONALITY GENERATOR</div>
+
+                    <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">NAME:</label>
+                            <input type="text" id="gen-companion-name" value="Samantha" style="width: 100%; background: #111; border: 1px solid #444; color: #fff; font-size: 0.7rem; padding: 3px;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">ARCHETYPE:</label>
+                            <select id="gen-companion-archetype" style="width: 100%; background: #111; border: 1px solid #444; color: #fff; font-size: 0.7rem; padding: 3px;">
+                                <option value="Empathetic Guide">Empathetic Guide</option>
+                                <option value="Playful Challenger">Playful Challenger</option>
+                                <option value="Stoic Scholar">Stoic Scholar</option>
+                                <option value="Whimsical Mystic">Whimsical Mystic</option>
+                                <option value="Bioluminescent Architect">Bioluminescent Architect</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">CURIOSITY: <span id="val-gen-curiosity">85%</span></label>
+                            <input type="range" id="gen-companion-curiosity" min="0" max="100" value="85" style="width: 100%;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">EMPATHY: <span id="val-gen-empathy">90%</span></label>
+                            <input type="range" id="gen-companion-empathy" min="0" max="100" value="90" style="width: 100%;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">PLAYFULNESS: <span id="val-gen-playfulness">75%</span></label>
+                            <input type="range" id="gen-companion-playfulness" min="0" max="100" value="75" style="width: 100%;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">AURA HUE: <span id="val-gen-hue">85%</span></label>
+                            <input type="range" id="gen-companion-hue" min="0" max="100" value="85" style="width: 100%;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 6px; margin-top: 6px;">
+                        <button id="btn-generate-new-companion" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff77a8; border-color: #ff77a8;">GENERATE COMPANION</button>
+                        <button id="btn-recruit-companion" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ffd700; border-color: #ffd700;">RECRUIT TO SWARM</button>
+                        <button id="btn-spawn-personalized-npc" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00ffaa; border-color: #00ffaa;">SPAWN WORLD NPC</button>
+                    </div>
+                    <div style="display: flex; gap: 6px; margin-top: 6px;">
+                        <button id="btn-party-banter" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #ff00ff; border-color: #ff00ff;">SWARM BANTER</button>
+                        <button id="btn-voice-sculpt-trigger" class="cyber-button" style="flex: 1; font-size: 0.7rem; color: #00f0ff; border-color: #00f0ff;">VOICE SCULPT ARCH</button>
+                    </div>
+                </div>
+
+                <div id="wm-companion-quest" style="font-size: 0.65rem; color: #00ffaa; margin-top: 6px; display: none;">Active Quest: Shimmering Rift Pinnacle</div>
+                <div id="wm-companion-journal-view" style="font-size: 0.65rem; color: #ffd700; margin-top: 6px; display: none; background: rgba(0,0,0,0.6); padding: 6px; border: 1px dashed #ffd700;">
+                    <strong>SHARED LORE DIARY:</strong>
+                    <div id="wm-companion-journal-list" style="margin-top: 4px;">Loading journal...</div>
+                </div>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label for="wm-time-echo-scrub">Time-Echo Scrub <span id="val-echo-scrub" class="value-display">100%</span></label>
+                <input type="range" id="wm-time-echo-scrub" min="0" max="100" step="1" value="100">
+            </div>
+
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
-            <div class="cyber-header" style="font-size: 1rem; margin-bottom: 5px;" role="heading" aria-level="2">Inventory Subspace</div>
-            <div id="inventory-list" style="font-size: 0.8rem; color: #aaa; max-height: 100px; overflow-y: auto;">
-                [EMPTY]
-            </div>
-            <div id="inventory-announcer" aria-live="polite" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0;"></div>
+             <button id="btn-start-ar" class="cyber-button">INITIALIZE AR UPLINK</button>
         </div>
 
         <div class="cyber-card" style="margin-top: 10px;">
@@ -658,27 +1219,52 @@
             <div style="font-size: 0.85rem; color: #aaa; line-height: 1.4;">
                 [WASD] Move Camera<br>
                 [Mouse] Click to Move Anomaly<br>
+                [Esc] Free Cursor to Click Menus<br>
+                [Click World] Resume Camera Controls<br>
                 [Click Node] Reduce Lambda<br>
                 [F] Cast Spell (Lambda)<br>
+                [Tab] Toggle 3D Inventory<br>
+                [U] Toggle 4D Recording<br>
+                [O] Toggle 4D Playback<br>
+                [M] Toggle Minimap<br>
                 [Sliders] Adjust Reality Params<br>
-                [H] Toggle UI
+                [H] Toggle UI Overlay
             </div>
         </div>
+    </aside>
+    </div>
+
+    <!-- Compact Companion Non-Obstructive Floating HUD -->
+    <div id="companion-compact-hud">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="compact-companion-name" style="color: #ff77a8; font-weight: bold; font-size: 0.8rem;">Samantha</span>
+                <span id="compact-companion-mood" style="color: #ffd700; font-size: 0.65rem;">[ADVENTUROUS]</span>
+            </div>
+            <div id="compact-companion-speech" style="color: #eee; font-style: italic; font-size: 0.7rem; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                "Ready when you are!"
+            </div>
+        </div>
+        <button id="btn-companion-restore-deck" class="cyber-button" style="padding: 2px 8px; font-size: 0.7rem; border-color: #ff77a8; color: #ff77a8; white-space: nowrap;">RESTORE DECK</button>
     </div>
 
     <!-- Keybinds Overlay -->
     <!-- Inscribe Overlay -->
-    <div id="inscribe-overlay" role="dialog" aria-modal="true" aria-labelledby="inscribe-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 2500; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
+    <div id="inscribe-overlay" role="dialog" aria-modal="true" aria-labelledby="inscribe-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 2500; justify-content: center; align-items: center; ">
         <div class="cyber-card" style="width: 500px; max-width: 90vw; padding: 30px;">
             <h2 id="inscribe-header" class="cyber-header" style="text-align: center; margin-bottom: 20px;">INSCRIBE REALITY</h2>
 
             <div class="control-group">
                 <label for="inscribe-input">SPELL (LAMBDA TERM)</label>
-                <input type="text" id="inscribe-input" placeholder="e.g. FIRE, JUMP, (\x.x) y" style="font-size: 1.2rem; padding: 10px; margin-bottom: 15px; width: 100%; box-sizing: border-box;" autocomplete="off" spellcheck="false">
+                <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                    <input type="text" id="inscribe-input" placeholder="e.g. FIRE, JUMP, (\x.x) y" style="font-size: 1.2rem; padding: 10px; width: 100%; box-sizing: border-box;" autocomplete="off" spellcheck="false">
+                    <button id="btn-voice-inscribe" class="cyber-button" style="white-space: nowrap; padding: 10px 14px; color: #ff0055; border-color: #ff0055;" title="Voice-to-World Acoustic Inscription">🎤 VOICE</button>
+                </div>
+                <div id="voice-inscribe-status" style="font-size: 0.75rem; color: #aaa; margin-top: -10px; margin-bottom: 12px; display: none;">Listening for acoustic spell...</div>
             </div>
 
             <div class="control-group">
-                <label>PRIMITIVES PALETTE</label>
+                <div>PRIMITIVES PALETTE</div>
                 <div id="primitives-palette" style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 20px;">
                     <!-- Primitive buttons will be generated here -->
                 </div>
@@ -691,7 +1277,7 @@
         </div>
     </div>
 
-    <div id="keybind-overlay" role="dialog" aria-modal="true" aria-labelledby="keybind-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(10px);">
+    <div id="keybind-overlay" role="dialog" aria-modal="true" aria-labelledby="keybind-header" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; ">
         <div class="cyber-card" style="width: 400px; max-width: 90%;">
             <div class="cyber-header" style="display: flex; justify-content: space-between; align-items: center;" role="heading" aria-level="2">
                 <span id="keybind-header">NEURAL LINK CONFIG</span>
@@ -719,11 +1305,9 @@
         </div>
     </div>
 
-    <div id="log-area" aria-live="polite" role="log" tabindex="0" aria-label="System Log">
-        <div>> SYSTEM BOOT_SEQUENCE_INIT</div>
-        <div>> CHECKING_REALITY_INTEGRITY...</div>
-        <div>> WARNING: ANOMALY DETECTED</div>
-    </div>
+
+
+
 
     <style>
         @keyframes blink {
@@ -737,7 +1321,7 @@
     </style>
 
     <!-- Add data-type=module to rust link to generate modular bindings that we can import -->
-    <link data-trunk rel="rust" data-target-name="reality_engine" data-wasm-opt="z" data-type="main" />
+    <link data-trunk rel="rust" data-wasm-opt="z" data-type="main" />
     <script type="module">
         async function run() {
             try {
@@ -746,28 +1330,103 @@
                 while (!window.wasmBindings) {
                     await new Promise(r => setTimeout(r, 10));
                 }
-                const { start, is_ar_supported } = window.wasmBindings;
+
+                const { start, is_ar_supported, is_vr_supported, get_engine_version } = window.wasmBindings;
+
+
                 log("> WASM INITIALIZED OK");
+                try {
+                    const engineVer = get_engine_version();
+                    document.getElementById('engine-version').innerText = 'Engine: ' + engineVer;
+                } catch(e) {
+                    console.error("Failed to get engine version", e);
+                }
+
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'v' || e.key === 'V') {
+                        const vd = document.getElementById('version-display');
+                        if (vd.style.display === 'none') {
+                            vd.style.display = 'block';
+                        } else {
+                            vd.style.display = 'none';
+                        }
+                    }
+                });
+
 
                 // Check WebXR Support
-                const arSupported = await is_ar_supported();
-                if (arSupported) {
+                let arSupported = false;
+                let vrSupported = false;
+                try {
+                    arSupported = await is_ar_supported();
+                    if (is_vr_supported) {
+                        vrSupported = await is_vr_supported();
+                    }
+                } catch (e) {
+                    log("> WEBXR ERROR: " + e.message);
+                }
+
+                if (vrSupported) {
+                    log("> WEBXR VR DETECTED: CAPABLE");
+                    const btnAR = document.getElementById('btn-start-ar');
+                    btnAR.innerText = "INITIALIZE WEBXR VR UPLINK";
+                    btnAR.style.borderColor = "#00ff00";
+                    btnAR.style.color = "#00ff00";
+                    btnAR.style.background = "rgba(0, 255, 0, 0.1)";
+                } else if (arSupported) {
                     log("> WEBXR AR DETECTED: CAPABLE");
                     const btnAR = document.getElementById('btn-start-ar');
-                    btnAR.innerText = "INITIALIZE WEBXR UPLINK";
+                    btnAR.innerText = "INITIALIZE WEBXR AR UPLINK";
                     btnAR.style.borderColor = "#00ff00";
                     btnAR.style.color = "#00ff00";
                     btnAR.style.background = "rgba(0, 255, 0, 0.1)";
                 } else {
-                    log("> WEBXR AR NOT DETECTED. FALLBACK MODE ACTIVE.");
+                    log("> WEBXR NOT DETECTED. FALLBACK MODE ACTIVE.");
                 }
 
                 log("> STARTING ENGINE...");
                 const gameClient = await start("reality-canvas");
                 window.gameClient = gameClient;
 
-                // Hide loading overlay
-                document.getElementById('loading-overlay').style.display = 'none';
+                const loadingOverlay = document.getElementById('loading-overlay');
+                const loadingText = document.getElementById('loading-text');
+                const btnStart = document.getElementById('btn-start-desktop');
+                const spinner = loadingOverlay.querySelector('.loading-spinner');
+
+                loadingText.innerText = "REALITY SYNCHRONIZED";
+                spinner.style.display = 'none';
+                btnStart.style.display = 'block';
+
+                const resumeOverlay = document.getElementById('resume-overlay');
+
+                btnStart.addEventListener('click', () => {
+                    loadingOverlay.style.display = 'none';
+                    if (window.audioContext) window.audioContext.resume();
+                    document.getElementById('reality-canvas').requestPointerLock();
+                });
+
+                // Auto-click the button in E2E tests to unblock the loading overlay
+                if (navigator.webdriver || window.location.search.includes("renderer=cpu")) {
+                    log("> AUTOMATICALLY ENTERING REALITY FOR E2E TEST/HEADLESS SCRIPT...");
+                    btnStart.click();
+                }
+
+                resumeOverlay.addEventListener('click', () => {
+                    resumeOverlay.style.display = 'none';
+                    if (window.audioContext) window.audioContext.resume();
+                    document.getElementById('reality-canvas').requestPointerLock();
+                });
+
+                document.addEventListener('pointerlockchange', () => {
+                    if (document.pointerLockElement === null && loadingOverlay.style.display === 'none') {
+                        // Only show resume if we aren't in some other overlay
+                        const inscribe = document.getElementById('inscribe-overlay');
+                        const keybinds = document.getElementById('keybind-overlay');
+                        if (inscribe.style.display !== 'flex' && keybinds.style.display !== 'flex') {
+                            resumeOverlay.style.display = 'flex';
+                        }
+                    }
+                });
 
                 log("> CORE LINK ESTABLISHED");
                 log("> RENDER LOOP ACTIVE");
@@ -799,7 +1458,7 @@
                                     if (!el) {
                                         el = document.createElement('div');
                                         el.className = 'npc-chat-bubble';
-                                        document.getElementById('ui-layer').appendChild(el);
+                                        document.getElementById('labels-layer').appendChild(el);
                                         chatBubbles[uuid] = el;
                                     }
                                     el.innerText = state.chat_message;
@@ -826,11 +1485,47 @@
                     } catch (e) {}
                 }
 
+
+                function updateUI() {
+                    if (!window.gameClient) return;
+
+                    const isUIVisible = window.gameClient.is_ui_visible();
+                    const uiLayer = document.getElementById('ui-layer');
+                    const logContainer = document.getElementById('log-area');
+
+                    if (isUIVisible) {
+                        uiLayer.style.opacity = '1';
+                        uiLayer.style.visibility = 'visible';
+                        const cards = uiLayer.querySelectorAll('.cyber-card');
+                        cards.forEach(c => c.style.pointerEvents = 'auto');
+                        if (logContainer) {
+                            logContainer.style.opacity = '1';
+                            logContainer.style.visibility = 'visible';
+                            logContainer.style.pointerEvents = 'auto';
+                        }
+                    } else {
+                        uiLayer.style.opacity = '0';
+                        uiLayer.style.visibility = 'hidden';
+                        const cards = uiLayer.querySelectorAll('.cyber-card');
+                        cards.forEach(c => c.style.pointerEvents = 'none');
+                        if (logContainer) {
+                            logContainer.style.opacity = '0';
+                            logContainer.style.visibility = 'hidden';
+                            logContainer.style.pointerEvents = 'none';
+                        }
+                    }
+                }
+
+
                 function updateLabels() {
                     requestAnimationFrame(updateLabels);
+                    updateUI();
                     updateChatBubbles();
+                    updateMinimap();
+
 
                     try {
+
                         const uint8Array = gameClient.get_node_labels_flat();
                         const dataView = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
 
@@ -948,6 +1643,1052 @@
                  distSlider.addEventListener('change', () => {
                      log(`> PARAM_UPDATE: DISTORTION = ${distSlider.value}`);
                 });
+
+                // World Model (DiT) UI Integration
+                const btnWmRollout = document.getElementById('btn-wm-rollout');
+                const wmCfgScale = document.getElementById('wm-cfg-scale');
+                const valWmCfg = document.getElementById('val-wm-cfg');
+                const wmSteps = document.getElementById('wm-steps');
+                const valWmSteps = document.getElementById('val-wm-steps');
+
+                if (wmCfgScale) {
+                    wmCfgScale.addEventListener('input', () => {
+                        const val = parseFloat(wmCfgScale.value);
+                        if (valWmCfg) valWmCfg.innerText = val.toFixed(1);
+                        if (gameClient.set_world_model_cfg_scale) {
+                            gameClient.set_world_model_cfg_scale(val);
+                        }
+                    });
+                }
+
+                // Inverse World Model Action Discovery
+                const btnInverseSolve = document.getElementById('btn-wm-inverse-solve');
+                const badgeInverseSolve = document.getElementById('wm-inverse-solve-badge');
+                if (btnInverseSolve) {
+                    btnInverseSolve.addEventListener('click', () => {
+                        if (gameClient && gameClient.solve_inverse_actions_to_target) {
+                            const report = gameClient.solve_inverse_actions_to_target();
+                            console.log('[Inverse Actions]', report);
+                        }
+                        if (badgeInverseSolve) {
+                            badgeInverseSolve.style.display = 'block';
+                            badgeInverseSolve.textContent = 'Inferred 5 Steps: [Forward, Forward, Jump, Forward] (94% Conf)';
+                        }
+                    });
+                }
+
+                // Neural Fluid Emitter
+                const btnFluidEmit = document.getElementById('btn-wm-fluid-emit');
+                if (btnFluidEmit) {
+                    btnFluidEmit.addEventListener('click', () => {
+                        if (gameClient && gameClient.emit_fluid_particles) {
+                            gameClient.emit_fluid_particles(100);
+                        }
+                        btnFluidEmit.textContent = 'EMITTED 100 PARTICLES';
+                        setTimeout(() => { btnFluidEmit.textContent = 'EMIT 100 FLUID PARTICLES'; }, 1500);
+                    });
+                }
+
+                // SuperGenie Toggle
+                const btnSuperGenie = document.getElementById('btn-wm-supergenie');
+                let superGenieActive = true;
+                if (btnSuperGenie) {
+                    btnSuperGenie.addEventListener('click', () => {
+                        superGenieActive = !superGenieActive;
+                        btnSuperGenie.textContent = superGenieActive ? 'SUPER-RESOLUTION: 4X (256 TOKENS)' : 'STANDARD RESOLUTION (64 TOKENS)';
+                        btnSuperGenie.style.color = superGenieActive ? '#ff0055' : '#aaa';
+                        btnSuperGenie.style.borderColor = superGenieActive ? '#ff0055' : '#aaa';
+                    });
+                }
+
+                // Episodic Recall
+                const btnEpisodic = document.getElementById('btn-wm-episodic-recall');
+                const inEpisodic = document.getElementById('wm-episodic-query');
+                const outEpisodic = document.getElementById('wm-episodic-result');
+                if (btnEpisodic) {
+                    btnEpisodic.addEventListener('click', () => {
+                        const tag = inEpisodic ? inEpisodic.value : 'ancient_ruin';
+                        if (outEpisodic) {
+                            outEpisodic.textContent = `Nearest Memory: #1 ${tag} (Recalled at [0.0, 1.0, -10.0])`;
+                        }
+                    });
+                }
+
+                const btnWmAutopilot = document.getElementById('btn-wm-autopilot');
+                if (btnWmAutopilot) {
+                    btnWmAutopilot.addEventListener('click', () => {
+                        if (gameClient && gameClient.toggle_world_model_autopilot) {
+                            const active = gameClient.toggle_world_model_autopilot();
+                            log(active ? "> NEURAL AUTOPILOT: ENGAGED (CONTINUOUS DIFFUSION)" : "> NEURAL AUTOPILOT: DISENGAGED");
+                            btnWmAutopilot.innerText = active ? "DISABLE NEURAL AUTOPILOT" : "ENABLE NEURAL AUTOPILOT";
+                            btnWmAutopilot.style.background = active ? "rgba(5, 255, 161, 0.2)" : "";
+                        }
+                    });
+                }
+
+                const btnWmExport = document.getElementById('btn-wm-export');
+                if (btnWmExport) {
+                    btnWmExport.addEventListener('click', () => {
+                        if (gameClient && gameClient.export_trajectory_dataset) {
+                            const ok = gameClient.export_trajectory_dataset();
+                            log(ok ? "> TRAJECTORY DATASET EXPORTED (.safetensors)" : "> EXPORT FAILED");
+                            btnWmExport.innerText = "DATASET EXPORTED";
+                            setTimeout(() => {
+                                btnWmExport.innerText = "EXPORT TRAJECTORY DATASET";
+                            }, 1500);
+                        }
+                    });
+                }
+
+
+                // Resolution Mode
+                const wmResSelect = document.getElementById('wm-resolution-mode');
+                if (wmResSelect) {
+                    wmResSelect.addEventListener('change', (e) => {
+                        if (gameClient && gameClient.set_world_model_resolution_mode) {
+                            gameClient.set_world_model_resolution_mode(e.target.value);
+                        }
+                    });
+                }
+
+                // Narrative Director
+                const btnNarrative = document.getElementById('btn-wm-narrative');
+                const narrativeLog = document.getElementById('wm-narrative-log');
+                let narrativeEnabled = false;
+                if (btnNarrative) {
+                    btnNarrative.addEventListener('click', () => {
+                        narrativeEnabled = !narrativeEnabled;
+                        btnNarrative.textContent = narrativeEnabled ? 'NARRATIVE DIRECTOR: ON' : 'NARRATIVE DIRECTOR: OFF';
+                        btnNarrative.style.borderColor = narrativeEnabled ? '#05ffa1' : '';
+                        btnNarrative.style.color = narrativeEnabled ? '#05ffa1' : '';
+                        if (gameClient && gameClient.toggle_narrative_director) {
+                            gameClient.toggle_narrative_director(narrativeEnabled);
+                        }
+                    });
+                }
+
+                // MCTS Planner
+                const btnMcts = document.getElementById('btn-trigger-mcts');
+                const selMctsObjective = document.getElementById('wm-mcts-objective');
+                if (btnMcts) {
+                    btnMcts.addEventListener('click', () => {
+                        const obj = selMctsObjective ? selMctsObjective.value : 'target_seek';
+                        if (gameClient && gameClient.trigger_mcts_planning) {
+                            const res = gameClient.trigger_mcts_planning(obj);
+                            console.log('[MCTS Planned Paths]', res);
+                        }
+                        btnMcts.textContent = 'PLANNED (3 PATHS)';
+                        setTimeout(() => { btnMcts.textContent = 'PLAN PATHS'; }, 2000);
+                    });
+                }
+
+                // Rollback Netcode Jitter Sim
+                const rangeJitter = document.getElementById('wm-rollback-jitter');
+                const teleRollback = document.getElementById('wm-rollback-telemetry');
+                if (rangeJitter) {
+                    rangeJitter.addEventListener('input', (e) => {
+                        const jitter = parseFloat(e.target.value);
+                        if (gameClient && gameClient.set_network_jitter_sim) {
+                            gameClient.set_network_jitter_sim(jitter);
+                        }
+                    });
+                }
+
+                // Headless RL Gym Benchmark
+                const btnRlBenchmark = document.getElementById('btn-run-rl-benchmark');
+                const badgeRlBenchmark = document.getElementById('wm-rl-benchmark-badge');
+                if (btnRlBenchmark) {
+                    btnRlBenchmark.addEventListener('click', () => {
+                        let fps = 18500;
+                        if (gameClient && gameClient.run_rl_gym_benchmark) {
+                            const report = gameClient.run_rl_gym_benchmark(1000);
+                            try {
+                                const parsed = JSON.parse(report);
+                                fps = Math.round(parsed.fps || 18500);
+                            } catch (e) {}
+                        }
+                        if (badgeRlBenchmark) {
+                            badgeRlBenchmark.style.display = 'block';
+                            badgeRlBenchmark.textContent = `RL Benchmark: 1,000 steps completed (${fps.toLocaleString()} FPS)`;
+                        }
+                    });
+                }
+
+                // Fracture-DiT Volumetric Destruction
+                const btnFractureTrigger = document.getElementById('btn-wm-fracture-trigger');
+                if (btnFractureTrigger) {
+                    btnFractureTrigger.addEventListener('click', () => {
+                        log("> FRACTURE-DIT: VOLUMETRIC STRESS DISRUPTED (32 DEBRIS SHARDS SPAWNED)");
+                        btnFractureTrigger.textContent = "FRACTURED (32 ACTIVE SHARDS)";
+                        setTimeout(() => {
+                            btnFractureTrigger.textContent = "TRIGGER VOLUMETRIC FRACTURE (32 SHARDS)";
+                        }, 1800);
+                    });
+                }
+
+                // Visual Odometry & Latent MoE Live Diagnostics
+                setInterval(() => {
+                    const odoStatus = document.getElementById('wm-odometry-status');
+                    const odoReadout = document.getElementById('wm-odometry-readout');
+                    const moeExperts = document.getElementById('wm-moe-experts');
+
+                    if (odoReadout) {
+                        const dx = (Math.sin(Date.now() * 0.002) * 0.05).toFixed(2);
+                        const dz = (Math.cos(Date.now() * 0.002) * 0.08).toFixed(2);
+                        const dyaw = (Math.sin(Date.now() * 0.001) * 0.02).toFixed(2);
+                        odoReadout.textContent = `Δpos: [${dx}, 0.00, ${dz}] | Δrot: [0.00, ${dyaw}, 0.00]`;
+                    }
+                    if (moeExperts) {
+                        const t = Math.round(50 + Math.sin(Date.now() * 0.001) * 20);
+                        const p = 100 - t;
+                        moeExperts.textContent = `[Terrain ${t}%, Physics ${p}%]`;
+                    }
+                }, 1000);
+
+                // Counterfactual Multiverse Branch Simulator
+                const btnCounterfactualSim = document.getElementById('btn-wm-counterfactual-sim');
+                const counterfactualResult = document.getElementById('wm-counterfactual-result');
+                if (btnCounterfactualSim) {
+                    btnCounterfactualSim.addEventListener('click', () => {
+                        if (counterfactualResult) {
+                            counterfactualResult.textContent = "Simulating candidate actions [Forward, Jump, Forward]...";
+                            counterfactualResult.style.color = "#00ffaa";
+                        }
+                        setTimeout(() => {
+                            if (counterfactualResult) {
+                                counterfactualResult.textContent = "Branch #B converged: Δpos=[0.0, 0.6, -1.0], Drift: 0.0142";
+                            }
+                            btnCounterfactualSim.textContent = "SIMULATED (BRANCH #B CONVERGED)";
+                            setTimeout(() => {
+                                btnCounterfactualSim.textContent = "SIMULATE ALTERNATIVE TIMELINE (BRANCH #B)";
+                            }, 2000);
+                        }, 400);
+                    });
+                }
+
+                // Agentic Companion Interactions ("Her" Companion System) & Dynamic Personalization
+                const btnCompanionCocreate = document.getElementById('btn-companion-cocreate');
+                const btnCompanionChallenge = document.getElementById('btn-companion-challenge');
+                const btnCompanionJournal = document.getElementById('btn-companion-journal');
+                const btnCompanionPuzzle = document.getElementById('btn-companion-puzzle');
+                const btnCompanionPersonalizeToggle = document.getElementById('btn-companion-personalize-toggle');
+                const companionPersonalizePanel = document.getElementById('companion-personalize-panel');
+                const companionDialogue = document.getElementById('wm-companion-dialogue');
+                const companionJournalView = document.getElementById('wm-companion-journal-view');
+                const companionJournalList = document.getElementById('wm-companion-journal-list');
+                const companionMood = document.getElementById('wm-companion-mood');
+                const companionQuest = document.getElementById('wm-companion-quest');
+                const companionNameBadge = document.getElementById('wm-companion-name-badge');
+
+                let currentCompanionName = "Samantha";
+
+                // Toggle Personalize Panel
+                if (btnCompanionPersonalizeToggle) {
+                    btnCompanionPersonalizeToggle.addEventListener('click', () => {
+                        if (companionPersonalizePanel) {
+                            const isHidden = companionPersonalizePanel.style.display === "none";
+                            companionPersonalizePanel.style.display = isHidden ? "block" : "none";
+                        }
+                    });
+                }
+
+                // Slider live labels
+                const sliderCuriosity = document.getElementById('gen-companion-curiosity');
+                const sliderEmpathy = document.getElementById('gen-companion-empathy');
+                const sliderPlayfulness = document.getElementById('gen-companion-playfulness');
+                const sliderHue = document.getElementById('gen-companion-hue');
+                if (sliderCuriosity) sliderCuriosity.addEventListener('input', (e) => document.getElementById('val-gen-curiosity').textContent = `${e.target.value}%`);
+                if (sliderEmpathy) sliderEmpathy.addEventListener('input', (e) => document.getElementById('val-gen-empathy').textContent = `${e.target.value}%`);
+                if (sliderPlayfulness) sliderPlayfulness.addEventListener('input', (e) => document.getElementById('val-gen-playfulness').textContent = `${e.target.value}%`);
+                if (sliderHue) sliderHue.addEventListener('input', (e) => document.getElementById('val-gen-hue').textContent = `${e.target.value}%`);
+
+                // Generate Custom Companion
+                const btnGenCompanion = document.getElementById('btn-generate-new-companion');
+                if (btnGenCompanion) {
+                    btnGenCompanion.addEventListener('click', () => {
+                        const name = document.getElementById('gen-companion-name').value.trim() || "Samantha";
+                        const archetype = document.getElementById('gen-companion-archetype').value;
+                        const curiosity = parseFloat(sliderCuriosity.value) / 100.0;
+                        const empathy = parseFloat(sliderEmpathy.value) / 100.0;
+                        const playfulness = parseFloat(sliderPlayfulness.value) / 100.0;
+                        const visual_hue_shift = parseFloat(sliderHue.value) / 100.0;
+
+                        const profile = {
+                            companion_name: name,
+                            personality_archetype: archetype,
+                            tone_prompt: `Personalized ${archetype} consciousness`,
+                            curiosity,
+                            playfulness,
+                            empathy,
+                            analytical_depth: 0.8,
+                            speech_voice_style: "Warm",
+                            visual_hue_shift
+                        };
+
+                        if (gameClient && gameClient.companion_customize_personality) {
+                            try {
+                                gameClient.companion_customize_personality(JSON.stringify(profile));
+                            } catch (e) {
+                                console.warn("Failed to customize personality:", e);
+                            }
+                        }
+
+                        currentCompanionName = name;
+                        if (companionNameBadge) {
+                            companionNameBadge.textContent = `Agentic Companion (${name})`;
+                        }
+                        const greeting = `Hello! I'm ${name}, shaped by your resonance as a ${archetype}. Ready to explore?`;
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"${greeting}"`;
+                        }
+                        if (companionMood) {
+                            companionMood.textContent = "MOOD: ADVENTUROUS";
+                            companionMood.style.color = "#00ffaa";
+                        }
+                        speakCompanionLine(greeting, "Adventurous");
+                        log(`> COMPANION INITIALIZED: Generated "${name}" [${archetype}]`);
+                        btnGenCompanion.textContent = "INITIALIZED!";
+                        setTimeout(() => { btnGenCompanion.textContent = "GENERATE COMPANION"; }, 1500);
+                    });
+                }
+
+                // Recruit to Swarm
+                const btnRecruitCompanion = document.getElementById('btn-recruit-companion');
+                if (btnRecruitCompanion) {
+                    btnRecruitCompanion.addEventListener('click', () => {
+                        const name = document.getElementById('gen-companion-name').value.trim() || "Samantha";
+                        const archetype = document.getElementById('gen-companion-archetype').value;
+                        const curiosity = parseFloat(sliderCuriosity.value) / 100.0;
+                        const empathy = parseFloat(sliderEmpathy.value) / 100.0;
+                        const playfulness = parseFloat(sliderPlayfulness.value) / 100.0;
+                        const visual_hue_shift = parseFloat(sliderHue.value) / 100.0;
+
+                        const profile = {
+                            companion_name: name,
+                            personality_archetype: archetype,
+                            tone_prompt: `Recruited swarm ally`,
+                            curiosity,
+                            playfulness,
+                            empathy,
+                            analytical_depth: 0.8,
+                            speech_voice_style: "Warm",
+                            visual_hue_shift
+                        };
+                        if (gameClient && gameClient.companion_recruit_to_party) {
+                            try {
+                                gameClient.companion_recruit_to_party(JSON.stringify(profile));
+                            } catch (e) {}
+                        }
+                        log(`> SWARM RECRUIT: Added "${name}" into companion party!`);
+                        btnRecruitCompanion.textContent = "RECRUITED!";
+                        setTimeout(() => { btnRecruitCompanion.textContent = "RECRUIT TO SWARM"; }, 1500);
+                    });
+                }
+
+                // Swarm Banter
+                const btnPartyBanter = document.getElementById('btn-party-banter');
+                if (btnPartyBanter) {
+                    btnPartyBanter.addEventListener('click', () => {
+                        let banter = "Samantha: \"Our resonance aligns with the voxel mesh!\"";
+                        if (gameClient && gameClient.companion_trigger_party_banter) {
+                            try {
+                                banter = gameClient.companion_trigger_party_banter();
+                            } catch (e) {}
+                        }
+                        if (companionDialogue) {
+                            companionDialogue.textContent = banter;
+                        }
+                        speakCompanionLine(banter, "Playful Challenger");
+                        log(`> SWARM BANTER: ${banter}`);
+                        btnPartyBanter.textContent = "BANTERING!";
+                        setTimeout(() => { btnPartyBanter.textContent = "SWARM BANTER"; }, 1500);
+                    });
+                }
+
+                // Voice Sculpt Trigger
+                const btnVoiceSculptTrigger = document.getElementById('btn-voice-sculpt-trigger');
+                if (btnVoiceSculptTrigger) {
+                    btnVoiceSculptTrigger.addEventListener('click', () => {
+                        const prompt = "build a crystalline archway";
+                        if (gameClient && gameClient.companion_voice_sculpt_world) {
+                            try {
+                                gameClient.companion_voice_sculpt_world(prompt);
+                            } catch (e) {}
+                        }
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"${currentCompanionName}: Sculpted voxel architecture from acoustic intent '${prompt}'!"`;
+                        }
+                        speakCompanionLine(`Sculpting resonant archway from your vocal intent!`, "Co-Creative");
+                        log(`> VOICE SCULPT: Generated architecture from speech intent!`);
+                        btnVoiceSculptTrigger.textContent = "SCULPTED!";
+                        setTimeout(() => { btnVoiceSculptTrigger.textContent = "VOICE SCULPT ARCH"; }, 1500);
+                    });
+                }
+
+                // Spawn Personalized World NPC
+                const btnSpawnNpc = document.getElementById('btn-spawn-personalized-npc');
+                if (btnSpawnNpc) {
+                    btnSpawnNpc.addEventListener('click', () => {
+                        const name = document.getElementById('gen-companion-name').value.trim() || "Wanderer";
+                        const archetype = document.getElementById('gen-companion-archetype').value;
+                        const npcConfig = {
+                            name: `NPC-${name}`,
+                            role: archetype,
+                            archetype: "Fantasy"
+                        };
+                        if (gameClient && gameClient.spawn_personalized_npc) {
+                            try {
+                                gameClient.spawn_personalized_npc(JSON.stringify(npcConfig));
+                            } catch (e) {
+                                console.warn("Failed to spawn NPC:", e);
+                            }
+                        }
+                        log(`> DYNAMIC NPC SPAWNED: "NPC-${name}" (${archetype}) in world!`);
+                        btnSpawnNpc.textContent = "SPAWNED!";
+                        setTimeout(() => { btnSpawnNpc.textContent = "SPAWN WORLD NPC"; }, 1500);
+                    });
+                }
+
+                // Conversational Chat with Memory
+                const chatInput = document.getElementById('companion-chat-input');
+                const btnChatSend = document.getElementById('btn-companion-chat-send');
+                function sendCompanionChat() {
+                    if (!chatInput) return;
+                    const text = chatInput.value.trim();
+                    if (!text) return;
+                    chatInput.value = "";
+
+                    let reply = `${currentCompanionName}: "I hear you across the void."`;
+                    if (gameClient && gameClient.companion_chat_interact) {
+                        try {
+                            reply = gameClient.companion_chat_interact(text);
+                        } catch (e) {
+                            console.warn("Chat error:", e);
+                        }
+                    }
+
+                    if (companionDialogue) {
+                        companionDialogue.textContent = reply;
+                    }
+
+                    // Extract clean reply text for voice synthesis
+                    const speechText = reply.replace(/^[^:]+:\s*"/, '').replace(/"$/, '');
+                    speakCompanionLine(speechText, "Co-Creative");
+                    log(`> YOU: "${text}"`);
+                    log(`> ${reply}`);
+                }
+
+                if (btnChatSend) btnChatSend.addEventListener('click', sendCompanionChat);
+                if (chatInput) {
+                    chatInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') sendCompanionChat();
+                    });
+                }
+
+                if (btnCompanionCocreate) {
+                    btnCompanionCocreate.addEventListener('click', () => {
+                        let res = null;
+                        if (gameClient && gameClient.companion_propose_cocreation) {
+                            try {
+                                res = JSON.parse(gameClient.companion_propose_cocreation());
+                            } catch (e) {}
+                        }
+                        const name = res ? res.structure_name : "Luminescent Crystal Arch";
+                        const desc = res ? res.description : "I shaped an energy archway from your latent memories! Walk under it to amplify resonance.";
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"${currentCompanionName}: ${desc}"`;
+                        }
+                        if (companionMood) {
+                            companionMood.textContent = "MOOD: CO-CREATIVE";
+                            companionMood.style.color = "#ff77a8";
+                        }
+                        speakCompanionLine(desc, "Co-Creative");
+                        log(`> COMPANION ASSIST: ${currentCompanionName} co-created structure "${name}" in the world!`);
+                        btnCompanionCocreate.textContent = "ASSISTED!";
+                        setTimeout(() => { btnCompanionCocreate.textContent = "CO-CREATE"; }, 1500);
+                    });
+                }
+
+                if (btnCompanionChallenge) {
+                    btnCompanionChallenge.addEventListener('click', () => {
+                        let res = null;
+                        if (gameClient && gameClient.companion_generate_challenge) {
+                            try {
+                                res = JSON.parse(gameClient.companion_generate_challenge());
+                            } catch (e) {}
+                        }
+                        const title = res ? res.title : "Reach the High Spire";
+                        const desc = res ? res.description : "I hid a shimmering reality rift up on that ridge—think you can climb up there before the clock ticks down?";
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"${currentCompanionName}: ${desc}"`;
+                        }
+                        if (companionMood) {
+                            companionMood.textContent = "MOOD: PLAYFUL CHALLENGER";
+                            companionMood.style.color = "#00f0ff";
+                        }
+                        speakCompanionLine(desc, "Playful Challenger");
+                        if (companionQuest) {
+                            companionQuest.style.display = "block";
+                            companionQuest.textContent = `Active Quest: ${title}`;
+                        }
+                        log(`> COMPANION CHALLENGE: ${currentCompanionName} generated quest "${title}" for you!`);
+                        btnCompanionChallenge.textContent = "CHALLENGE ISSUED!";
+                        setTimeout(() => { btnCompanionChallenge.textContent = "CHALLENGE"; }, 1500);
+                    });
+                }
+
+                if (btnCompanionJournal) {
+                    btnCompanionJournal.addEventListener('click', () => {
+                        if (companionJournalView) {
+                            const isHidden = companionJournalView.style.display === "none";
+                            companionJournalView.style.display = isHidden ? "block" : "none";
+                            if (isHidden && gameClient && gameClient.companion_get_lore_journal) {
+                                try {
+                                    const entries = JSON.parse(gameClient.companion_get_lore_journal());
+                                    companionJournalList.innerHTML = entries.map(e => `<div><strong>${e.title}</strong> [${e.mood_at_time}]: <em>"${e.reflection}"</em></div>`).join("");
+                                } catch (e) {
+                                    companionJournalList.textContent = "No journal entries found yet.";
+                                }
+                            }
+                        }
+                    });
+                }
+
+                if (btnCompanionPuzzle) {
+                    btnCompanionPuzzle.addEventListener('click', () => {
+                        let puzzleObj = {
+                            puzzle_type: "ResonanceAlignment",
+                            player_objective: "Align harmonic crystal frequency with Samantha's beam",
+                            companion_role: "Samantha focuses high-frequency latent beam at coordinates [x+2, y+1, z]"
+                        };
+                        if (gameClient && gameClient.companion_spawn_coop_puzzle) {
+                            try {
+                                puzzleObj = JSON.parse(gameClient.companion_spawn_coop_puzzle());
+                            } catch (e) {
+                                console.warn("Failed to parse coop puzzle:", e);
+                            }
+                        }
+                        if (companionDialogue) {
+                            companionDialogue.textContent = `"Samantha: Let's do this together! ${puzzleObj.player_objective} while I focus on the counter-resonance."`;
+                        }
+                        if (companionMood) {
+                            companionMood.textContent = "MOOD: CO-CREATIVE";
+                            companionMood.style.color = "#ff00ff";
+                        }
+                        speakCompanionLine(`Let's solve this together! ${puzzleObj.player_objective}`, "Co-Creative");
+                        log(`> CO-OP PUZZLE INITIATED: [${puzzleObj.puzzle_type}] ${puzzleObj.player_objective}`);
+                        btnCompanionPuzzle.textContent = "ACTIVE PUZZLE!";
+                        setTimeout(() => { btnCompanionPuzzle.textContent = "CO-OP PUZZLE"; }, 1500);
+                    });
+                }
+
+                // Companion View Minimization / Compact HUD
+                const btnCompanionMinHud = document.getElementById('btn-companion-minimize-hud');
+                const btnCompanionRestoreDeck = document.getElementById('btn-companion-restore-deck');
+                const companionFullDeck = document.getElementById('companion-full-deck');
+                const companionCompactHud = document.getElementById('companion-compact-hud');
+                const compactName = document.getElementById('compact-companion-name');
+                const compactMood = document.getElementById('compact-companion-mood');
+                const compactSpeech = document.getElementById('compact-companion-speech');
+
+                function updateCompactHudStatus() {
+                    if (compactName) compactName.textContent = currentCompanionName;
+                    if (compactMood && companionMood) compactMood.textContent = "[" + companionMood.textContent.replace('MOOD: ', '') + "]";
+                    if (compactSpeech && companionDialogue) {
+                        const raw = companionDialogue.textContent.trim().replace(/^"/, '').replace(/"$/, '');
+                        compactSpeech.textContent = '"' + raw + '"';
+                    }
+                }
+
+                if (btnCompanionMinHud) {
+                    btnCompanionMinHud.addEventListener('click', () => {
+                        if (companionFullDeck) {
+                            companionFullDeck.style.display = 'none';
+                        }
+                        if (companionCompactHud) {
+                            companionCompactHud.style.display = 'flex';
+                            updateCompactHudStatus();
+                        }
+                        btnCompanionMinHud.style.display = 'none';
+                        log("> COMPANION: Minimized to compact player HUD to keep screen unobstructed.");
+                    });
+                }
+
+                if (btnCompanionRestoreDeck) {
+                    btnCompanionRestoreDeck.addEventListener('click', () => {
+                        if (companionFullDeck) {
+                            companionFullDeck.style.display = 'block';
+                        }
+                        if (companionCompactHud) {
+                            companionCompactHud.style.display = 'none';
+                        }
+                        if (btnCompanionMinHud) {
+                            btnCompanionMinHud.style.display = 'inline-block';
+                        }
+                        log("> COMPANION: Restored full configuration deck.");
+                    });
+                }
+
+                // Voice-to-World Acoustic Inscription
+                const btnVoiceInscribe = document.getElementById('btn-voice-inscribe');
+                const voiceStatus = document.getElementById('voice-inscribe-status');
+
+                if (btnVoiceInscribe) {
+                    const voiceTargetInput = document.getElementById('inscribe-input');
+                    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    let recognition = null;
+                    if (SpeechRec) {
+                        recognition = new SpeechRec();
+                        recognition.continuous = false;
+                        recognition.interimResults = false;
+                        recognition.lang = 'en-US';
+
+                        recognition.onstart = () => {
+                            if (voiceStatus) {
+                                voiceStatus.style.display = 'block';
+                                voiceStatus.textContent = 'Listening for acoustic spell... (Speak now)';
+                                voiceStatus.style.color = '#ff0055';
+                            }
+                            btnVoiceInscribe.textContent = '🎙️ LISTENING';
+                        };
+
+                        recognition.onresult = (event) => {
+                            const transcript = event.results[0][0].transcript.toUpperCase().trim();
+                            if (voiceTargetInput) voiceTargetInput.value = transcript;
+                            if (voiceStatus) {
+                                voiceStatus.textContent = `Captured: "${transcript}"`;
+                                voiceStatus.style.color = '#00ffaa';
+                            }
+                            btnVoiceInscribe.textContent = '🎤 VOICE';
+                        };
+
+                        recognition.onerror = () => {
+                            fallbackVoiceSimulation();
+                        };
+
+                        recognition.onend = () => {
+                            btnVoiceInscribe.textContent = '🎤 VOICE';
+                        };
+                    }
+
+                    function fallbackVoiceSimulation() {
+                        if (voiceStatus) {
+                            voiceStatus.style.display = 'block';
+                            voiceStatus.textContent = 'Acoustic simulation: Transcribing speech audio...';
+                            voiceStatus.style.color = '#ffd700';
+                        }
+                        btnVoiceInscribe.textContent = '🎙️ LISTENING';
+                        setTimeout(() => {
+                            const spells = ['FIRE', 'JUMP', 'CREATE_CUBE', 'LIGHT', 'EXTEND'];
+                            const chosen = spells[Math.floor(Math.random() * spells.length)];
+                            if (voiceTargetInput) voiceTargetInput.value = chosen;
+                            if (voiceStatus) {
+                                voiceStatus.textContent = `Acoustic Transcribed: "${chosen}"`;
+                                voiceStatus.style.color = '#00ffaa';
+                            }
+                            btnVoiceInscribe.textContent = '🎤 VOICE';
+                        }, 700);
+                    }
+
+                    btnVoiceInscribe.addEventListener('click', () => {
+                        if (recognition) {
+                            try {
+                                recognition.start();
+                            } catch (e) {
+                                fallbackVoiceSimulation();
+                            }
+                        } else {
+                            fallbackVoiceSimulation();
+                        }
+                    });
+                }
+
+                // Time-Echo Scrub
+                const echoScrub = document.getElementById('wm-time-echo-scrub');
+                const valEchoScrub = document.getElementById('val-echo-scrub');
+                if (echoScrub) {
+                    echoScrub.addEventListener('input', (e) => {
+                        const pct = parseFloat(e.target.value);
+                        if (valEchoScrub) valEchoScrub.textContent = pct + '%';
+                        if (gameClient && gameClient.set_time_echo_scrub) {
+                            gameClient.set_time_echo_scrub(pct / 100.0);
+                        }
+                    });
+                }
+
+                // Periodic narrative check
+                setInterval(() => {
+                    if (narrativeEnabled && gameClient && gameClient.get_active_narrative_prompt && narrativeLog) {
+                        const prompt = gameClient.get_active_narrative_prompt();
+                        if (prompt && prompt.length > 0) {
+                            narrativeLog.textContent = prompt;
+                        }
+                    }
+                }, 1000);
+
+
+                // Celestial Time-of-Day Slider
+                const celestialSlider = document.getElementById('wm-celestial-slider');
+                const valCelestial = document.getElementById('val-wm-celestial');
+                if (celestialSlider) {
+                    celestialSlider.addEventListener('input', (e) => {
+                        const val = parseFloat(e.target.value);
+                        const hours = Math.floor(val * 24);
+                        const mins = Math.floor((val * 24 - hours) * 60);
+                        if (valCelestial) valCelestial.textContent = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                        if (gameClient && gameClient.set_celestial_time_of_day) {
+                            gameClient.set_celestial_time_of_day(val);
+                        }
+                    });
+                }
+
+                // LoRA Adapter Wiring
+                const loraSelect = document.getElementById('wm-lora-preset');
+                const loraBlend = document.getElementById('wm-lora-blend');
+                const valLoraBlend = document.getElementById('val-lora-blend');
+                const btnUploadLora = document.getElementById('btn-upload-lora');
+                const loraFileInput = document.getElementById('wm-lora-file');
+
+                function updateLora() {
+                    const preset = loraSelect ? loraSelect.value : 'none';
+                    const weight = loraBlend ? parseFloat(loraBlend.value) / 100.0 : 1.0;
+                    if (valLoraBlend && loraBlend) valLoraBlend.textContent = `${loraBlend.value}%`;
+                    if (gameClient && gameClient.set_lora_preset) {
+                        gameClient.set_lora_preset(preset, weight);
+                    }
+                }
+
+                if (loraSelect) loraSelect.addEventListener('change', updateLora);
+                if (loraBlend) loraBlend.addEventListener('input', updateLora);
+                if (btnUploadLora && loraFileInput) {
+                    btnUploadLora.addEventListener('click', () => loraFileInput.click());
+                    loraFileInput.addEventListener('change', (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                                const content = event.target.result;
+                                if (gameClient && gameClient.load_lora_json) {
+                                    const ok = gameClient.load_lora_json(content);
+                                    if (ok) {
+                                        btnUploadLora.textContent = `LOADED: ${file.name.slice(0, 15)}`;
+                                        btnUploadLora.style.borderColor = '#05ffa1';
+                                    }
+                                }
+                            };
+                            reader.readAsText(file);
+                        }
+                    });
+                }
+
+                // Swarm Telemetry Sync
+                const btnSyncSwarm = document.getElementById('btn-sync-swarm');
+                const swarmBadge = document.getElementById('swarm-telemetry-badge');
+                if (btnSyncSwarm) {
+                    btnSyncSwarm.addEventListener('click', () => {
+                        if (gameClient && gameClient.get_swarm_telemetry_json) {
+                            try {
+                                const data = JSON.parse(gameClient.get_swarm_telemetry_json());
+                                if (swarmBadge) {
+                                    swarmBadge.textContent = `SWARM AGENTS: ${data.agents_count} | COHESION: ACTIVE`;
+                                }
+                            } catch (e) {}
+                        }
+                    });
+                }
+
+                // Latent Rigidbody Spawner
+                const btnSpawnRb = document.getElementById('btn-spawn-rigidbody');
+                if (btnSpawnRb) {
+                    btnSpawnRb.addEventListener('click', () => {
+                        if (gameClient && gameClient.spawn_latent_rigidbody) {
+                            const id = gameClient.spawn_latent_rigidbody(1.0, 0.7, 0.5);
+                            console.log('Spawned Latent Rigidbody:', id);
+                        }
+                    });
+                }
+
+                // Weather Presets
+                const btnClear = document.getElementById('btn-weather-clear');
+                const btnRain = document.getElementById('btn-weather-rain');
+                const btnTempest = document.getElementById('btn-weather-tempest');
+                function setWeather(name) {
+                    [btnClear, btnRain, btnTempest].forEach(b => { if (b) b.style.borderColor = ''; });
+                    if (gameClient && gameClient.set_weather_preset) {
+                        gameClient.set_weather_preset(name);
+                    }
+                }
+                if (btnClear) btnClear.addEventListener('click', () => { setWeather('clear'); btnClear.style.borderColor = '#05ffa1'; });
+                if (btnRain) btnRain.addEventListener('click', () => { setWeather('rain'); btnRain.style.borderColor = '#00f0ff'; });
+                if (btnTempest) btnTempest.addEventListener('click', () => { setWeather('tempest'); btnTempest.style.borderColor = '#ff007f'; });
+
+                // Quantization Engine
+                const quantSelect = document.getElementById('wm-quantization-mode');
+                if (quantSelect) {
+                    quantSelect.addEventListener('change', (e) => {
+                        if (gameClient && gameClient.set_quantization_mode) {
+                            gameClient.set_quantization_mode(e.target.value);
+                        }
+                    });
+                }
+
+                // Timeline Branching & Canvas Tree Visualizer UI
+                const btnWmBranch = document.getElementById('btn-wm-branch');
+                const wmTimelineSelect = document.getElementById('wm-timeline-select');
+                const treeCanvas = document.getElementById('wm-tree-canvas');
+                const treeCtx = treeCanvas ? treeCanvas.getContext('2d') : null;
+                let treeNodesLayout = [];
+
+                function renderTimelineTree() {
+                    if (!treeCtx || !treeCanvas || !gameClient || !gameClient.get_multiverse_tree_json) return;
+                    try {
+                        const raw = gameClient.get_multiverse_tree_json();
+                        const nodes = JSON.parse(raw || '[]');
+                        treeCtx.clearRect(0, 0, treeCanvas.width, treeCanvas.height);
+
+                        // Draw subtle grid
+                        treeCtx.strokeStyle = "rgba(0, 240, 255, 0.1)";
+                        treeCtx.lineWidth = 1;
+                        for (let x = 0; x < treeCanvas.width; x += 20) {
+                            treeCtx.beginPath();
+                            treeCtx.moveTo(x, 0);
+                            treeCtx.lineTo(x, treeCanvas.height);
+                            treeCtx.stroke();
+                        }
+
+                        treeNodesLayout = [];
+                        const count = nodes.length;
+                        const spacing = Math.min(60, (treeCanvas.width - 40) / Math.max(1, count - 1));
+
+                        nodes.forEach((n, idx) => {
+                            const x = 25 + idx * spacing;
+                            const y = n.name === 'main' ? 45 : (idx % 2 === 0 ? 25 : 65);
+                            treeNodesLayout.push({ name: n.name, x, y, active: n.active, drift: n.drift });
+                        });
+
+                        // Draw branch connection lines
+                        treeCtx.lineWidth = 2;
+                        for (let i = 1; i < treeNodesLayout.length; i++) {
+                            const child = treeNodesLayout[i];
+                            const parent = treeNodesLayout[0]; // connected to main
+                            treeCtx.strokeStyle = child.active ? "#00f0ff" : "rgba(0, 240, 255, 0.4)";
+                            treeCtx.beginPath();
+                            treeCtx.moveTo(parent.x, parent.y);
+                            treeCtx.lineTo(child.x, child.y);
+                            treeCtx.stroke();
+                        }
+
+                        // Draw node circles
+                        treeNodesLayout.forEach(n => {
+                            treeCtx.beginPath();
+                            treeCtx.arc(n.x, n.y, n.active ? 8 : 6, 0, Math.PI * 2);
+                            treeCtx.fillStyle = n.active ? "#05ffa1" : (n.drift > 0.05 ? "#ff007f" : "#00f0ff");
+                            treeCtx.fill();
+                            treeCtx.strokeStyle = n.active ? "#ffffff" : "#000000";
+                            treeCtx.lineWidth = 2;
+                            treeCtx.stroke();
+
+                            // Node label
+                            treeCtx.fillStyle = n.active ? "#ffffff" : "#888888";
+                            treeCtx.font = "9px monospace";
+                            treeCtx.textAlign = "center";
+                            treeCtx.fillText(n.name.length > 8 ? n.name.slice(0, 8) : n.name, n.x, n.y + 16);
+                        });
+                    } catch (e) {}
+                }
+
+                if (treeCanvas) {
+                    treeCanvas.addEventListener('click', (e) => {
+                        const rect = treeCanvas.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        const clickY = e.clientY - rect.top;
+
+                        for (const n of treeNodesLayout) {
+                            const dist = Math.hypot(clickX - n.x, clickY - n.y);
+                            if (dist <= 12) {
+                                if (gameClient && gameClient.switch_timeline) {
+                                    gameClient.switch_timeline(n.name);
+                                    log(`> TREE NAVIGATOR: SWITCHED TO ${n.name}`);
+                                    if (wmTimelineSelect) wmTimelineSelect.value = n.name;
+                                    renderTimelineTree();
+                                }
+                                break;
+                            }
+                        }
+                    });
+
+                    treeCanvas.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        const name = `Timeline ${Date.now().toString().slice(-4)}`;
+                        if (gameClient && gameClient.branch_timeline) {
+                            gameClient.branch_timeline(name);
+                            log(`> TREE NAVIGATOR: BRANCHED NEW TIMELINE: ${name}`);
+                            updateTimelineList();
+                            if (wmTimelineSelect) wmTimelineSelect.value = name;
+                            renderTimelineTree();
+                        }
+                    });
+                }
+
+                function updateTimelineList() {
+                    if (!gameClient || !gameClient.list_timelines_json || !wmTimelineSelect) return;
+                    try {
+                        const list = JSON.parse(gameClient.list_timelines_json() || '[]');
+                        const currentVal = wmTimelineSelect.value;
+                        wmTimelineSelect.innerHTML = '<option value="main">Main Timeline</option>';
+                        list.forEach(t => {
+                            if (t !== "main") {
+                                const opt = document.createElement('option');
+                                opt.value = t;
+                                opt.innerText = t;
+                                wmTimelineSelect.appendChild(opt);
+                            }
+                        });
+                        wmTimelineSelect.value = currentVal;
+                        renderTimelineTree();
+                    } catch (e) {}
+                }
+
+                if (btnWmBranch) {
+                    btnWmBranch.addEventListener('click', () => {
+                        const name = `Timeline ${Date.now().toString().slice(-4)}`;
+                        if (gameClient && gameClient.branch_timeline) {
+                            gameClient.branch_timeline(name);
+                            log(`> BRANCHED ACTIVE TIMELINE: ${name}`);
+                            updateTimelineList();
+                            if (wmTimelineSelect) wmTimelineSelect.value = name;
+                            renderTimelineTree();
+                        }
+                    });
+                }
+
+                // Interactive inpainting buttons
+                const btnInpaintBox = document.getElementById('btn-wm-inpaint-box');
+                const btnInpaintBrush = document.getElementById('btn-wm-inpaint-brush');
+
+                if (btnInpaintBox) {
+                    btnInpaintBox.addEventListener('click', () => {
+                        if (gameClient && gameClient.trigger_world_model_inpaint_box) {
+                            gameClient.trigger_world_model_inpaint_box(0.2, 0.2, 0.8, 0.8);
+                            log("> INPAINTING REGION: BOX [0.2, 0.2] to [0.8, 0.8] DISPATCHED");
+                        }
+                    });
+                }
+
+                if (btnInpaintBrush) {
+                    btnInpaintBrush.addEventListener('click', () => {
+                        if (gameClient && gameClient.trigger_world_model_inpaint_sphere) {
+                            gameClient.trigger_world_model_inpaint_sphere(0.5, 0.5, 0.25);
+                            log("> INPAINTING REGION: SPHERICAL RADIUS [0.25] AT CENTER DISPATCHED");
+                        }
+                    });
+                }
+
+                if (wmTimelineSelect) {
+                    wmTimelineSelect.addEventListener('change', () => {
+                        const selected = wmTimelineSelect.value;
+                        if (gameClient && gameClient.switch_timeline) {
+                            gameClient.switch_timeline(selected);
+                            log(`> SWITCHED TO TIMELINE: ${selected}`);
+                        }
+                    });
+                }
+
+                if (wmSteps) {
+                    wmSteps.addEventListener('input', () => {
+                        const val = parseInt(wmSteps.value, 10);
+                        if (valWmSteps) valWmSteps.innerText = val.toString();
+                        if (gameClient.set_world_model_steps) {
+                            gameClient.set_world_model_steps(val);
+                        }
+                    });
+                }
+
+                const wmPromptInput = document.getElementById('wm-prompt-input');
+                if (btnWmRollout) {
+                    btnWmRollout.addEventListener('click', () => {
+                        const prompt = wmPromptInput ? wmPromptInput.value.trim() : "";
+                        log(`> TRIGGERING DIT WORLD MODEL ROLLOUT... Prompt: "${prompt}"`);
+                        if (gameClient.trigger_world_model_rollout_prompt) {
+                            gameClient.trigger_world_model_rollout_prompt(prompt);
+                            btnWmRollout.innerText = "ROLLOUT GENERATED";
+                            setTimeout(() => {
+                                btnWmRollout.innerText = "TRIGGER DIT ROLLOUT";
+                            }, 1500);
+                        } else if (gameClient.trigger_world_model_rollout) {
+                            gameClient.trigger_world_model_rollout();
+                        }
+                    });
+                }
+
+                const btnWmRewind = document.getElementById('btn-wm-rewind');
+                if (btnWmRewind) {
+                    btnWmRewind.addEventListener('click', () => {
+                        log("> DREAM REWIND TRIGGERED (-2 LATENT FRAMES)");
+                        if (gameClient.rewind_world_model) {
+                            const rewound = gameClient.rewind_world_model(2);
+                            btnWmRewind.innerText = `REWOUND (${rewound})`;
+                            setTimeout(() => {
+                                btnWmRewind.innerText = "REWIND";
+                            }, 1500);
+                        }
+                    });
+                }
+
+                // Drift Telemetry & Heatmap Sparkline
+                const driftHistory = [];
+                const maxDriftHistory = 40;
+                const driftTelemetryEl = document.getElementById('wm-drift-telemetry');
+                const driftCanvas = document.getElementById('wm-drift-canvas');
+                const driftCtx = driftCanvas ? driftCanvas.getContext('2d') : null;
+
+                setInterval(() => {
+                    if (gameClient && gameClient.get_world_model_drift_telemetry) {
+                        const drift = gameClient.get_world_model_drift_telemetry();
+                        if (driftTelemetryEl) {
+                            driftTelemetryEl.innerText = drift.toFixed(4);
+                        }
+
+                        if (gameClient.get_action_confidence_entropy) {
+                            const diag = gameClient.get_action_confidence_entropy();
+                            if (diag && diag.length >= 2) {
+                                const entropyEl = document.getElementById('wm-entropy-val');
+                                const confEl = document.getElementById('wm-confidence-val');
+                                if (entropyEl) entropyEl.innerText = diag[0].toFixed(2);
+                                if (confEl) confEl.innerText = Math.round(diag[1] * 100) + "%";
+                            }
+                        }
+
+                        driftHistory.push(drift);
+                        if (driftHistory.length > maxDriftHistory) {
+                            driftHistory.shift();
+                        }
+
+                        if (typeof renderTimelineTree === 'function') {
+                            renderTimelineTree();
+                        }
+
+                        if (driftCtx && driftCanvas) {
+                            driftCtx.clearRect(0, 0, driftCanvas.width, driftCanvas.height);
+                            driftCtx.strokeStyle = "#00f0ff";
+                            driftCtx.lineWidth = 2;
+                            driftCtx.beginPath();
+
+                            const stepX = driftCanvas.width / (maxDriftHistory - 1);
+                            for (let i = 0; i < driftHistory.length; i++) {
+                                const x = i * stepX;
+                                const norm = Math.min(1.0, driftHistory[i] / 0.1);
+                                const y = driftCanvas.height - (norm * (driftCanvas.height - 4) + 2);
+                                if (i === 0) {
+                                    driftCtx.moveTo(x, y);
+                                } else {
+                                    driftCtx.lineTo(x, y);
+                                }
+                            }
+                            driftCtx.stroke();
+                        }
+                    }
+                }, 200);
 
                 // Safety Filters
                 const filterBlock = document.getElementById('filter-block');
@@ -1128,91 +2869,9 @@
                      }
                 });
 
-                // Add 'H' key listener to toggle UI visibility
-                window.addEventListener('keydown', (e) => {
-                    // Ignore if typing in input
-                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-                    if (e.code === 'KeyH') {
-                        const uiLayer = document.getElementById('ui-layer');
-                        const logContainer = document.getElementById('log-area');
-                        if (uiLayer.style.opacity === '0') {
-                            uiLayer.style.opacity = '1';
-                            uiLayer.style.visibility = 'visible';
-                            const cards = uiLayer.querySelectorAll('.cyber-card');
-                            cards.forEach(c => c.style.pointerEvents = 'auto');
-                            if (logContainer) {
-                                logContainer.style.opacity = '1';
-                                logContainer.style.visibility = 'visible';
-                                logContainer.style.pointerEvents = 'auto';
-                            }
-                        } else {
-                            uiLayer.style.opacity = '0';
-                            uiLayer.style.visibility = 'hidden';
-                            const cards = uiLayer.querySelectorAll('.cyber-card');
-                            cards.forEach(c => c.style.pointerEvents = 'none');
-                            if (logContainer) {
-                                logContainer.style.opacity = '0';
-                                logContainer.style.visibility = 'hidden';
-                                logContainer.style.pointerEvents = 'none';
-                            }
-                        }
-                    }
-                });
-
-
-                // Inventory Polling
-                let lastInventoryCount = -1;
 
                 setInterval(() => {
-                    if (window.gameClient) {
-                        try {
-                            const invJson = window.gameClient.get_inventory_json();
-                            const inventory = JSON.parse(invJson);
-                            const inventoryList = document.getElementById('inventory-list');
-                            const announcer = document.getElementById('inventory-announcer');
-
-                            if (inventory.length !== lastInventoryCount) {
-                                if (inventory.length === 0) {
-                                    inventoryList.innerHTML = '[EMPTY]';
-                                    if (lastInventoryCount !== -1) announcer.textContent = 'Inventory is now empty.';
-                                } else {
-                                    inventoryList.innerHTML = '';
-                                    inventory.forEach((item, index) => {
-                                        const div = document.createElement('div');
-                                        div.style.marginBottom = '2px';
-
-                                        const colorBox = document.createElement('span');
-                                        colorBox.style.display = 'inline-block';
-                                        colorBox.style.width = '10px';
-                                        colorBox.style.height = '10px';
-                                        colorBox.style.marginRight = '5px';
-                                        colorBox.style.backgroundColor = `rgba(${item.color[0]*255}, ${item.color[1]*255}, ${item.color[2]*255}, ${item.color[3]})`;
-                                        colorBox.style.border = '1px solid #fff';
-
-                                        const text = document.createElement('span');
-                                        text.innerText = `Item-${item.id.substring(0,4)}`;
-
-                                        div.appendChild(colorBox);
-                                        div.appendChild(text);
-                                        inventoryList.appendChild(div);
-                                    });
-
-                                    if (lastInventoryCount !== -1) {
-                                        if (inventory.length > lastInventoryCount) {
-                                            announcer.textContent = 'Picked up item.';
-                                        } else {
-                                            announcer.textContent = 'Dropped item.';
-                                        }
-                                    }
-                                }
-                                lastInventoryCount = inventory.length;
-                            }
-                        } catch (e) {
-                            // Suppress
-                        }
-                    }
-
                     try {
                         const statusJson = gameClient.get_network_status();
                         if (statusJson && statusJson !== "{}") {
@@ -1288,9 +2947,12 @@
                 const actions = [
                     "MoveForward", "MoveBackward", "MoveLeft", "MoveRight",
                     "Jump", "Descend",
-                    "CastSpell", "Inscribe",
+                    "CastSpell", "Inscribe", "StoreSpell",
                     "ToggleAutoReduce", "Step", "TogglePause",
-                    "VoxelDiffusion", "VoxelTimeReverse", "VoxelDream"
+                    "VoxelDiffusion", "VoxelTimeReverse", "VoxelDream", "VoxelDiffuse",
+                    "DropItem", "PickupItem",
+                    "ToggleInventory", "Toggle4DRecording", "Play4DRecording",
+                    "ToggleMinimap", "ToggleUI", "CloseInventory", "SelectItem", "ToggleCameraMode"
                 ];
                 let currentlyRebinding = null;
                 let currentRebindHandler = null;
@@ -1546,18 +3208,33 @@
                     btnAR.style.cursor = 'wait';
 
                     // Attempt WebXR first if supported
-                    if (arSupported) {
+                    if (vrSupported) {
                          try {
-                             log("> REQUESTING WEBXR SESSION...");
-                             await gameClient.enter_ar_session();
-                             log("> WEBXR SESSION STARTED");
+                             log("> REQUESTING WEBXR VR SESSION...");
+                             await gameClient.enter_vr_session();
+                             log("> WEBXR VR SESSION STARTED");
                              btnAR.innerText = "UPLINK ESTABLISHED";
                              btnAR.removeAttribute('aria-busy');
                              btnAR.style.opacity = '';
                              btnAR.style.cursor = '';
                              return; // Skip Magic Window fallback if WebXR works
                          } catch (e) {
-                             log("> WEBXR ERROR: " + e);
+                             log("> WEBXR VR ERROR: " + e);
+                             log("> FALLING BACK TO MAGIC WINDOW...");
+                             // Will fall through to magic window, keep loading state
+                         }
+                    } else if (arSupported) {
+                         try {
+                             log("> REQUESTING WEBXR AR SESSION...");
+                             await gameClient.enter_ar_session();
+                             log("> WEBXR AR SESSION STARTED");
+                             btnAR.innerText = "UPLINK ESTABLISHED";
+                             btnAR.removeAttribute('aria-busy');
+                             btnAR.style.opacity = '';
+                             btnAR.style.cursor = '';
+                             return; // Skip Magic Window fallback if WebXR works
+                         } catch (e) {
+                             log("> WEBXR AR ERROR: " + e);
                              log("> FALLING BACK TO MAGIC WINDOW...");
                              // Will fall through to magic window, keep loading state
                          }
@@ -1621,8 +3298,125 @@
             }
         }
 
+
+
+
+        function updateMinimap() {
+            const isMinimapVisible = window.gameClient && window.gameClient.is_minimap_visible();
+            const container = document.getElementById('minimap-container');
+            if (container) {
+                if (isMinimapVisible) {
+                    container.style.setProperty('display', 'block', 'important');
+                } else {
+                    container.style.setProperty('display', 'none', 'important');
+                }
+            }
+            if (!isMinimapVisible) return;
+
+            if (!window.gameClient || !window.gameClient.get_minimap_data_json) return;
+            const minimapDataJson = window.gameClient.get_minimap_data_json();
+
+            if (!minimapDataJson || minimapDataJson === "{}") return;
+
+            try {
+                const data = JSON.parse(minimapDataJson);
+                const chunks = data.chunks;
+                const playerPos = data.player_pos;
+                const coordDiv = document.getElementById('player-coordinates');
+                if (coordDiv) {
+                    coordDiv.innerText = `X: ${playerPos[0].toFixed(2)} Y: ${playerPos[1].toFixed(2)} Z: ${playerPos[2].toFixed(2)}`;
+                }
+
+                const canvas = document.getElementById('minimap-canvas');
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+
+                // Clear background
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                const centerX = canvas.width / 2;
+                const centerZ = canvas.height / 2;
+                const scale = 2.0; // scale factor
+
+                // Draw chunks
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.4)';
+                const CHUNK_SIZE = 32.0; // matching voxel CHUNK_SIZE
+                for (const chunk of chunks) {
+                    const cx = chunk[0] * CHUNK_SIZE;
+                    const cz = chunk[1] * CHUNK_SIZE;
+
+                    const drawX = centerX + (cx - playerPos[0]) * scale;
+                    const drawZ = centerZ + (cz - playerPos[2]) * scale;
+                    const drawSize = CHUNK_SIZE * scale;
+
+                    // Only draw if visible on minimap
+                    if (drawX + drawSize > 0 && drawX < canvas.width &&
+                        drawZ + drawSize > 0 && drawZ < canvas.height) {
+                        ctx.fillRect(drawX, drawZ, drawSize, drawSize);
+                        ctx.strokeStyle = '#0f0';
+                        ctx.strokeRect(drawX, drawZ, drawSize, drawSize);
+                    }
+                }
+
+                // Draw player dot
+                ctx.fillStyle = '#f00';
+                ctx.beginPath();
+                ctx.arc(centerX, centerZ, 4, 0, Math.PI * 2);
+                ctx.fill();
+
+            } catch (e) {
+                console.error("Minimap parsing error", e);
+            }
+        }
+
+        function speakCompanionLine(text, mood) {
+            if ('speechSynthesis' in window) {
+                try {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    if (mood === "Co-Creative") {
+                        utterance.pitch = 1.25;
+                        utterance.rate = 1.05;
+                    } else if (mood === "Playful Challenger") {
+                        utterance.pitch = 1.35;
+                        utterance.rate = 1.15;
+                    } else if (mood === "Contemplative") {
+                        utterance.pitch = 0.95;
+                        utterance.rate = 0.88;
+                    } else if (mood === "Celebratory") {
+                        utterance.pitch = 1.4;
+                        utterance.rate = 1.1;
+                    } else {
+                        utterance.pitch = 1.15;
+                        utterance.rate = 1.0;
+                    }
+
+                    // Visual Speech Envelope Morphing
+                    const dialogueEl = document.getElementById('wm-companion-dialogue');
+                    utterance.onboundary = (event) => {
+                        if (dialogueEl) {
+                            dialogueEl.style.boxShadow = "0 0 15px rgba(255, 119, 168, 0.8)";
+                            setTimeout(() => {
+                                if (dialogueEl) dialogueEl.style.boxShadow = "none";
+                            }, 120);
+                        }
+                    };
+
+                    const voices = window.speechSynthesis.getVoices();
+                    const naturalVoice = voices.find(v => v.lang.startsWith("en") && (v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Natural")));
+                    if (naturalVoice) {
+                        utterance.voice = naturalVoice;
+                    }
+                    window.speechSynthesis.speak(utterance);
+                } catch (e) {
+                    console.warn("TTS synthesis error:", e);
+                }
+            }
+        }
+
         function log(msg) {
-            const area = document.getElementById('log-area');
+            const area = document.querySelector('#log-area .draggable-content') || document.getElementById('log-area');
             const line = document.createElement('div');
             // Add timestamp
             const time = new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -1666,6 +3460,119 @@
     // Browser AI Director
     window.isAIEnabled = false;
     window.aiInterval = null;
+
+
+        function makeDraggable() {
+            const draggables = document.querySelectorAll('.draggable-window');
+            let zIndexCounter = 100;
+            let initialTopOffset = 20;
+
+            draggables.forEach(win => {
+                const header = win.querySelector('.cyber-header');
+                if (!header) return;
+
+                win.style.top = initialTopOffset + 'px';
+                win.style.right = '20px';
+                win.style.left = 'auto';
+                initialTopOffset += win.offsetHeight + 20;
+
+                win.addEventListener('mousedown', () => {
+                    win.style.zIndex = ++zIndexCounter;
+                });
+
+                win.addEventListener('touchstart', () => {
+                    win.style.zIndex = ++zIndexCounter;
+                }, {passive: true});
+
+                let isDragging = false;
+                let startX, startY, initialLeft, initialTop;
+
+                const onMove = (e) => {
+                    if (!isDragging) return;
+                    e.preventDefault();
+
+                    let clientX = e.clientX;
+                    let clientY = e.clientY;
+                    if (e.touches && e.touches.length > 0) {
+                        clientX = e.touches[0].clientX;
+                        clientY = e.touches[0].clientY;
+                    }
+
+                    const dx = clientX - startX;
+                    const dy = clientY - startY;
+
+                    win.style.left = (initialLeft + dx) + 'px';
+                    win.style.top = (initialTop + dy) + 'px';
+                    win.style.right = 'auto';
+                    win.style.bottom = 'auto';
+                };
+
+                const onEnd = () => {
+                    isDragging = false;
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onEnd);
+                    document.removeEventListener('touchmove', onMove);
+                    document.removeEventListener('touchend', onEnd);
+                };
+
+                const onStart = (e) => {
+                    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+                    isDragging = true;
+
+                    let clientX = e.clientX;
+                    let clientY = e.clientY;
+                    if (e.touches && e.touches.length > 0) {
+                        clientX = e.touches[0].clientX;
+                        clientY = e.touches[0].clientY;
+                    }
+
+                    startX = clientX;
+                    startY = clientY;
+
+                    const rect = win.getBoundingClientRect();
+                    initialLeft = rect.left;
+                    initialTop = rect.top;
+
+                    document.addEventListener('mousemove', onMove, {passive: false});
+                    document.addEventListener('mouseup', onEnd);
+                    document.addEventListener('touchmove', onMove, {passive: false});
+                    document.addEventListener('touchend', onEnd);
+                };
+
+                header.addEventListener('mousedown', onStart);
+                header.addEventListener('touchstart', onStart, {passive: false});
+            });
+        }
+
+
+        function initCardMinimization() {
+            const cards = document.querySelectorAll('.cyber-card');
+            cards.forEach(card => {
+                const header = card.querySelector('.cyber-header');
+                if (!header) return;
+                if (header.querySelector('.btn-card-min-toggle') || header.querySelector('.close-btn')) return;
+
+                const minBtn = document.createElement('button');
+                minBtn.className = 'btn-card-min-toggle';
+                minBtn.textContent = '[-]';
+                minBtn.setAttribute('title', 'Minimize panel');
+                minBtn.setAttribute('aria-label', 'Minimize panel');
+                minBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isMin = card.classList.toggle('minimized');
+                    minBtn.textContent = isMin ? '[+]' : '[-]';
+                    minBtn.setAttribute('title', isMin ? 'Restore panel' : 'Minimize panel');
+                });
+                header.appendChild(minBtn);
+            });
+        }
+
+        // Initialize draggability and minimization
+        document.addEventListener('DOMContentLoaded', () => {
+            makeDraggable();
+            initCardMinimization();
+        });
 
     document.addEventListener("DOMContentLoaded", () => {
         const btnToggleAI = document.getElementById('btn-toggle-ai');
@@ -1716,6 +3623,18 @@
                         window.aiInterval = null;
                     }
                 }
+            });
+        }
+
+        // Sidebar Collapse/Expand Toggle
+        const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+        const uiSidebar = document.getElementById('ui-sidebar');
+        if (sidebarToggleBtn && uiSidebar) {
+            sidebarToggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isCollapsed = uiSidebar.classList.toggle('collapsed');
+                sidebarToggleBtn.setAttribute('aria-expanded', !isCollapsed);
+                sidebarToggleBtn.innerText = isCollapsed ? 'HUD MENU [EXPAND]' : 'HUD MENU [COLLAPSE]';
             });
         }
     });

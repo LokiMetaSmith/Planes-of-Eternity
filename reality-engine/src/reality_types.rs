@@ -4,24 +4,31 @@ use serde::{Deserialize, Serialize};
 pub enum RealityArchetype {
     #[default]
     Void, // Default/Empty
-    Fantasy,     // High Fantasy
-    SciFi,       // Cyber Punk
-    Horror,      // Eldritch Horror
-    Toon,        // Toon Logic
-    HyperNature, // Procedural Nature
-    Genie,       // Generative Dream
-    Glitch,      // Digital Distortion
-    Steampunk,   // Brass and Steam
-    Vaporwave,   // Synthwave / Outrun
-    Noir,        // Monochrome, High Contrast, Rain
-    CyberSpace,  // Matrix / Digital Grid
-    Dream,       // Soft Pastel Clouds
-    ObraDinn,    // 1-bit Dithered Sphere Mapping
-    SolarPunk,   // High-tech harmony with nature
-    Biopunk,     // Organic, fleshy, mutated structures
-    Tron,        // Geometric, neon grid
-    ColdStorage, // Offline, high-security host
-    LiminalSpace, // Infinite empty hallways and backrooms
+    Fantasy,         // High Fantasy
+    SciFi,           // Cyber Punk
+    Horror,          // Eldritch Horror
+    Toon,            // Toon Logic
+    HyperNature,     // Procedural Nature
+    Genie,           // Generative Dream
+    Glitch,          // Digital Distortion
+    Steampunk,       // Brass and Steam
+    Vaporwave,       // Synthwave / Outrun
+    Noir,            // Monochrome, High Contrast, Rain
+    CyberSpace,      // Matrix / Digital Grid
+    Dream,           // Soft Pastel Clouds
+    ObraDinn,        // 1-bit Dithered Sphere Mapping
+    SolarPunk,       // High-tech harmony with nature
+    Biopunk,         // Organic, fleshy, mutated structures
+    Tron,            // Geometric, neon grid
+    ColdStorage,     // Offline, high-security host
+    LiminalSpace,    // Infinite empty hallways and backrooms
+    Clockwork,       // Giant gears, brass, precise ticking mechanisms
+    Cottagecore,     // Cozy, pastoral, floral
+    WildWest,        // Dusty, saloons, tumbleweeds
+    Fractal,         // L-Systems and CFG structures
+    Prehistoric,     // Primordial jungle and rugged terrain
+    PostApocalyptic, // Deserted wasteland, ruins
+    Underwater,      // Underwater with caustic mappings
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

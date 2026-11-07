@@ -1,16 +1,18 @@
 [package]
 name = "reality-engine"
 version = "0.1.0"
+build = "build.rs"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "0.2"
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 wgpu = { version = "23.0.0", features = ["webgl"] }
 log = "0.4"
 console_log = "1"
+console_error_panic_hook = "0.1.7"
 wasm-bindgen-futures = "0.4"
 bytemuck = { version = "1.16", features = ["derive"] }
 cgmath = { version = "0.18", features = ["serde"] }
@@ -26,61 +28,42 @@ getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] 
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 reality-genie = { path = "../reality-genie" }
 rand = "0.10.0"
+noise = "0.9.0"
 
 [dependencies.web-sys]
-version = "0.3"
+version = "0.3.85"
 features = [
-  "Document",
-  "Window",
-  "Element",
-  "HtmlCanvasElement",
-  "Event",
-  "EventTarget",
-  "KeyboardEvent",
-  "MouseEvent",
-  "DomRect",
-  "Storage",
-  "Navigator",
-  "Geolocation",
-  "Coordinates",
-  "Position",
-  "MediaDevices",
-  "MediaStream",
-  "MediaStreamConstraints",
-  "HtmlVideoElement",
-  "DeviceOrientationEvent",
-  "PositionError",
-  "WebSocket",
-  "MessageEvent",
-  "console",
-  "XrSystem",
-  "XrSession",
-  "XrSessionMode",
-  "XrReferenceSpace",
-  "XrReferenceSpaceType",
-  "XrRenderState",
-  "XrRenderStateInit",
-  "XrFrame",
-  "XrViewerPose",
-  "XrView",
-  "XrViewport",
-  "XrWebGlLayer",
-  "XrWebGlLayerInit",
-  "XrEye",
-  "XrRigidTransform",
-  "DomPoint",
-  "DomPointReadOnly",
-  "AudioContext",
-  "AudioDestinationNode",
-  "AudioNode",
-  "AudioParam",
-  "GainNode",
-  "OscillatorNode",
-  "OscillatorType",
-  "AudioContextState",
-  "WebGl2RenderingContext"
+    "Document", "Window", "Element", "HtmlCanvasElement", "Event", "EventTarget", "KeyboardEvent",
+    "MouseEvent", "DomRect", "Storage", "Navigator", "Geolocation", "Coordinates", "Position",
+    "MediaDevices", "MediaStream", "MediaStreamConstraints", "HtmlVideoElement", "DeviceOrientationEvent",
+    "PositionError", "WebSocket", "MessageEvent", "console", "XrSystem", "XrSession", "XrSessionMode",
+    "XrReferenceSpace", "XrReferenceSpaceType", "XrRenderState", "XrRenderStateInit", "XrFrame",
+    "XrViewerPose", "XrView", "XrViewport", "XrWebGlLayer", "XrWebGlLayerInit", "XrEye",
+    "XrRigidTransform", "DomPoint", "DomPointReadOnly", "Response", "Request", "RequestInit",
+    "RequestMode", "Headers", "Performance", "AudioContext", "AudioDestinationNode", "AudioNode",
+    "AudioParam", "GainNode", "AudioBuffer", "AudioBufferSourceNode", "BaseAudioContext", "OscillatorNode", "OscillatorType", "AudioContextState", "PannerNode", "AudioListener", "PanningModelType", "DistanceModelType",
+    "WebGl2RenderingContext", "WheelEvent", "Worker", "WorkerOptions", "WorkerType", "XrInputSource",
+    "XrInputSourceArray", "XrSpace", "Gamepad", "XrHand", "XrJointSpace", "XrJointPose", "GamepadButton", "GamepadMappingType",
+    "IdbDatabase", "IdbFactory", "IdbOpenDbRequest", "IdbTransaction", "IdbObjectStore",
+    "IdbRequest", "IdbTransactionMode", "IdbVersionChangeEvent", "DomStringList",
+    "Location", "CanvasRenderingContext2d", "CanvasGradient"
 ]
 
-[[bin]]
+[dev-dependencies]
+criterion = "0.8.2"
+pollster = "0.4.0"
+approx = "0.4.0"
+
+
+[[bench]]
 name = "math_benchmarks"
-path = "benches/math_benchmarks.rs"
+harness = false
+
+
+[[bench]]
+name = "splat_benchmark"
+harness = false
+
+[[bench]]
+name = "npc_benchmark"
+harness = false

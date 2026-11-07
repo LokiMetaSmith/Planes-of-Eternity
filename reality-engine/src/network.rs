@@ -311,6 +311,12 @@ impl NetworkManager {
         on_error.forget();
     }
 
+    pub fn send_graceful_exit(&self) {
+        if self.socket.ready_state() == WebSocket::OPEN {
+            let _ = self.socket.send_with_str("__GRACEFUL_EXIT__");
+        }
+    }
+
     pub fn pollinate(&self, world_hash: &str, location: [f32; 3]) {
         if self.socket.ready_state() == WebSocket::OPEN {
             let packet = PollenPacket {

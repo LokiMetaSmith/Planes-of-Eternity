@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use image::GenericImageView;
 
 // --- Procedural Generation Helpers ---
@@ -5,7 +6,7 @@ use image::GenericImageView;
 fn hash(x: i32, y: i32) -> f32 {
     let mut n = x.wrapping_mul(374761393) ^ y.wrapping_mul(668265263);
     n = (n ^ (n >> 13)).wrapping_mul(1274126177);
-    (n as f32) / (std::i32::MAX as f32)
+    (n as f32) / (i32::MAX as f32)
 }
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
@@ -181,13 +182,15 @@ impl Texture {
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
+        // Use Rgba8Unorm instead of Rgba8UnormSrgb for better compatibility
+        // The sRGB conversion can be handled in the shader if needed
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -226,8 +229,8 @@ impl Texture {
         })
     }
 
-    pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
-        let size = 256;
+    pub fn create_procedural_normal_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let size = 512;
         let mut pixels = vec![0u8; size * size * 4];
 
         for y in 0..size {
@@ -236,78 +239,336 @@ impl Texture {
                 let u = x as f32 / size as f32;
                 let v = y as f32 / size as f32;
 
-                // 4 Quadrants
-                // TL (0,0): Stone
-                // TR (1,0): Lava
-                // BL (0,1): Fire
-                // BR (1,1): Wood
+                let col = (u * 4.0).floor() as usize;
+                let row = (v * 4.0).floor() as usize;
+                let tile_idx = row * 4 + col;
 
-                if u < 0.5 && v < 0.5 {
-                    // TL: Stone
-                    let lx = (x % 128) as f32 * 0.1;
-                    let ly = (y % 128) as f32 * 0.1;
+                let tile_x = x % 128;
+                let tile_y = y % 128;
 
-                    let n = fbm(lx, ly, 3);
-                    let val = (100.0 + n * 50.0) as u8;
+                let lx = tile_x as f32 * 0.1;
+                let ly = tile_y as f32 * 0.1;
 
-                    // Simple "Cobble" grid
-                    let gx = (lx * 2.0).fract();
-                    let gy = (ly * 2.0).fract();
-                    let edge = if gx < 0.1 || gy < 0.1 { 0.5 } else { 1.0 };
+                let h0 = fbm(lx, ly, 3);
+                let h_dx = fbm(lx + 0.1, ly, 3);
+                let h_dy = fbm(lx, ly + 0.1, 3);
 
-                    let f = (val as f32 * edge) as u8;
+                let mut nx = (h0 - h_dx) * 2.0;
+                let mut ny = (h0 - h_dy) * 2.0;
+                let nz = 1.0f32;
 
-                    pixels[idx] = f;
-                    pixels[idx + 1] = f;
-                    pixels[idx + 2] = f;
-                    pixels[idx + 3] = 255;
-                } else if u >= 0.5 && v < 0.5 {
-                    // TR: Lava
-                    let lx = ((x - 128) % 128) as f32 * 0.05;
-                    let ly = (y % 128) as f32 * 0.05;
-
-                    let n = fbm(lx, ly, 4);
-                    // Veins
-                    let heat = (n * 2.0).clamp(0.0, 1.0);
-
-                    // Dark crust (50,0,0) to Bright Orange (255, 200, 0)
-                    let r = lerp(50.0, 255.0, heat) as u8;
-                    let g = lerp(0.0, 200.0, heat * heat) as u8;
-                    let b = 0;
-
-                    pixels[idx] = r;
-                    pixels[idx + 1] = g;
-                    pixels[idx + 2] = b;
-                    pixels[idx + 3] = 255;
-                } else if u < 0.5 && v >= 0.5 {
-                    // BL: Fire
-                    let lx = (x % 128) as f32 * 0.05;
-                    let ly = ((y - 128) % 128) as f32 * 0.1;
-
-                    let n = fbm(lx, ly - (lx * 0.5), 3); // Skew
-
-                    let r = (200.0 + 55.0 * n) as u8;
-                    let g = (100.0 + 100.0 * n) as u8;
-                    pixels[idx] = r;
-                    pixels[idx + 1] = g;
-                    pixels[idx + 2] = 0;
-                    pixels[idx + 3] = 255;
-                } else {
-                    // BR: Wood
-                    let lx = ((x - 128) % 128) as f32 * 0.1;
-                    let ly = ((y - 128) % 128) as f32 * 0.02; // Stretched
-
-                    let grain = noise_2d(lx * 2.0, ly * 0.5);
-                    let wave = ((lx * 2.0 + grain).sin() + 1.0) * 0.5;
-
-                    let base = 80.0;
-                    let var = 40.0 * wave;
-
-                    pixels[idx] = (base + var) as u8;
-                    pixels[idx + 1] = ((base + var) * 0.6) as u8;
-                    pixels[idx + 2] = ((base + var) * 0.3) as u8;
-                    pixels[idx + 3] = 255;
+                if tile_idx == 4 {
+                    nx *= 0.1;
+                    ny *= 0.1;
+                } else if tile_idx == 1 {
+                    nx *= 0.3;
+                    ny *= 0.3;
                 }
+
+                let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                nx /= len;
+                ny /= len;
+
+                pixels[idx] = ((nx * 0.5 + 0.5) * 255.0) as u8;
+                pixels[idx + 1] = ((ny * 0.5 + 0.5) * 255.0) as u8;
+                pixels[idx + 2] = 255;
+                pixels[idx + 3] = 255;
+            }
+        }
+
+        let texture_size = wgpu::Extent3d {
+            width: size as u32,
+            height: size as u32,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("procedural_normal_map"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            &pixels,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * size as u32),
+                rows_per_image: Some(size as u32),
+            },
+            texture_size,
+        );
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
+    }
+
+    pub fn create_procedural_pbr_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let size = 512;
+        let mut pixels = vec![0u8; size * size * 4];
+
+        for y in 0..size {
+            for x in 0..size {
+                let idx = (x + y * size) * 4;
+                let u = x as f32 / size as f32;
+                let v = y as f32 / size as f32;
+
+                let col = (u * 4.0).floor() as usize;
+                let row = (v * 4.0).floor() as usize;
+                let tile_idx = row * 4 + col;
+
+                let tile_x = x % 128;
+                let tile_y = y % 128;
+
+                let lx = tile_x as f32 * 0.1;
+                let ly = tile_y as f32 * 0.1;
+                let noise_val = fbm(lx, ly, 2);
+
+                let mut roughness;
+                let mut metallic = 0.0f32;
+                let ao = 1.0f32;
+
+                match tile_idx {
+                    0 => {
+                        roughness = 0.7 + noise_val * 0.2;
+                    }
+                    1 => {
+                        roughness = 0.2;
+                        metallic = 0.2;
+                    }
+                    2 => {
+                        roughness = 0.1;
+                    }
+                    3 => {
+                        roughness = 0.6;
+                    }
+                    4 => {
+                        roughness = 0.05;
+                        metallic = 0.1;
+                    }
+                    5 => {
+                        roughness = 0.9;
+                    }
+                    6 => {
+                        roughness = 0.8;
+                    }
+                    7 => {
+                        roughness = 0.9;
+                    }
+                    8 => {
+                        roughness = 0.7;
+                    }
+                    9 => {
+                        roughness = 0.3;
+                        metallic = 0.8;
+                    }
+                    _ => {
+                        roughness = 0.5;
+                    }
+                }
+
+                roughness = (roughness + noise_val * 0.1).clamp(0.0, 1.0);
+
+                pixels[idx] = (roughness * 255.0) as u8;
+                pixels[idx + 1] = (metallic * 255.0) as u8;
+                pixels[idx + 2] = (ao * 255.0) as u8;
+                pixels[idx + 3] = 255;
+            }
+        }
+
+        let texture_size = wgpu::Extent3d {
+            width: size as u32,
+            height: size as u32,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("procedural_pbr_map"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            &pixels,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * size as u32),
+                rows_per_image: Some(size as u32),
+            },
+            texture_size,
+        );
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
+    }
+    pub fn create_procedural_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let size = 512;
+        let mut pixels = vec![0u8; size * size * 4];
+
+        for y in 0..size {
+            for x in 0..size {
+                let idx = (x + y * size) * 4;
+                let u = x as f32 / size as f32;
+                let v = y as f32 / size as f32;
+
+                // 4x4 Grid (16 Tiles, each 128x128)
+                let col = (u * 4.0).floor() as usize;
+                let row = (v * 4.0).floor() as usize;
+                let tile_idx = row * 4 + col;
+
+                let tile_x = x % 128;
+                let tile_y = y % 128;
+                let lx = tile_x as f32 * 0.1;
+                let ly = tile_y as f32 * 0.1;
+
+                let r;
+                let g;
+                let b;
+
+                match tile_idx {
+                    0 => {
+                        // 0: Stone
+                        let n = fbm(lx, ly, 3);
+                        let val = (100.0 + n * 50.0) as u8;
+                        let gx = (lx * 2.0).fract();
+                        let gy = (ly * 2.0).fract();
+                        let edge = if gx < 0.1 || gy < 0.1 { 0.5 } else { 1.0 };
+                        let f = (val as f32 * edge) as u8;
+                        r = f;
+                        g = f;
+                        b = f;
+                    }
+                    1 => {
+                        // 1: Lava
+                        let lx2 = lx * 0.5;
+                        let ly2 = ly * 0.5;
+                        let n = fbm(lx2, ly2, 4);
+                        let heat = (n * 2.0).clamp(0.0, 1.0);
+                        r = lerp(50.0, 255.0, heat) as u8;
+                        g = lerp(0.0, 200.0, heat * heat) as u8;
+                        b = 0;
+                    }
+                    2 => {
+                        // 2: Fire
+                        let lx2 = lx * 0.5;
+                        let ly2 = ly;
+                        let n = fbm(lx2, ly2 - (lx2 * 0.5), 3);
+                        r = (200.0 + 55.0 * n) as u8;
+                        g = (100.0 + 100.0 * n) as u8;
+                        b = 0;
+                    }
+                    3 => {
+                        // 3: Wood
+                        let lx2 = lx;
+                        let ly2 = ly * 0.2;
+                        let grain = noise_2d(lx2 * 2.0, ly2 * 0.5);
+                        let wave = ((lx2 * 2.0 + grain).sin() + 1.0) * 0.5;
+                        let base = 80.0;
+                        let var = 40.0 * wave;
+                        r = (base + var) as u8;
+                        g = ((base + var) * 0.6) as u8;
+                        b = ((base + var) * 0.3) as u8;
+                    }
+                    4 => {
+                        // 4: Grass
+                        let n = fbm(lx * 2.0, ly * 2.0, 4);
+                        r = (30.0 + n * 20.0) as u8;
+                        g = (120.0 + n * 60.0) as u8;
+                        b = (30.0 + n * 20.0) as u8;
+                    }
+                    5 => {
+                        // 5: Leaves
+                        let lx2 = lx * 1.5;
+                        let ly2 = ly * 1.5;
+                        let n = noise_2d(lx2, ly2);
+                        // Make it look a bit cellular or spotty
+                        let spots = (n * 10.0).sin() * 0.5 + 0.5;
+                        r = (20.0 + spots * 30.0) as u8;
+                        g = (80.0 + spots * 80.0) as u8;
+                        b = (20.0 + spots * 30.0) as u8;
+                    }
+                    6 => {
+                        // 6: Dirt
+                        let n = fbm(lx * 1.5, ly * 1.5, 3);
+                        r = (80.0 + n * 30.0) as u8;
+                        g = (50.0 + n * 20.0) as u8;
+                        b = (30.0 + n * 10.0) as u8;
+                    }
+                    7 => {
+                        // 7: Sand
+                        let n = fbm(lx * 3.0, ly * 3.0, 2);
+                        r = (210.0 + n * 30.0) as u8;
+                        g = (190.0 + n * 30.0) as u8;
+                        b = (140.0 + n * 20.0) as u8;
+                    }
+                    8 => {
+                        // 8: Water
+                        let n = fbm(lx * 1.2, ly * 1.2, 3);
+                        r = (20.0 + n * 20.0) as u8;
+                        g = (60.0 + n * 40.0) as u8;
+                        b = (180.0 + n * 50.0) as u8;
+                    }
+                    _ => {
+                        // Fallback
+                        let n = fbm(lx, ly, 2);
+                        let f = (n * 255.0) as u8;
+                        r = f;
+                        g = 0;
+                        b = f;
+                    }
+                }
+
+                pixels[idx] = r;
+                pixels[idx + 1] = g;
+                pixels[idx + 2] = b;
+                pixels[idx + 3] = 255;
             }
         }
 

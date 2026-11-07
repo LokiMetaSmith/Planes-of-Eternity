@@ -1,6 +1,7 @@
 [package]
 name = "reality-engine"
 version = "0.1.0"
+build = "build.rs"
 edition = "2021"
 
 [lib]
@@ -27,69 +28,31 @@ getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] 
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 reality-genie = { path = "../reality-genie" }
 rand = "0.10.0"
+noise = "0.9.0"
 
 [dependencies.web-sys]
-version = "0.3"
+version = "0.3.85"
 features = [
-  "Document",
-  "Window",
-  "Element",
-  "HtmlCanvasElement",
-  "Event",
-  "EventTarget",
-  "KeyboardEvent",
-  "MouseEvent",
-  "DomRect",
-  "Storage",
-  "Navigator",
-  "Geolocation",
-  "Coordinates",
-  "Position",
-  "MediaDevices",
-  "MediaStream",
-  "MediaStreamConstraints",
-  "HtmlVideoElement",
-  "DeviceOrientationEvent",
-  "PositionError",
-  "WebSocket",
-  "MessageEvent",
-  "console",
-  "XrSystem",
-  "XrSession",
-  "XrSessionMode",
-  "XrReferenceSpace",
-  "XrReferenceSpaceType",
-  "XrRenderState",
-  "XrRenderStateInit",
-  "XrFrame",
-  "XrViewerPose",
-  "XrView",
-  "XrViewport",
-  "XrWebGlLayer",
-  "XrWebGlLayerInit",
-  "XrEye",
-  "XrRigidTransform",
-  "DomPoint",
-  "DomPointReadOnly",
-  "Response",
-  "Request",
-  "RequestInit",
-  "RequestMode",
-  "Headers",
-  "AudioContext",
-  "AudioDestinationNode",
-  "AudioNode",
-  "AudioParam",
-  "GainNode",
-  "OscillatorNode",
-  "OscillatorType",
-  "AudioContextState",
-  "WebGl2RenderingContext"
+    "Document", "Window", "Element", "HtmlCanvasElement", "Event", "EventTarget", "KeyboardEvent",
+    "MouseEvent", "DomRect", "Storage", "Navigator", "Geolocation", "Coordinates", "Position",
+    "MediaDevices", "MediaStream", "MediaStreamConstraints", "HtmlVideoElement", "DeviceOrientationEvent",
+    "PositionError", "WebSocket", "MessageEvent", "console", "XrSystem", "XrSession", "XrSessionMode",
+    "XrReferenceSpace", "XrReferenceSpaceType", "XrRenderState", "XrRenderStateInit", "XrFrame",
+    "XrViewerPose", "XrView", "XrViewport", "XrWebGlLayer", "XrWebGlLayerInit", "XrEye",
+    "XrRigidTransform", "DomPoint", "DomPointReadOnly", "Response", "Request", "RequestInit",
+    "RequestMode", "Headers", "Performance", "AudioContext", "AudioDestinationNode", "AudioNode",
+    "AudioParam", "GainNode", "AudioBuffer", "AudioBufferSourceNode", "BaseAudioContext", "OscillatorNode", "OscillatorType", "AudioContextState", "PannerNode", "AudioListener", "PanningModelType", "DistanceModelType",
+    "WebGl2RenderingContext", "WheelEvent", "Worker", "WorkerOptions", "WorkerType", "XrInputSource",
+    "XrInputSourceArray", "XrSpace", "Gamepad", "XrHand", "XrJointSpace", "XrJointPose", "GamepadButton", "GamepadMappingType",
+    "IdbDatabase", "IdbFactory", "IdbOpenDbRequest", "IdbTransaction", "IdbObjectStore",
+    "IdbRequest", "IdbTransactionMode", "IdbVersionChangeEvent", "DomStringList",
+    "Location", "CanvasRenderingContext2d", "CanvasGradient"
 ]
 
 [dev-dependencies]
 criterion = "0.8.2"
 pollster = "0.4.0"
+approx = "0.4.0"
 
 
 [[bench]]

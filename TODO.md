@@ -79,23 +79,37 @@
 - [x] **New Archetypes**: Added Biopunk archetype to Reality Engine.
 - [x] **New Archetypes**: Added ColdStorage archetype to Reality Engine.
 - [x] **New Archetypes**: Added LiminalSpace archetype to Reality Engine.
+- [x] **New Archetypes**: Added Clockwork archetype to Reality Engine.
+- [x] **New Archetypes**: Added Cottagecore archetype to Reality Engine.
+- [x] **New Archetypes**: Added PostApocalyptic archetype to Reality Engine. (Actually implemented in code and UI)
+- [x] **New Archetypes**: Added WildWest archetype to Reality Engine.
 
 ## Game Mechanics
 - [x] **Item Physics**: Added simple physics for dropped items with gravity and ground collision.
+- [x] **Influence Radius**: Update the logic to apply the area of influence expansion.
 
 ## UI/UX
+- [x] **Draggable Windows**: Implement draggable and resizable UI overlays with WebXR `dom-overlay` support for native VR interaction.
+- [x] Add visual indicator for player coordinate position on the UI
 - [x] **Crosshair**: Added a crosshair to the center of the screen to indicate focal point.
 - [x] **Player Model**: Rendered a voxel sphere player model at the player's position colored by their active archetype to make the player dynamic and fit the game's voxel aesthetic.
 - [x] **Add AI or Non-Player Characters (NPCs)**: Added an array of NPCs to the WorldState, basic deterministic wandering logic to `Engine::update`, and updated rendering to use instanced drawing for the player and NPCs.
 
 ## Dynamic 3D Voxel Model Generation
+- [x] **Terrain Generation Unit Test**: Added a unit test to validate the procedural terrain map function continuity.
 - [x] **Programmatic Voxelizer**: Implement programmatic voxelization algorithm (OBJ to Voxel Chunk) in `reality-engine`.
 - [x] **Sparse Voxel Generator**: Expand `reality-genie` to include a Text-to-3D Sparse Voxel Generator (Sparc3D concept).
+- [x] **Dynamic Generation**: Dynamically generate voxel chunks and models as the player moves and collects potential nodes.
 - [x] **Advanced Voxel Physics**: Implement voxel terrain collision and destruction for dropped items, inspired by Starbase.
 - [x] **New Archetypes**: Added SolarPunk archetype to Reality Engine.
+- [x] **New Archetypes**: Added Prehistoric archetype to Reality Engine.
 - [x] **UI Improvement**: Added ability to hide UI menu bars using 'H' key for a cleaner experience.
 
 ## Future Enhancements
+- [x] Fix UI dropdowns to include missing Reality Archetypes (WildWest, Fractal, Prehistoric, PostApocalyptic). (Fully implemented Rust mappings)
+- [x] Add a lambda primitive for querying entity health.
+- [x] Introduce a minimap overlay that renders a top-down view of the chunk.
+- [x] Implement a new "Underwater" archetype with caustic mappings. (Implemented Caustics)
 - [x] **Expanding Host Test Coverage**: Added specific tests to expand test coverage for platform-specific rendering logic (i.e. headless WebGPU shader compilation validation).
 - [x] Add shaders to liquids, and gasses, as well as existing landscape.
 - [x] A specific spell-casting UI or particle effects for when spells hit the ground.
@@ -115,7 +129,74 @@
 ## NPC Chat System
 - [x] Add NPC Chat bubbles to the UI via HTML Overlays.
 - [x] Explore 4D Gaussian Splatting: Investigate the possibility of incorporating 4D Gaussian Splats into the game engine.
+- [x] Convert spell effect rendering to use Gaussian Splats instead of Lambda bubbles.
+- [x] **Neural Animation State Machine**: Implement a system to trigger different 4D splat sequences (Idle, Walk, Attack) based on NPC AI goals, with neural blending.
+- [x] **3D Visual Inventory & Spellbook**: Replace HTML inventory with a dedicated 3D UI using translucent splat-bubbles for item organization.
+- [x] **Archetype-Specific Biomes**: Expand procedural generation with unique L-System and CFG logic for each archetype (e.g., Fractal, Tron, Biopunk).
+- [x] **Neural Morphing**: Implement real-time morphing between 4D representations using filter weight interpolation.
 
 ## Build / Technical Debt
+- [x] **WebXR Compilation Errors**: Fix unresolved WebXR imports (`XrEye`, `XrFrame`, etc.) when compiling for `wasm32-unknown-unknown`.
 - [x] **WASM Compilation Errors**: Fix missing trait imports (`wgpu::util::DeviceExt`, `cgmath::Rotation`) and `NpcStateView` struct initialization errors when compiling for `wasm32-unknown-unknown`.
 - [x] Optimize sorting in rendering pipeline
+- [x] Fix infinite loop in lambda graph visualization (BFS cycles)
+- [x] Expand host test coverage to include shader_lambda.wgsl pipelines.
+## OpenXR / Steam Frame Support
+- [x] **WebXR Input Bindings**: Implemented OpenXR Steam Frame Controller mappings using WebXR Gamepad API for in-headset controls.
+- [x] **Android Build Wrapper**: Configured Android/APK build instructions utilizing cross compilation.
+- [x] **Android Build Environment**: Configure the sandboxed CI/CD environment with a valid Android Studio and NDK configuration to enable automated `cargo tauri android build` execution.
+
+## Critical Fixes
+- [x] **Fix Global Pitch Darkness Bug**: Fix the issue where looking up and down drastically causes the background or chunks to go completely dark (except the UI). This involves ensuring the WGSL lighting fallback logic (e.g. \`ray_march_shadow\` and \`sky_color\` reflections) handles the scenario when pointing at the void correctly and returning a valid sky color.
+- [x] **Expanding Host Test Coverage**: Added tests in `reality-engine/tests/render_test.rs` to verify that platform-specific rendering logic (`shader_voxel.wgsl`, `shader_splat.wgsl`, `shader_sort.wgsl`) compile perfectly and map correctly to WGPU pipeline definitions natively on the host.
+- [x] Implement WebXR hand tracking and pinch, palm, fist gestures.
+- [x] Fix Trunk build error 'cargo artifacts not found for target crate' during E2E verification.
+
+## Spatiotemporal World Model & Generative Neural Engine
+- [x] **Action-Conditioned DiT**: Implemented Candle-based Diffusion Transformer with causal temporal attention, AdaLN action conditioning, and continuous 5D ego-motion support.
+- [x] **Long-Horizon Drift Control**: Frame anchor buffer (`FrameAnchorBuffer`) and `TrajectoryDirector` with spatial loop-closure memory.
+- [x] **Direct 3DGS Latent Decoder**: Continuous latent projection directly to 14-float 3D Gaussian Splats.
+- [x] **Fracture-DiT & Visual Odometry**: Neural volumetric fracture solver and continuous 6DoF ego-motion estimation.
+- [x] **Multi-Model Latent MoE**: Top-2 Softmax mixture-of-experts routing across specialized domains (Terrain, Physics, Fauna, Atmosphere).
+- [x] **World Model MCTS & Gym RL**: Monte Carlo Tree Search trajectory planning and headless Gymnasium RL benchmark environment.
+- [x] **Audio-DiT Co-Diffusion & Spatial Audio**: Acoustic co-diffusion with Web Audio HRTF positioning.
+- [x] **WebRTC Latent Streaming**: Delta-compressed continuous latent chunk synchronization.
+
+## Agentic Companion System ("Her" / Samantha)
+- [x] **Dynamic Personality & Mood System**: Adventurous, Contemplative, Co-Creative, Playful Challenger, and Celebratory mood profiles.
+- [x] **3D Orbital Presence & 4D Splat Avatar**: Dynamic Gaussian Splat physical representation with mood-parameterized particle pulsation.
+- [x] **Expressive Neural Voice Synthesis**: Formant vibrato acoustic bursts with pitch/rate-modulated Web Speech API synthesis and visual speech envelope morphing.
+- [x] **Real-Time Procedural Terraforming**: Dynamic foundation clearance and architectural arch/pedestal generation in `VoxelWorld`.
+- [x] **Shared Lore Journal & Episodic Diary**: Long-horizon milestone tracking and reflective diary entries indexed in `EpisodicMemoryGraph`.
+- [x] **Cooperative Mini-Games & Physics Puzzles**: Collaborative resonance alignment and gravity platform balance mechanics.
+- [x] **Autonomous Frontier Scouting**: Off-screen latent exploration yielding discovered landmarks, relics, and hazard alerts.
+- [x] **Companion-Authored Procedural Trials**: Multi-room dungeon trials (CyberLabyrinth, ResonanceCathedral, EldritchVault).
+- [x] **WebXR Gestural Bimanual High-Five**: Open-palm gestural recognition in VR triggering celebratory resonance.
+- [x] **User-Personalized Companion & Dynamic NPC Personality Generator**: Dynamic companion generation (custom names, archetypes, and aura hue shifts), interactive personality sliders, multi-turn conversational memory with sentiment scoring, and generalized dynamic NPC profile generation.
+- [x] **Long-Horizon Personality Co-Evolution & Save Persistence**: Persist companion memory logs, relationship depth, and adaptive trait evolution across game saves in `GameState`.
+- [x] **Multi-Agent Companion Swarms & Social Party System**: Support recruiting and maintaining multiple active companions simultaneously coordinating via `MultiAgentCoDiffusion` swarm attention.
+- [x] **Voice-Driven Neural World Sculpting**: Interpret real-time voice speech commands to direct companion terraforming and procedural architectural generation.
+- [ ] **Emotional Parametric Neural TTS Voice Modeling**: Parametric formant acoustic modeling and timbre synthesis tuned to distinct companion archetypes.
+
+## Future Roadmap & Long-Term Enhancements
+- [x] **Adaptive Long-Horizon User Personality Co-Evolution**:
+  - Continuous online learning of user behavioral archetypes through episodic memory graph consolidation, adapting companion cognitive styles autonomously over extended play sessions.
+- [x] **On-Device Neural Quantization (INT4 / AWQ / GPTQ)**:
+  - Implement 4-bit block-wise weight quantization (AWQ/GPTQ) for `ActionConditionedDiT` to reduce model memory footprint from ~600MB down to <150MB, enabling ultra-fast execution on consumer mobile WebGPU devices and standalone VR headsets (e.g. Meta Quest 3, Apple Vision Pro).
+- [ ] **Temporal FlashAttention-3 Kernel for WebGPU WGSL**:
+  - Implement a tiled FlashAttention-3 compute shader in `shader_dit_compute.wgsl` using workgroup shared memory (`var<workgroup>`) and subgroup matrix extensions to accelerate causal temporal cross-attention beyond 60 FPS on high-DPI displays.
+- [ ] **Companion Neural Voice Cloning & Latent TTS (Kokoro / StyleTTS-2 WASM)**:
+  - Integrate an embedded, local ONNX/Candle-based neural TTS model (such as Kokoro-82M or mini-StyleTTS2) compiled to WebAssembly with SIMD, replacing browser Web Speech fallback with naturalistic, emotionally expressive speech audio.
+- [x] **Multi-Agent Companion Swarms & Autonomous Ecosystem**:
+  - Allow spawning multiple agentic companions with distinct roles (e.g., Samantha the Architect, Leo the Pathfinder, Aria the Lore-Keeper) coordinating via `MultiAgentCoDiffusion` swarm attention.
+  - Implement emergent companion-to-companion dialogue and collaborative multi-agent world building.
+- [x] **Volumetric Neural Radiance Caching (NRC)**:
+  - Cache dynamic indirect lighting and global illumination radiance in a low-resolution 3D latent clipmap volume to allow dynamic day-night transitions with bounce lighting on procedural voxels.
+- [x] **Continuous Latent Ragdolls & Inverse Kinematics**:
+  - Expand `LatentPhysicsEngine` with 14-bone humanoid skeletal rigs, allowing NPC splats and companions to conform to sloping terrain and climb procedural obstacles.
+- [ ] **Decentralized P2P World State Sharding via libp2p**:
+  - Replace single-channel WebRTC streaming with distributed Kademlia DHT peer discovery and zero-knowledge validity proofs for trustless peer-to-peer infinite procedural worlds.
+- [ ] **Voice-Driven Neural World Sculpting (Real-Time Voice-to-3DGS)**:
+  - Stream real-time microphone spectrograms through Whisper / Wav2Vec latent encodings directly into the DiT cross-attention layer, letting players mold terrain and sculpt objects in real-time as they speak.
+- [x] **Differentiable Camera Trajectory Optimization for VR Locomotion**:
+  - Use `VisualOdometryEstimator` gradients to dynamically smooth and neutralize vestibular motion-sickness during rapid VR camera acceleration.

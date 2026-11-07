@@ -39,19 +39,24 @@ chmod +x setup_dev.sh
     *   **Windows:**
         Download and run [rustup-init.exe](https://win.rustup.rs/).
 
-2.  **Install trunk:**
+2.  **Add WebAssembly Target:**
+    ```bash
+    rustup target add wasm32-unknown-unknown
+    ```
+
+3.  **Install trunk:**
     ```bash
     cargo install trunk
     ```
 
-3.  **Build (Web):**
+4.  **Build (Web):**
     Navigate to the engine directory and build using trunk:
     ```bash
     cd reality-engine
     trunk build
     ```
 
-4.  **Test (Host):**
+5.  **Test (Host):**
     You can run logic tests directly on your machine without a browser:
     ```bash
     cd reality-engine
@@ -59,7 +64,7 @@ chmod +x setup_dev.sh
     ```
     This verifies engine initialization, interaction logic, and P2P state synchronization.
 
-5.  **Run Signaling Server & Web Server:**
+6.  **Run Signaling Server & Web Server:**
     For the engine to serve files and multiplayer features to work, the signaling server must be running locally. We provide a `start.sh` script to build the engine and start the server automatically:
 
     **macOS / Linux:**
@@ -74,7 +79,7 @@ chmod +x setup_dev.sh
     ```
     This will start the static web server and WebSocket server on `http://localhost:9000`.
 
-6.  **Serve:**
+7.  **Serve:**
     Open your browser to `http://localhost:9000/`.
 
 ## Troubleshooting

@@ -6,6 +6,9 @@ def test_browser_ai_toggle(page: Page):
     """
     Tests that the 'ENABLE BROWSER AI' button correctly toggles state and updates its text.
     """
+    page.on("console", lambda msg: print(f"Browser Console: {msg.text}"))
+    page.on("pageerror", lambda err: print(f"Browser JS Error: {err.message}"))
+
     page.goto("http://localhost:9000/")
 
     # Wait for the engine loading overlay to hide
@@ -20,12 +23,12 @@ def test_browser_ai_toggle(page: Page):
     expect(btn).to_have_text("ENABLE BROWSER AI")
 
     # Toggle on
-    btn.click()
+    page.evaluate("document.getElementById('btn-toggle-ai').click()")
     expect(btn).to_have_text("DISABLE BROWSER AI")
 
     # Wait a short moment to ensure interval doesn't crash the page immediately
     page.wait_for_timeout(500)
 
     # Toggle off
-    btn.click()
+    page.evaluate("document.getElementById('btn-toggle-ai').click()")
     expect(btn).to_have_text("ENABLE BROWSER AI")

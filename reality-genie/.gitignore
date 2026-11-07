@@ -1,1 +1,3 @@
 target/
+diffusion_model.safetensors
+data/synthetic

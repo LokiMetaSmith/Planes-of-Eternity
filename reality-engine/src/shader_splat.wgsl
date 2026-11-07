@@ -1,22 +1,34 @@
 struct CameraUniform {
     view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
+    time: vec4<f32>,
 };
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
-struct RealityUniform {
-    proj1_pos_fid: vec4<f32>,
-    proj1_params: vec4<f32>,
-    proj1_color: vec4<f32>,
-    proj2_pos_fid: vec4<f32>,
-    proj2_params: vec4<f32>,
-    proj2_color: vec4<f32>,
-    global_offset: vec4<f32>, // z is time
+struct BoneUniform {
+    bones: array<mat4x4<f32>, 64>,
 };
-@group(1) @binding(0) var<uniform> reality: RealityUniform;
+@group(0) @binding(1)
+var<uniform> skeleton: BoneUniform;
 
-@group(1) @binding(1)
+struct RealityUniform {
+    proj_pos_fid: array<vec4<f32>, 5>,
+    proj_params: array<vec4<f32>, 5>,
+    proj_color: array<vec4<f32>, 5>,
+    global_offset: vec4<f32>,
+    nodes_pos_fid: array<vec4<f32>, 15>,
+    nodes_params: array<vec4<f32>, 15>,
+    nodes_color: array<vec4<f32>, 15>,
+    num_nodes: vec4<u32>,
+    sun_dir: vec4<f32>,
+    sun_color: vec4<f32>,
+    ambient_color: vec4<f32>,
+};
+@group(2) @binding(0) var<uniform> reality: RealityUniform;
+
+@group(1) @binding(2)
 var t_density: texture_3d<u32>;
 
 fn ray_march_shadow(origin: vec3<f32>, direction: vec3<f32>) -> f32 {
@@ -51,6 +63,10 @@ struct SplatVertexInput {
     @location(2) scale: vec3<f32>,
     @location(3) color: vec4<f32>,
     @location(4) previous_position: vec3<f32>,
+    @location(5) archetype_id: u32,
+    @location(6) target_archetype_id: u32,
+    @location(7) morph_weight: f32,
+    @location(8) bone_index: i32,
 };
 
 struct SplatOutput {
@@ -80,6 +96,46 @@ fn vs_main(
     let uv = QUAD_UVS[vertex_index];
     out.uv = uv;
 
+    // Neural Morphing & Filtering weights
+    var f_motion = 1.0;
+    var f_scale = 1.0;
+    var f_color = 1.0;
+
+    var base_pos = instance.position;
+    if (instance.bone_index >= 0) {
+        // Apply GPU Skinning
+        let bone_mat = skeleton.bones[instance.bone_index];
+        let skinned = bone_mat * vec4<f32>(base_pos, 1.0);
+        base_pos = skinned.xyz / skinned.w;
+    }
+
+    // Apply Neural Filtering based on both current and target archetypes (Morphed)
+    for (var i = 0u; i < 5u; i++) {
+        let p_pos = reality.proj_pos_fid[i].xyz;
+        let p_fid = reality.proj_pos_fid[i].w;
+        let p_params = reality.proj_params[i];
+        let p_archetype = u32(p_params.w);
+
+        let dist = distance(base_pos, p_pos);
+        if (dist < p_fid) {
+            let influence = 1.0 - (dist / p_fid);
+
+            // Weight filtering influence by morph progress
+            if (instance.archetype_id == p_archetype) {
+                let weight = (1.0 - instance.morph_weight) * influence;
+                f_motion += p_params.z * weight;
+                f_scale += p_params.y * weight;
+                f_color += p_params.x * weight;
+            }
+            if (instance.target_archetype_id == p_archetype) {
+                let weight = instance.morph_weight * influence;
+                f_motion += p_params.z * weight;
+                f_scale += p_params.y * weight;
+                f_color += p_params.x * weight;
+            }
+        }
+    }
+
     // Calculate rotation matrix from quaternion
     let q = instance.rotation;
     let R = mat3x3<f32>(
@@ -89,20 +145,33 @@ fn vs_main(
     );
 
     let S = mat3x3<f32>(
-        instance.scale.x, 0.0, 0.0,
-        0.0, instance.scale.y, 0.0,
-        0.0, 0.0, instance.scale.z
+        instance.scale.x * f_scale, 0.0, 0.0,
+        0.0, instance.scale.y * f_scale, 0.0,
+        0.0, 0.0, instance.scale.z * f_scale
     );
 
     let M = R * S;
 
-    // For a 2D quad billboard facing the camera:
-    // Extract camera right and up vectors from view_proj
-    // (A more accurate implementation would compute 2D covariance projection, but
-    //  a simple billboarded quad scaled by projected covariance is sufficient for prototype)
-
     let tick_alpha = clamp(reality.global_offset.w, 0.0, 1.0);
-    let interpolated_pos = mix(instance.previous_position, instance.position, tick_alpha);
+    // Apply Neural Motion Filtering (F_motion affects the delta between frames)
+    let delta = instance.position - instance.previous_position;
+    var interpolated_pos = instance.previous_position + (delta * tick_alpha * f_motion);
+
+    // --- Hidden Flag Waving Effect ---
+    // Define an authored volume at the origin, say a box of size 4x4x4
+    let in_flag_volume = interpolated_pos.x > -2.0 && interpolated_pos.x < 2.0 &&
+                         interpolated_pos.y > -2.0 && interpolated_pos.y < 2.0 &&
+                         interpolated_pos.z > -2.0 && interpolated_pos.z < 2.0;
+
+    if (in_flag_volume) {
+        let time = reality.global_offset.z;
+        // Traveling sine wave based on position X and time
+        let wave = sin(interpolated_pos.x * 2.0 + time * 5.0) * 0.2;
+        // Amplitude ramping up from left edge (-2.0)
+        let amplitude_ramp = (interpolated_pos.x + 2.0) / 4.0;
+        interpolated_pos.y += wave * amplitude_ramp;
+    }
+    // ---------------------------------
 
     let camera_dir = normalize(camera.camera_pos.xyz - interpolated_pos);
     var up = vec3<f32>(0.0, 1.0, 0.0);
@@ -156,7 +225,40 @@ fn fs_main(in: SplatOutput) -> @location(0) vec4<f32> {
     let ambient = 0.4;
     let lighting = ambient + (0.6 * shadow);
 
+    // Apply Neural Color Filtering
     let final_color = in.color.rgb * lighting;
 
-    return vec4<f32>(final_color, alpha);
+    // --- Peek Effect Cutout & Rim ---
+    var peek_alpha = alpha;
+    var peek_rim_color = vec3<f32>(0.0);
+
+    // Check against permanent anomaly nodes (reused here as potential "Peek zones" if archetype == Void)
+    let num_nodes = reality.num_nodes.x;
+    for (var i = 0u; i < num_nodes; i++) {
+        let n_pos = reality.nodes_pos_fid[i].xyz;
+        let n_params = reality.nodes_params[i];
+        let n_archetype = u32(n_params.w);
+
+        // Let's assume an archetype ID of 1 (SciFi) or a specific marker denotes a Peek zone for testing.
+        // The engine spawned a pink marker cube for Peek, we'll check distance.
+        let d = distance(in.world_pos, n_pos);
+        // radius = scale (y component of params)
+        let radius = n_params.y;
+
+        // Discard geometry inside the peek sphere (or cube)
+        if (d < radius) {
+            discard;
+        }
+
+        // Add a glowing rim just outside the threshold
+        let rim_width = 0.5;
+        if (d >= radius && d < radius + rim_width) {
+            // HDR glow color (pinkish purple from engine)
+            let rim = (1.0 - (d - radius) / rim_width);
+            peek_rim_color = vec3<f32>(1.0, 0.2, 0.8) * rim * 2.0;
+        }
+    }
+    // ---------------------------------
+
+    return vec4<f32>(final_color + peek_rim_color, peek_alpha);
 }

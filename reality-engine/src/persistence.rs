@@ -1,18 +1,20 @@
 use crate::input::InputConfig;
 use crate::projector::RealityProjector;
 use crate::world::WorldState;
+#[allow(unused_imports)]
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use web_sys::Storage;
 
 pub const SAVE_VERSION: u32 = 2;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PlayerState {
     pub projector: RealityProjector, // Contains location and self-signature
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameState {
     pub player: PlayerState,
     pub world: WorldState,
@@ -24,6 +26,10 @@ pub struct GameState {
     pub input_config: InputConfig,
     #[serde(default)]
     pub voxel_world: Option<crate::voxel::VoxelWorld>,
+    #[serde(default)]
+    pub companion_state_json: Option<String>,
+    #[serde(default)]
+    pub companion_party_state_json: Option<String>,
     pub timestamp: u64,
     #[serde(default)]
     pub version: u32,
@@ -87,12 +93,44 @@ pub fn delete_save(_slot: &str) {
 }
 
 #[cfg(target_arch = "wasm32")]
+pub async fn save_to_indexed_db(key: &str, state: &GameState) -> bool {
+    // Large world optimization: yield to event loop before heavy serialization
+    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL))
+        .await
+        .ok();
+
+    match serde_json::to_string(state) {
+        Ok(json) => {
+            if let Ok(db) = crate::indexed_db::IndexedDb::new().await {
+                if let Err(e) = db.save(key, &json).await {
+                    error!("Failed to save to IndexedDB: {:?}", e);
+                    return false;
+                }
+                return true;
+            } else {
+                error!("Failed to initialize IndexedDB");
+                return false;
+            }
+        }
+        Err(e) => {
+            error!("Failed to serialize game state: {:?}", e);
+            return false;
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 pub fn save_to_local_storage(key: &str, state: &GameState) {
     if let Ok(Some(storage)) = get_local_storage() {
         match serde_json::to_string(state) {
             Ok(json) => {
                 if let Err(e) = storage.set_item(key, &json) {
-                    error!("Failed to save to local storage: {:?}", e);
+                    let err_str = format!("{:?}", e);
+                    if err_str.contains("QuotaExceededError") {
+                        log::warn!("Failed to save to local storage (QuotaExceededError). World is too large to save.");
+                    } else {
+                        error!("Failed to save to local storage: {:?}", e);
+                    }
                 }
             }
             Err(e) => error!("Failed to serialize game state: {:?}", e),
@@ -103,6 +141,24 @@ pub fn save_to_local_storage(key: &str, state: &GameState) {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_to_local_storage(_key: &str, _state: &GameState) {
     // No-op on host
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn load_from_indexed_db(key: &str) -> Option<GameState> {
+    if let Ok(db) = crate::indexed_db::IndexedDb::new().await {
+        match db.load(key).await {
+            Ok(Some(json)) => match serde_json::from_str::<GameState>(&json) {
+                Ok(state) => {
+                    info!("Loaded game state from IndexedDB.");
+                    return Some(state);
+                }
+                Err(e) => error!("Failed to deserialize game state from IndexedDB: {:?}", e),
+            },
+            Ok(None) => info!("No save found in IndexedDB for key: {}", key),
+            Err(e) => error!("Failed to read from IndexedDB: {:?}", e),
+        }
+    }
+    None
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -163,4 +219,31 @@ pub fn load_from_local_storage(_key: &str) -> Option<GameState> {
 fn get_local_storage() -> Result<Option<Storage>, web_sys::wasm_bindgen::JsValue> {
     let window = web_sys::window().ok_or("No window found")?;
     window.local_storage()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn save_raw_to_local_storage(key: &str, data: &str) {
+    if let Ok(Some(storage)) = get_local_storage() {
+        if let Err(e) = storage.set_item(key, data) {
+            log::error!("Failed to save raw data to local storage: {:?}", e);
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_raw_to_local_storage(_key: &str, _data: &str) {}
+
+#[cfg(target_arch = "wasm32")]
+pub fn load_raw_from_local_storage(key: &str) -> Option<String> {
+    if let Ok(Some(storage)) = get_local_storage() {
+        if let Ok(Some(data)) = storage.get_item(key) {
+            return Some(data);
+        }
+    }
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_raw_from_local_storage(_key: &str) -> Option<String> {
+    None
 }

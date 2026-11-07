@@ -1,9 +1,9 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use std::hint::black_box;
-use reality_engine::engine::Engine;
-use reality_engine::projector::{RealityProjector, NpcBehavior};
-use reality_engine::reality_types::{RealityArchetype, RealitySignature};
 use cgmath::Point3;
+use criterion::{criterion_group, criterion_main, Criterion};
+use reality_engine::engine::Engine;
+use reality_engine::projector::{NpcBehavior, RealityProjector};
+use reality_engine::reality_types::{RealityArchetype, RealitySignature};
+use std::hint::black_box;
 
 // Dummy PRNG for deterministic benchmarking
 struct Lcg {
@@ -27,37 +27,38 @@ fn npc_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("npc_simulation");
 
     for npc_count in [10, 50, 100, 500].iter() {
-        group.bench_with_input(criterion::BenchmarkId::new("update_npcs", npc_count), npc_count, |b, &count| {
-            let mut engine = Engine::new(800, 600, None);
-            let mut rng = Lcg::new(42);
+        group.bench_with_input(
+            criterion::BenchmarkId::new("update_npcs", npc_count),
+            npc_count,
+            |b, &count| {
+                let mut engine = Engine::new(800, 600, None);
+                let mut rng = Lcg::new(42);
 
-            // Clear existing NPCs
-            engine.world_state.npcs.clear();
+                // Clear existing NPCs
+                engine.world_state.npcs.clear();
 
-            // Spawn `count` NPCs
-            for _ in 0..count {
-                let mut sig = RealitySignature::default();
-                sig.active_style.archetype = RealityArchetype::SciFi;
-                let loc = Point3::new(
-                    rng.gen_range(-50.0, 50.0),
-                    1.0,
-                    rng.gen_range(-50.0, 50.0),
-                );
-                let mut npc = RealityProjector::new(loc, sig);
-                npc.behavior = Some(NpcBehavior {
-                    preferred_archetype: RealityArchetype::SciFi,
-                    energy: 100.0,
-                    mutation_progress: 0.0,
-                    hostile: false,
+                // Spawn `count` NPCs
+                for _ in 0..count {
+                    let mut sig = RealitySignature::default();
+                    sig.active_style.archetype = RealityArchetype::SciFi;
+                    let loc =
+                        Point3::new(rng.gen_range(-50.0, 50.0), 1.0, rng.gen_range(-50.0, 50.0));
+                    let mut npc = RealityProjector::new(loc, sig);
+                    npc.behavior = Some(NpcBehavior {
+                        preferred_archetype: RealityArchetype::SciFi,
+                        energy: 100.0,
+                        mutation_progress: 0.0,
+                        hostile: false,
+                    });
+                    engine.world_state.npcs.push(npc);
+                }
+
+                b.iter(|| {
+                    // Update engine for 16ms (60 FPS)
+                    engine.update(black_box(0.016), None);
                 });
-                engine.world_state.npcs.push(npc);
-            }
-
-            b.iter(|| {
-                // Update engine for 16ms (60 FPS)
-                engine.update(black_box(0.016), None);
-            });
-        });
+            },
+        );
     }
 
     group.finish();

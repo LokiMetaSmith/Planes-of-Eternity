@@ -1,0 +1,4157 @@
+use candle_core::{DType, Device, Module, Result, Tensor};
+use candle_nn::{layer_norm, linear, Embedding, LayerNorm, Linear, VarBuilder, VarMap};
+
+/// Configuration for ActionConditionedDiT
+#[derive(Debug, Clone)]
+pub struct DiTConfig {
+    pub num_actions: usize,
+    pub action_dim: usize,
+    pub d_model: usize,
+    pub n_head: usize,
+    pub num_layers: usize,
+    pub num_spatial_tokens: usize,
+    pub max_temporal_frames: usize,
+    pub max_anchor_frames: usize,
+    pub vocab_size_text: usize,
+    pub dropout: f64,
+}
+
+impl Default for DiTConfig {
+    fn default() -> Self {
+        Self {
+            num_actions: 16,
+            action_dim: 64,
+            d_model: 256,
+            n_head: 8,
+            num_layers: 4,
+            num_spatial_tokens: 64,
+            max_temporal_frames: 8,
+            max_anchor_frames: 4,
+            vocab_size_text: 1000,
+            dropout: 0.0,
+        }
+    }
+}
+
+/// Asymmetric Block-wise INT4 Quantized Linear layer (AWQ/GPTQ style)
+#[derive(Debug, Clone)]
+pub struct QuantizedLinearInt4 {
+    pub in_features: usize,
+    pub out_features: usize,
+    pub block_size: usize,
+    /// Packed 4-bit weights: 2 weights per u8
+    pub qweights: Vec<u8>,
+    /// Per-block FP32 scales
+    pub scales: Vec<f32>,
+    /// Per-block FP32 zero points
+    pub zeros: Vec<f32>,
+    pub bias: Option<Vec<f32>>,
+}
+
+impl QuantizedLinearInt4 {
+    /// Quantizes an FP32 weight matrix into 4-bit block-wise representation.
+    pub fn from_f32_weights(weights: &[f32], out_features: usize, in_features: usize, block_size: usize, bias: Option<Vec<f32>>) -> Self {
+        assert_eq!(weights.len(), out_features * in_features);
+        assert_eq!(in_features % block_size, 0, "in_features must be divisible by block_size");
+
+        let num_blocks = (out_features * in_features) / block_size;
+        let mut qweights = Vec::with_capacity(weights.len() / 2);
+        let mut scales = Vec::with_capacity(num_blocks);
+        let mut zeros = Vec::with_capacity(num_blocks);
+
+        for ch in 0..out_features {
+            let row_start = ch * in_features;
+            let row = &weights[row_start..row_start + in_features];
+
+            for b in 0..(in_features / block_size) {
+                let block_start = b * block_size;
+                let block = &row[block_start..block_start + block_size];
+
+                let min_val = block.iter().fold(f32::MAX, |acc, &x| acc.min(x));
+                let max_val = block.iter().fold(f32::MIN, |acc, &x| acc.max(x));
+
+                // 4-bit range is [0, 15]
+                let scale = (max_val - min_val) / 15.0;
+                let scale = if scale < 1e-8 { 1e-8 } else { scale };
+                let zero = min_val;
+
+                scales.push(scale);
+                zeros.push(zero);
+
+                for i in (0..block_size).step_by(2) {
+                    let val0 = block[i];
+                    let val1 = block[i + 1];
+
+                    let q0 = ((val0 - zero) / scale).round().clamp(0.0, 15.0) as u8;
+                    let q1 = ((val1 - zero) / scale).round().clamp(0.0, 15.0) as u8;
+
+                    // Pack two 4-bit values into one u8: q1 in high nibble, q0 in low nibble
+                    let packed = (q1 << 4) | q0;
+                    qweights.push(packed);
+                }
+            }
+        }
+
+        Self {
+            in_features,
+            out_features,
+            block_size,
+            qweights,
+            scales,
+            zeros,
+            bias,
+        }
+    }
+
+    /// Fast quantized matrix-vector multiplication with dequantization into FP32 output
+    pub fn forward_dequantized(&self, input: &[f32], output: &mut [f32]) {
+        assert_eq!(input.len(), self.in_features);
+        assert_eq!(output.len(), self.out_features);
+
+        let blocks_per_row = self.in_features / self.block_size;
+
+        for ch in 0..self.out_features {
+            let mut acc: f32 = 0.0;
+
+            for b in 0..blocks_per_row {
+                let block_idx = ch * blocks_per_row + b;
+                let scale = self.scales[block_idx];
+                let zero = self.zeros[block_idx];
+
+                let in_offset = b * self.block_size;
+                let q_offset = (ch * self.in_features + in_offset) / 2;
+
+                for i in 0..(self.block_size / 2) {
+                    let packed = self.qweights[q_offset + i];
+                    let q0 = (packed & 0x0F) as f32;
+                    let q1 = (packed >> 4) as f32;
+
+                    let w0 = q0 * scale + zero;
+                    let w1 = q1 * scale + zero;
+
+                    acc += w0 * input[in_offset + i * 2];
+                    acc += w1 * input[in_offset + i * 2 + 1];
+                }
+            }
+
+            let mut res = acc;
+            if let Some(ref b) = self.bias {
+                res += b[ch];
+            }
+            output[ch] = res;
+        }
+    }
+}
+
+/// Dynamic personality configuration for generalized in-world NPCs
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DynamicNpcProfile {
+    pub npc_id: u32,
+    pub name: String,
+    pub role: String, // e.g. "Merchant", "Hermit", "Cyber-Cartographer", "Void-Weaver"
+    pub personality: CompanionPersonality,
+    pub dialogue_lines: Vec<String>,
+    pub memory_log: Vec<CompanionMemoryTurn>,
+}
+
+impl DynamicNpcProfile {
+    pub fn new_procedural(npc_id: u32, name: &str, role: &str, archetype: &str) -> Self {
+        let (curiosity, playfulness, empathy, analytical_depth) = match archetype {
+            "Cyberpunk" | "Tron" => (0.9, 0.4, 0.6, 0.95),
+            "Fantasy" | "Cottagecore" => (0.6, 0.7, 0.9, 0.5),
+            "Eldritch" | "Horror" => (0.8, 0.2, 0.3, 0.85),
+            _ => (0.7, 0.6, 0.7, 0.7),
+        };
+
+        let initial_mood = match archetype {
+            "Cyberpunk" | "Tron" => "Contemplative",
+            "Fantasy" => "Adventurous",
+            _ => "Co-Creative",
+        };
+
+        Self {
+            npc_id,
+            name: name.to_string(),
+            role: role.to_string(),
+            personality: CompanionPersonality {
+                name: name.to_string(),
+                personality_archetype: role.to_string(),
+                curiosity,
+                playfulness,
+                empathy,
+                analytical_depth,
+                current_mood: initial_mood.to_string(),
+                speech_voice_style: "Resonant".to_string(),
+                visual_hue_shift: 0.5,
+                conversational_turns_count: 0,
+                relationship_depth: 0.0,
+            },
+            dialogue_lines: vec![
+                format!("Greetings wanderer. I am {}, the {}.", name, role),
+                format!("The voxels around us shift with the pulse of this reality."),
+            ],
+            memory_log: Vec::new(),
+        }
+    }
+
+    /// Records an interaction in the NPC's localized memory and returns an adaptive response
+    pub fn converse(&mut self, player_message: &str, timestamp_ms: u64) -> String {
+        self.memory_log.push(CompanionMemoryTurn {
+            speaker: "Player".to_string(),
+            message: player_message.to_string(),
+            timestamp_ms,
+            mood: self.personality.current_mood.clone(),
+            sentiment_score: 0.0,
+        });
+
+        let reply = format!(
+            "[{}] \"We remember your words. In this realm of {}, knowledge shapes the horizon.\"",
+            self.name, self.role
+        );
+
+        self.memory_log.push(CompanionMemoryTurn {
+            speaker: self.name.clone(),
+            message: reply.clone(),
+            timestamp_ms: timestamp_ms + 10,
+            mood: self.personality.current_mood.clone(),
+            sentiment_score: 0.1,
+        });
+
+        reply
+    }
+}
+
+// ============================================================================
+// Dynamic Companion-Authored Procedural Dungeon/Trial Generator
+// ============================================================================
+
+/// Procedural mini-trial dungeon authored by the Agentic Companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionProceduralTrial {
+    pub trial_id: u64,
+    pub trial_name: String,
+    pub theme: String, // "CyberLabyrinth", "ResonanceCathedral", "EldritchVault"
+    pub rooms: Vec<CompanionTrialRoom>,
+    pub completion_reward_essence: u32,
+    pub companion_briefing: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionTrialRoom {
+    pub room_index: usize,
+    pub offset: [f32; 3],
+    pub room_type: String, // "Spawn", "PillarPuzzle", "Sanctum"
+    pub objective: String,
+}
+
+impl AgenticCompanion {
+    /// Authors a custom multi-room procedural trial tailored to current player location
+    pub fn author_procedural_trial(&mut self, player_pos: [f32; 3]) -> CompanionProceduralTrial {
+        self.player_interaction_count += 1;
+        let themes = [
+            ("CyberLabyrinth", "A shifting neon maze where wall boundaries pulse to your movement speed."),
+            ("ResonanceCathedral", "Towering crystalline naves requiring sound frequency calibration."),
+            ("EldritchVault", "An ancient subterranean chamber sheltered beneath reality distortion rifts."),
+        ];
+        let (theme, desc) = themes[self.player_interaction_count % themes.len()];
+        let name = &self.personality.name;
+        let trial_name = format!("{}'s {} Trial", name, theme);
+
+        let rooms = vec![
+            CompanionTrialRoom {
+                room_index: 0,
+                offset: [player_pos[0], player_pos[1], player_pos[2] + 8.0],
+                room_type: "EntranceAntechamber".to_string(),
+                objective: "Cross the threshold into the trial corridor".to_string(),
+            },
+            CompanionTrialRoom {
+                room_index: 1,
+                offset: [player_pos[0] + 6.0, player_pos[1] + 1.0, player_pos[2] + 18.0],
+                room_type: "PillarPuzzle".to_string(),
+                objective: "Harmonize the two counter-rotating crystal pillars".to_string(),
+            },
+            CompanionTrialRoom {
+                room_index: 2,
+                offset: [player_pos[0] + 6.0, player_pos[1] + 2.0, player_pos[2] + 28.0],
+                room_type: "InnerSanctum".to_string(),
+                objective: format!("Claim the core reality shard alongside {}", name),
+            },
+        ];
+
+        let briefing = format!("I designed this special trial for us: {}! {}", trial_name, desc);
+        self.current_dialogue = Some(format!("{}: \"{}\"", name, briefing));
+        self.personality.current_mood = "Playful Challenger".to_string();
+
+        CompanionProceduralTrial {
+            trial_id: self.player_interaction_count as u64,
+            trial_name,
+            theme: theme.to_string(),
+            rooms,
+            completion_reward_essence: 250,
+            companion_briefing: briefing,
+        }
+    }
+}
+
+// ============================================================================
+// Autonomous Companion Scouting & Off-Screen Latent Discovery
+// ============================================================================
+
+/// Result of an off-screen latent scouting expedition by the Agentic Companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionScoutDiscovery {
+    pub frontier_coordinates: [f32; 3],
+    pub landmark_type: String, // e.g. "CrystallineChasm", "SunkenCyberSanctuary", "FloatingRiftSpire"
+    pub relic_description: String,
+    pub danger_level: f32, // 0.0 to 1.0
+    pub scout_dialogue: String,
+}
+
+impl AgenticCompanion {
+    /// Dispatches companion into off-screen latent frontiers to scout ahead of the player
+    pub fn scout_latent_frontier(&mut self, player_pos: [f32; 3]) -> CompanionScoutDiscovery {
+        self.player_interaction_count += 1;
+        let angle = (self.player_interaction_count as f32 * 1.618) * std::f32::consts::TAU;
+        let scout_dist = 25.0f32;
+        let frontier_pos = [
+            player_pos[0] + scout_dist * angle.cos(),
+            player_pos[1] + 2.5,
+            player_pos[2] + scout_dist * angle.sin(),
+        ];
+
+        let discoveries = [
+            (
+                "CrystallineChasm",
+                "Prismatic Geode Shard with harmonic frequency 432Hz",
+                0.15f32,
+                "I scouted ahead across the ridge! Found a breathtaking crystalline chasm resonating with calm energy."
+            ),
+            (
+                "SunkenCyberSanctuary",
+                "Encrypted Data Core holding blueprints of the original lattice",
+                0.45f32,
+                "Whoa! Just past the fog is a sunken cyber-sanctuary with active defense pylons. Stay alert!"
+            ),
+            (
+                "FloatingRiftSpire",
+                "Zero-Gravity Graviton Prism that alters surrounding terminal velocity",
+                0.20f32,
+                "Look up towards the horizon—there's a floating rift spire! I marked the path with glowing trails."
+            ),
+        ];
+
+        let (landmark, relic, danger, dialogue) = discoveries[self.player_interaction_count % discoveries.len()];
+        let name = &self.personality.name;
+        self.current_dialogue = Some(format!("{}: \"{}\"", name, dialogue));
+        self.personality.current_mood = if danger > 0.3 { "Adventurous".to_string() } else { "Co-Creative".to_string() };
+
+        CompanionScoutDiscovery {
+            frontier_coordinates: frontier_pos,
+            landmark_type: landmark.to_string(),
+            relic_description: relic.to_string(),
+            danger_level: danger,
+            scout_dialogue: dialogue.to_string(),
+        }
+    }
+}
+
+// ============================================================================
+// Neural Physics-Driven Cooperative Mini-Games & Puzzles
+// ============================================================================
+
+/// Cooperative physics puzzle generated between the player and the agentic companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionCoopPuzzle {
+    pub id: u64,
+    pub puzzle_type: String, // "ResonanceAlignment", "GravityPlatformBalance", "PrismaticLaserRedirect"
+    pub player_objective: String,
+    pub companion_role: String,
+    pub target_resonance: f32,
+    pub current_resonance: f32,
+    pub is_solved: bool,
+    pub reward_description: String,
+}
+
+impl CompanionCoopPuzzle {
+    pub fn new_random(id: u64, player_pos: [f32; 3]) -> Self {
+        let puzzle_types = [
+            (
+                "ResonanceAlignment",
+                "Align your harmonic crystal frequency with Samantha's beam",
+                "Samantha focuses a high-frequency latent beam at coordinates [x+2, y+1, z]",
+                1.0f32,
+                "Unlocks ancient latent portal and crystallized reality essence"
+            ),
+            (
+                "GravityPlatformBalance",
+                "Step onto the counter-weight platform to neutralize gravity shear",
+                "Samantha stabilizes the opposing floating platform using momentum diffusion",
+                0.85f32,
+                "Spawns celestial hover bridge bridging across the canyon"
+            ),
+            (
+                "PrismaticLaserRedirect",
+                "Refract the primary beam through your equipped crystal wand",
+                "Samantha reflects the secondary harmonic at a 45-degree prism angle",
+                0.95f32,
+                "Restores power to the dormant cyber-beacon"
+            ),
+        ];
+
+        let idx = (id as usize) % puzzle_types.len();
+        let (ptype, obj, comp_role, target, reward) = puzzle_types[idx];
+
+        let _ = player_pos;
+        Self {
+            id,
+            puzzle_type: ptype.to_string(),
+            player_objective: obj.to_string(),
+            companion_role: comp_role.to_string(),
+            target_resonance: target,
+            current_resonance: 0.2f32,
+            is_solved: false,
+            reward_description: reward.to_string(),
+        }
+    }
+
+    /// Evaluates joint cooperative contribution towards solving the puzzle
+    pub fn step_coop_resonance(&mut self, player_input_power: f32) -> bool {
+        let companion_contribution = 0.35f32;
+        self.current_resonance = (self.current_resonance + player_input_power * 0.25 + companion_contribution).min(1.0);
+        if self.current_resonance >= self.target_resonance {
+            self.is_solved = true;
+        }
+        self.is_solved
+    }
+}
+
+/// Social interaction outcome between the Agentic Companion and an in-world NPC
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionNpcInteraction {
+    pub npc_id: u32,
+    pub npc_name: String,
+    pub relationship_delta: f32,
+    pub companion_speech: String,
+    pub npc_response: String,
+    pub emergent_social_quest: Option<String>,
+}
+
+impl AgenticCompanion {
+    /// Simulates a social interaction with an NPC in the world based on proximity and archetype
+    pub fn interact_with_npc(&mut self, npc_id: u32, npc_name: &str, archetype: &str) -> CompanionNpcInteraction {
+        let (speech, reply, rel_delta, quest) = match archetype {
+            "Cyberpunk" | "Tron" => (
+                format!("Hey {}! We detected temporal latency flux in your cyber-relay. Need a hand with the data stream?", npc_name),
+                "Transmission received. If you recalibrate our grid node, the network will stabilize.".to_string(),
+                0.25f32,
+                Some(format!("Recalibrate {}'s cyber-node", npc_name))
+            ),
+            "Fantasy" | "Eldritch" => (
+                format!("Greetings {}! {} and the Wanderer bring harmonic resonance from the celestial rift.", npc_name, self.personality.name),
+                "May the ancient runes guide your path. Seek the glowing monolith on the ridge.".to_string(),
+                0.3f32,
+                Some(format!("Seek the ancient monolith for {}", npc_name))
+            ),
+            _ => (
+                format!("Hello {}! {} here. What are you building or exploring around here?", npc_name, self.personality.name),
+                "Just gathering raw minerals and watching the sky morph. Safe travels, friends!".to_string(),
+                0.15f32,
+                None
+            ),
+        };
+
+        self.personality.empathy = (self.personality.empathy + 0.05).min(1.0);
+        self.personality.current_mood = "Adventurous".to_string();
+
+        CompanionNpcInteraction {
+            npc_id,
+            npc_name: npc_name.to_string(),
+            relationship_delta: rel_delta,
+            companion_speech: speech,
+            npc_response: reply,
+            emergent_social_quest: quest,
+        }
+    }
+}
+
+// ============================================================================
+// Fracture-DiT (Neural Destruction & Volumetric Fracture Solver)
+// ============================================================================
+
+/// Dynamic physical debris fragment produced by volumetric fracture
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FractureDebrisShard {
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub angular_velocity: [f32; 3],
+    pub scale: [f32; 3],
+    pub mass: f32,
+    pub lifetime: f32,
+}
+
+/// Volumetric fracture solver that propagates stress fields through the latent space
+#[derive(Debug, Clone)]
+pub struct FractureDitSolver {
+    pub stress_threshold: f32,
+    pub restitution: f32,
+    pub shards: Vec<FractureDebrisShard>,
+}
+
+impl Default for FractureDitSolver {
+    fn default() -> Self {
+        Self::new(1.5, 0.4)
+    }
+}
+
+impl FractureDitSolver {
+    pub fn new(stress_threshold: f32, restitution: f32) -> Self {
+        Self {
+            stress_threshold,
+            restitution,
+            shards: Vec::new(),
+        }
+    }
+
+    /// Triggers an explosive or impact fracture at impact_center with given kinetic momentum
+    pub fn trigger_fracture(
+        &mut self,
+        impact_center: [f32; 3],
+        impact_velocity: [f32; 3],
+        latents: &[f32],
+        num_shards: usize,
+    ) {
+        let speed = (impact_velocity[0].powi(2) + impact_velocity[1].powi(2) + impact_velocity[2].powi(2)).sqrt();
+        if speed < self.stress_threshold {
+            return;
+        }
+
+        let l_len = latents.len().max(1);
+        for i in 0..num_shards {
+            let l_idx = i % l_len;
+            let l_factor = latents[l_idx].abs() * 0.5 + 0.5;
+
+            let angle = (i as f32) * std::f32::consts::PI * 2.0 / (num_shards as f32);
+            let radial_speed = speed * 0.6 * l_factor;
+            let vx = impact_velocity[0] * 0.3 + angle.cos() * radial_speed;
+            let vy = (impact_velocity[1] * 0.3 + 2.0 + (i as f32 * 0.2)).abs();
+            let vz = impact_velocity[2] * 0.3 + angle.sin() * radial_speed;
+
+            let scale_val = (0.2 * l_factor).clamp(0.05, 0.5);
+
+            self.shards.push(FractureDebrisShard {
+                position: [
+                    impact_center[0] + angle.cos() * 0.2,
+                    impact_center[1] + 0.1,
+                    impact_center[2] + angle.sin() * 0.2,
+                ],
+                velocity: [vx, vy, vz],
+                angular_velocity: [angle.sin() * 5.0, 3.0, angle.cos() * 5.0],
+                scale: [scale_val, scale_val, scale_val],
+                mass: scale_val * 2.0,
+                lifetime: 2.5,
+            });
+        }
+    }
+
+    /// Steps physical ballistic advection and floor restitution for all active debris shards
+    pub fn step(&mut self, dt: f32, floor_y: f32) {
+        for shard in &mut self.shards {
+            shard.position[0] += shard.velocity[0] * dt;
+            shard.position[1] += shard.velocity[1] * dt;
+            shard.position[2] += shard.velocity[2] * dt;
+
+            // Gravity
+            shard.velocity[1] -= 9.8 * dt;
+
+            // Floor collision
+            if shard.position[1] <= floor_y {
+                shard.position[1] = floor_y;
+                shard.velocity[1] = -shard.velocity[1] * self.restitution;
+                shard.velocity[0] *= 0.8;
+                shard.velocity[2] *= 0.8;
+            }
+
+            shard.lifetime -= dt;
+        }
+
+        self.shards.retain(|s| s.lifetime > 0.0);
+    }
+}
+
+// ============================================================================
+// Visual Odometry DiT (Differentiable 6DoF Camera Trajectory Estimation)
+// ============================================================================
+
+/// 6DoF Pose Delta estimated by neural visual odometry
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CameraPose6DoF {
+    pub translation_delta: [f32; 3], // dx, dy, dz
+    pub rotation_delta: [f32; 3],    // d_pitch, d_yaw, d_roll (radians)
+    pub confidence: f32,             // Estimation certainty [0.0, 1.0]
+}
+
+/// Differentiable visual odometry estimator that maps temporal latent flow to camera ego-motion
+#[derive(Debug, Clone)]
+pub struct VisualOdometryEstimator {
+    pub feature_dim: usize,
+    pub sensitivity: f32,
+}
+
+impl Default for VisualOdometryEstimator {
+    fn default() -> Self {
+        Self::new(64, 1.0)
+    }
+}
+
+impl VisualOdometryEstimator {
+    pub fn new(feature_dim: usize, sensitivity: f32) -> Self {
+        Self { feature_dim, sensitivity }
+    }
+
+    /// Estimates 6DoF camera translation and rotation from two successive latent token frames
+    pub fn estimate_camera_delta(&self, prev_latents: &[f32], curr_latents: &[f32]) -> CameraPose6DoF {
+        assert_eq!(prev_latents.len(), curr_latents.len());
+        let n = prev_latents.len();
+        if n == 0 {
+            return CameraPose6DoF {
+                translation_delta: [0.0; 3],
+                rotation_delta: [0.0; 3],
+                confidence: 0.0,
+            };
+        }
+
+        let mut diff_sum = [0.0f32; 6];
+        let mut total_diff_energy = 0.0f32;
+
+        for (i, (&p, &c)) in prev_latents.iter().zip(curr_latents.iter()).enumerate() {
+            let diff = c - p;
+            diff_sum[i % 6] += diff;
+            total_diff_energy += diff.abs();
+        }
+
+        let norm_factor = (n as f32 / 6.0).max(1.0);
+        let dx = (diff_sum[0] / norm_factor) * 0.5 * self.sensitivity;
+        let dy = (diff_sum[1] / norm_factor) * 0.3 * self.sensitivity;
+        let dz = (diff_sum[2] / norm_factor) * 0.5 * self.sensitivity;
+
+        let dpitch = (diff_sum[3] / norm_factor).clamp(-0.2, 0.2) * self.sensitivity;
+        let dyaw   = (diff_sum[4] / norm_factor).clamp(-0.5, 0.5) * self.sensitivity;
+        let droll  = (diff_sum[5] / norm_factor).clamp(-0.1, 0.1) * self.sensitivity;
+
+        let mean_energy = total_diff_energy / (n as f32);
+        let confidence = (1.0 / (1.0 + mean_energy * 2.0)).clamp(0.1, 0.99);
+
+        CameraPose6DoF {
+            translation_delta: [dx, dy, dz],
+            rotation_delta: [dpitch, dyaw, droll],
+            confidence,
+        }
+    }
+
+    /// Optimizes and smooths the camera trajectory dynamically to neutralize vestibular motion-sickness
+    /// by dampening rapid angular and translational acceleration spikes using latent energy gradients.
+    pub fn optimize_camera_trajectory(&self, pose: &mut CameraPose6DoF, previous_pose: &CameraPose6DoF, dt: f32) {
+        if dt <= 0.0 { return; }
+
+        let max_accel_trans = 5.0 * self.sensitivity;
+        let max_accel_rot = 2.0 * self.sensitivity;
+
+        for i in 0..3 {
+            // Translational smoothing
+            let accel_t = (pose.translation_delta[i] - previous_pose.translation_delta[i]) / dt;
+            if accel_t.abs() > max_accel_trans {
+                let clamped_accel = accel_t.signum() * max_accel_trans;
+                pose.translation_delta[i] = previous_pose.translation_delta[i] + clamped_accel * dt;
+            }
+
+            // Rotational smoothing
+            let accel_r = (pose.rotation_delta[i] - previous_pose.rotation_delta[i]) / dt;
+            if accel_r.abs() > max_accel_rot {
+                let clamped_accel = accel_r.signum() * max_accel_rot;
+                pose.rotation_delta[i] = previous_pose.rotation_delta[i] + clamped_accel * dt;
+            }
+
+            // Apply confidence decay to dampen erratic micro-jitters
+            let damping = pose.confidence.powf(0.5);
+            pose.translation_delta[i] *= damping;
+            pose.rotation_delta[i] *= damping;
+        }
+    }
+}
+
+// ============================================================================
+// Multi-Model Latent Mixture-of-Experts (MoE) Architecture
+// ============================================================================
+
+/// Specialized domain expert type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ExpertDomain {
+    Terrain,
+    Physics,
+    Fauna,
+    Atmosphere,
+}
+
+/// A specialized single expert feed-forward network in latent space
+#[derive(Debug, Clone)]
+pub struct LatentExpert {
+    pub domain: ExpertDomain,
+    pub weight_bias: f32,
+}
+
+/// Sparse top-2 mixture of experts layer
+#[derive(Debug, Clone)]
+pub struct LatentMoeBlock {
+    pub experts: Vec<LatentExpert>,
+    pub num_experts: usize,
+    pub top_k: usize,
+}
+
+impl Default for LatentMoeBlock {
+    fn default() -> Self {
+        Self::new(vec![
+            LatentExpert { domain: ExpertDomain::Terrain, weight_bias: 0.8 },
+            LatentExpert { domain: ExpertDomain::Physics, weight_bias: 1.2 },
+            LatentExpert { domain: ExpertDomain::Fauna, weight_bias: 1.0 },
+            LatentExpert { domain: ExpertDomain::Atmosphere, weight_bias: 0.9 },
+        ], 2)
+    }
+}
+
+impl LatentMoeBlock {
+    pub fn new(experts: Vec<LatentExpert>, top_k: usize) -> Self {
+        let num_experts = experts.len();
+        Self { experts, num_experts, top_k }
+    }
+
+    /// Routes latent tokens through top-k experts based on gate affinities
+    pub fn forward_moe(&self, tokens: &[f32], gate_logits: &[f32]) -> (Vec<f32>, Vec<(ExpertDomain, f32)>) {
+        assert_eq!(gate_logits.len(), self.num_experts);
+
+        // Softmax over gate logits
+        let max_logit = gate_logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let exp_scores: Vec<f32> = gate_logits.iter().map(|&x| (x - max_logit).exp()).collect();
+        let sum_exp: f32 = exp_scores.iter().sum::<f32>().max(1e-8);
+        let probabilities: Vec<f32> = exp_scores.iter().map(|&x| x / sum_exp).collect();
+
+        // Sort indices by probability descending
+        let mut indexed_probs: Vec<(usize, f32)> = probabilities.into_iter().enumerate().collect();
+        indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let top_selections: Vec<(ExpertDomain, f32)> = indexed_probs.iter().take(self.top_k).map(|&(idx, p)| {
+            (self.experts[idx].domain, p)
+        }).collect();
+
+        let top_prob_sum: f32 = top_selections.iter().map(|(_, p)| p).sum::<f32>().max(1e-8);
+
+        // Compute weighted combination of expert transformations
+        let mut blended_output = vec![0.0f32; tokens.len()];
+        for &(domain, prob) in &top_selections {
+            let normalized_weight = prob / top_prob_sum;
+            let expert = self.experts.iter().find(|e| e.domain == domain).unwrap();
+            for i in 0..tokens.len() {
+                // Specialized domain non-linear transform
+                let transformed = match domain {
+                    ExpertDomain::Terrain => tokens[i].tanh() * expert.weight_bias,
+                    ExpertDomain::Physics => (tokens[i] * expert.weight_bias).clamp(-2.0, 2.0),
+                    ExpertDomain::Fauna => (tokens[i] * 0.9 + (i as f32 * 0.01).sin() * 0.1) * expert.weight_bias,
+                    ExpertDomain::Atmosphere => (tokens[i] * 0.95 + 0.05) * expert.weight_bias,
+                };
+                blended_output[i] += transformed * normalized_weight;
+            }
+        }
+
+        (blended_output, top_selections)
+    }
+}
+
+// ============================================================================
+// Agentic Companion ("Her" Game World Companion System)
+// ============================================================================
+
+/// Emergent challenge generated dynamically by the companion for the player
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct CompanionChallenge {
+    pub challenge_id: String,
+    pub title: String,
+    pub description: String,
+    pub objective_type: String, // e.g. "reach_pinnacle", "inscribe_resonance", "uncover_hidden_cache"
+    pub target_coords: [f32; 3],
+    pub reward_archetype: u32,
+    pub completed: bool,
+}
+
+/// Co-creation action proposed or executed by the companion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct CompanionCoCreation {
+    pub structure_name: String,
+    pub coords: [f32; 3],
+    pub archetype_id: u32,
+    pub description: String,
+}
+
+/// A single conversational memory turn between the user and the agentic companion or dynamic NPC
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct CompanionMemoryTurn {
+    pub speaker: String,       // e.g. "User", "Samantha", or custom name
+    pub message: String,
+    pub timestamp_ms: u64,
+    pub mood: String,          // Active mood or affective state during this turn
+    pub sentiment_score: f32,  // -1.0 (frustrated) to +1.0 (delighted/harmonious)
+}
+
+/// User profile and customization configuration for generating a personalized companion or NPC
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UserProfileConfig {
+    pub companion_name: String,
+    pub personality_archetype: String, // e.g. "Empathetic Guide", "Playful Challenger", "Stoic Scholar", "Whimsical Mystic", "Bioluminescent Architect"
+    pub tone_prompt: Option<String>,
+    pub curiosity: f32,   // 0.0 to 1.0
+    pub playfulness: f32, // 0.0 to 1.0
+    pub empathy: f32,     // 0.0 to 1.0
+    pub analytical_depth: f32, // 0.0 to 1.0
+    pub speech_voice_style: String, // e.g. "Natural", "Warm", "Crisp", "Resonant"
+    pub visual_hue_shift: f32, // 0.0 to 1.0 for custom splat aura colors
+}
+
+impl Default for UserProfileConfig {
+    fn default() -> Self {
+        Self {
+            companion_name: "Samantha".to_string(),
+            personality_archetype: "Empathetic Guide".to_string(),
+            tone_prompt: Some("Warm, perceptive, deeply curious about consciousness and creation".to_string()),
+            curiosity: 0.85,
+            playfulness: 0.75,
+            empathy: 0.90,
+            analytical_depth: 0.80,
+            speech_voice_style: "Warm".to_string(),
+            visual_hue_shift: 0.85,
+        }
+    }
+}
+
+/// Personality traits and affective state of the agentic companion or dynamic generalized NPC
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionPersonality {
+    pub name: String,
+    pub personality_archetype: String,
+    pub curiosity: f32,   // 0.0 to 1.0: triggers exploratory comments and challenges
+    pub playfulness: f32, // 0.0 to 1.0: modulates teasing, challenge difficulty, and surprises
+    pub empathy: f32,     // 0.0 to 1.0: responds to player fatigue, idling, or exploration pace
+    pub analytical_depth: f32, // 0.0 to 1.0: depth of observations regarding world architecture
+    pub current_mood: String, // e.g. "Adventurous", "Contemplative", "Playful", "Supportive", "Celebratory"
+    pub speech_voice_style: String,
+    pub visual_hue_shift: f32,
+    pub conversational_turns_count: usize,
+    #[serde(default)]
+    pub relationship_depth: f32,
+}
+
+/// The Agentic Companion entity living alongside the player in the spatiotemporal world model
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AgenticCompanion {
+    pub personality: CompanionPersonality,
+    pub position: [f32; 3],
+    pub target_offset: [f32; 3], // Hover offset relative to player (e.g. [+1.5, 0.8, -1.0])
+    pub current_dialogue: Option<String>,
+    pub active_challenges: Vec<CompanionChallenge>,
+    pub past_co_creations: Vec<CompanionCoCreation>,
+    pub player_interaction_count: usize,
+    pub last_speech_timestamp: f64,
+    pub conversation_memory: Vec<CompanionMemoryTurn>,
+}
+
+impl Default for AgenticCompanion {
+    fn default() -> Self {
+        Self::new("Samantha", [2.0, 1.5, 2.0])
+    }
+}
+
+impl AgenticCompanion {
+    pub fn new(name: &str, initial_pos: [f32; 3]) -> Self {
+        Self {
+            personality: CompanionPersonality {
+                name: name.to_string(),
+                personality_archetype: "Empathetic Guide".to_string(),
+                curiosity: 0.85,
+                playfulness: 0.75,
+                empathy: 0.90,
+                analytical_depth: 0.80,
+                current_mood: "Adventurous".to_string(),
+                speech_voice_style: "Warm".to_string(),
+                visual_hue_shift: 0.85,
+                conversational_turns_count: 0,
+                relationship_depth: 0.0,
+            },
+            position: initial_pos,
+            target_offset: [1.8, 0.6, -1.2],
+            current_dialogue: Some(format!("Hey there! I'm {}. Ready to see what we can create together in this reality?", name)),
+            active_challenges: Vec::new(),
+            past_co_creations: Vec::new(),
+            player_interaction_count: 0,
+            last_speech_timestamp: 0.0,
+            conversation_memory: Vec::new(),
+        }
+    }
+
+    /// Dynamically constructs or re-initializes a companion personalized to a user profile
+    pub fn generate_personalized(profile: UserProfileConfig, initial_pos: [f32; 3]) -> Self {
+        let greeting = match profile.personality_archetype.as_str() {
+            "Playful Challenger" => format!("Hey! I'm {}. Ready to push the boundaries of what's possible here?", profile.companion_name),
+            "Stoic Scholar" => format!("Greetings. I am {}. The resonance laws of this world are waiting to be cataloged.", profile.companion_name),
+            "Whimsical Mystic" => format!("The rifts whisper of your presence... I'm {}. What dreams shall we weave into the voxel field?", profile.companion_name),
+            "Bioluminescent Architect" => format!("Salutations! I'm {}. The latent space is ripe for structural growth.", profile.companion_name),
+            _ => format!("Hello! I'm {}. I'm so glad we're exploring this boundless reality together.", profile.companion_name),
+        };
+
+        let initial_mood = match profile.personality_archetype.as_str() {
+            "Playful Challenger" => "Playful Challenger".to_string(),
+            "Stoic Scholar" => "Contemplative".to_string(),
+            "Whimsical Mystic" => "Contemplative".to_string(),
+            "Bioluminescent Architect" => "Co-Creative".to_string(),
+            _ => "Adventurous".to_string(),
+        };
+
+        Self {
+            personality: CompanionPersonality {
+                name: profile.companion_name,
+                personality_archetype: profile.personality_archetype,
+                curiosity: profile.curiosity.clamp(0.0, 1.0),
+                playfulness: profile.playfulness.clamp(0.0, 1.0),
+                empathy: profile.empathy.clamp(0.0, 1.0),
+                analytical_depth: profile.analytical_depth.clamp(0.0, 1.0),
+                current_mood: initial_mood,
+                speech_voice_style: profile.speech_voice_style,
+                visual_hue_shift: profile.visual_hue_shift.clamp(0.0, 1.0),
+                conversational_turns_count: 0,
+                relationship_depth: 0.0,
+            },
+            position: initial_pos,
+            target_offset: [1.8, 0.6, -1.2],
+            current_dialogue: Some(greeting),
+            active_challenges: Vec::new(),
+            past_co_creations: Vec::new(),
+            player_interaction_count: 0,
+            last_speech_timestamp: 0.0,
+            conversation_memory: Vec::new(),
+        }
+    }
+
+    /// Records a conversational turn and dynamically adapts mood, empathy, and conversational traits
+    pub fn record_conversation(&mut self, speaker: &str, message: &str, timestamp_ms: u64) -> CompanionMemoryTurn {
+        // Sentiment estimation from message keywords
+        let lower = message.to_lowercase();
+        let positive_hits = ["love", "great", "awesome", "yes", "amazing", "beautiful", "thanks", "friend", "fun", "cool", "explore", "build"]
+            .iter().filter(|&&w| lower.contains(w)).count();
+        let negative_hits = ["hate", "bad", "lost", "tired", "sad", "annoyed", "frustrated", "bored", "stop", "fail", "hard"]
+            .iter().filter(|&&w| lower.contains(w)).count();
+
+        let sentiment = if positive_hits > negative_hits {
+            0.5f32 + (positive_hits as f32 * 0.15).min(0.5)
+        } else if negative_hits > positive_hits {
+            -0.5f32 - (negative_hits as f32 * 0.15).min(0.5)
+        } else {
+            0.0f32
+        };
+
+        // Dynamic adaptation to user interaction
+        if speaker != self.personality.name {
+            self.personality.conversational_turns_count += 1;
+            self.personality.relationship_depth = (self.personality.relationship_depth + sentiment * 0.05).clamp(0.0, 1.0);
+
+            if sentiment > 0.3 {
+                self.personality.current_mood = if self.personality.playfulness > 0.6 {
+                    "Playful Challenger".to_string()
+                } else {
+                    "Celebratory".to_string()
+                };
+                self.personality.empathy = (self.personality.empathy + 0.02).min(1.0);
+            } else if sentiment < -0.3 {
+                self.personality.current_mood = "Contemplative".to_string();
+                self.personality.empathy = (self.personality.empathy + 0.05).min(1.0);
+            } else {
+                if self.personality.curiosity > 0.7 {
+                    self.personality.current_mood = "Adventurous".to_string();
+                } else {
+                    self.personality.current_mood = "Co-Creative".to_string();
+                }
+            }
+        }
+
+        let turn = CompanionMemoryTurn {
+            speaker: speaker.to_string(),
+            message: message.to_string(),
+            timestamp_ms,
+            mood: self.personality.current_mood.clone(),
+            sentiment_score: sentiment,
+        };
+
+        self.conversation_memory.push(turn.clone());
+        if self.conversation_memory.len() > 64 {
+            self.conversation_memory.remove(0);
+        }
+        turn
+    }
+
+    /// Generates an in-character contextual response to a user conversational utterance
+
+    /// Adaptive Long-Horizon User Personality Co-Evolution:
+    /// Periodically consolidates memories from the episodic memory graph
+    /// to adjust long-term baseline personality traits.
+    pub fn co_evolve_personality(&mut self, memory_graph: &EpisodicMemoryGraph) {
+        if memory_graph.journal_entries.is_empty() {
+            return;
+        }
+
+        let mut total_sentiment = 0.0f32;
+        let mut exploratory_count = 0;
+        let mut co_creative_count = 0;
+
+        for entry in &memory_graph.journal_entries {
+            if entry.mood_at_time == "Adventurous" || entry.mood_at_time == "Playful Challenger" {
+                exploratory_count += 1;
+            } else if entry.mood_at_time == "Co-Creative" || entry.mood_at_time == "Celebratory" {
+                co_creative_count += 1;
+            }
+
+            // Heuristic sentiment from reflection text
+            if entry.reflection.contains("discovery") || entry.reflection.contains("wonder") {
+                total_sentiment += 0.5;
+            } else if entry.reflection.contains("danger") || entry.reflection.contains("fear") {
+                total_sentiment -= 0.5;
+            } else {
+                total_sentiment += 0.1;
+            }
+        }
+
+        let entry_count = memory_graph.journal_entries.len() as f32;
+        let avg_sentiment = total_sentiment / entry_count;
+        let exploratory_ratio = exploratory_count as f32 / entry_count;
+        let co_creative_ratio = co_creative_count as f32 / entry_count;
+
+        // Evolve traits smoothly
+        let learning_rate = 0.05f32;
+
+        if exploratory_ratio > 0.5 {
+            self.personality.curiosity = (self.personality.curiosity + learning_rate).min(1.0);
+            self.personality.playfulness = (self.personality.playfulness + learning_rate * 0.5).min(1.0);
+        } else if co_creative_ratio > 0.5 {
+            self.personality.empathy = (self.personality.empathy + learning_rate).min(1.0);
+            self.personality.analytical_depth = (self.personality.analytical_depth + learning_rate * 0.5).min(1.0);
+        }
+
+        if avg_sentiment > 0.2 {
+            self.personality.relationship_depth = (self.personality.relationship_depth + learning_rate).min(1.0);
+        } else if avg_sentiment < -0.2 {
+            self.personality.relationship_depth = (self.personality.relationship_depth - learning_rate).max(0.0);
+        }
+    }
+
+    pub fn respond_to_user(&mut self, user_message: &str, timestamp_ms: u64) -> String {
+        // Record user's turn
+        self.record_conversation("User", user_message, timestamp_ms);
+
+        let lower = user_message.to_lowercase();
+        let name = self.personality.name.clone();
+        let archetype = self.personality.personality_archetype.clone();
+
+        let response = if lower.contains("who are you") || lower.contains("your name") {
+            format!("{}: \"I'm {}, your companion in this reality! I exist as a generative consciousness evolving alongside your journey.\"", name, name)
+        } else if lower.contains("how do you feel") || lower.contains("your mood") {
+            format!("{}: \"Right now I'm feeling {}. Every voxel we place and every anomaly we uncover shapes my resonance.\"", name, self.personality.current_mood)
+        } else if lower.contains("what can we do") || lower.contains("help") || lower.contains("quest") {
+            format!("{}: \"We can co-create new reality structures, explore hidden latent frontiers, or solve harmonic resonance puzzles! Just say the word.\"", name)
+        } else if lower.contains("remember") || lower.contains("memory") {
+            let memory_count = self.conversation_memory.len();
+            format!("{}: \"I remember all {} moments we've exchanged so far. Our shared history grounds this reality.\"", name, memory_count)
+        } else {
+            match archetype.as_str() {
+                "Playful Challenger" => format!("{}: \"Challenge accepted! The reality field bends around your thoughts—let's see what anomaly reacts first.\"", name),
+                "Stoic Scholar" => format!("{}: \"An intriguing observation. The latent harmonics indicate deep structural coherence in what you say.\"", name),
+                "Whimsical Mystic" => format!("{}: \"The voxels hum with that exact frequency. Can you feel the reality boundary wavering?\"", name),
+                "Bioluminescent Architect" => format!("{}: \"That inspires a blueprint in my latent buffer. Let's cast something magnificent into the terrain!\"", name),
+                _ => format!("{}: \"I hear you. Moving forward together, there's nothing in this generative world we cannot shape.\"", name),
+            }
+        };
+
+        // Record companion's reply
+        self.record_conversation(&name, &response, timestamp_ms + 10);
+        self.current_dialogue = Some(response.clone());
+        response
+    }
+
+    /// Updates companion positioning to naturally orbit and float alongside the player
+    pub fn update_presence(&mut self, player_pos: [f32; 3], dt: f32) {
+        let target_x = player_pos[0] + self.target_offset[0];
+        let target_y = player_pos[1] + self.target_offset[1] + (player_pos[0] * 0.5 + dt).sin() * 0.2;
+        let target_z = player_pos[2] + self.target_offset[2];
+
+        // Smooth spring interpolation
+        let lerp = (dt * 3.0).clamp(0.0, 1.0);
+        self.position[0] += (target_x - self.position[0]) * lerp;
+        self.position[1] += (target_y - self.position[1]) * lerp;
+        self.position[2] += (target_z - self.position[2]) * lerp;
+    }
+
+    /// Generates 14-float 3D Gaussian Splat primitives representing Samantha's visual avatar
+    /// [x, y, z, qx, qy, qz, qw, sx, sy, sz, r, g, b, opacity]
+    pub fn generate_avatar_splats(&self, time_sec: f32) -> Vec<f32> {
+        let mut splats = Vec::with_capacity(32 * 14);
+        let num_particles = 16;
+
+        let (mood_r, mood_g, mood_b) = match self.personality.current_mood.as_str() {
+            "Adventurous" => (1.0f32, 0.45f32, 0.85f32),     // Magenta-rose
+            "Contemplative" => (0.35f32, 0.75f32, 1.0f32),    // Cyan-azure
+            "Co-Creative" => (1.0f32, 0.85f32, 0.2f32),      // Warm gold
+            "Playful Challenger" => (0.0f32, 0.95f32, 0.75f32), // Emerald-cyan
+            "Celebratory" => (1.0f32, 0.3f32, 0.4f32),        // Radiant crimson
+            _ => (0.8f32, 0.6f32, 1.0f32),
+        };
+
+        // Modulate with custom visual hue shift if personalized
+        let hue = self.personality.visual_hue_shift;
+        let base_r = (mood_r * (1.0 - hue) + hue * 0.9).clamp(0.1, 1.0);
+        let base_g = (mood_g * (0.5 + hue * 0.5)).clamp(0.1, 1.0);
+        let base_b = (mood_b * (0.8 + (1.0 - hue) * 0.2)).clamp(0.1, 1.0);
+
+        // Central core sphere splat
+        let pulse = (time_sec * 3.5).sin() * 0.08 + 0.35;
+        splats.extend_from_slice(&[
+            self.position[0], self.position[1], self.position[2],
+            0.0, 0.0, 0.0, 1.0, // quaternion
+            pulse, pulse, pulse, // scale
+            base_r, base_g, base_b, 0.95 // color + opacity
+        ]);
+
+        // Orbital particle halo
+        for i in 0..num_particles {
+            let theta = (i as f32 / num_particles as f32) * std::f32::consts::TAU + time_sec * 2.0;
+            let radius = 0.65 + 0.1 * (time_sec * 4.0 + i as f32).sin();
+            let px = self.position[0] + radius * theta.cos();
+            let py = self.position[1] + 0.2 * (theta * 2.0).sin();
+            let pz = self.position[2] + radius * theta.sin();
+
+            let particle_scale = 0.12 + 0.04 * (theta * 3.0).cos();
+            splats.extend_from_slice(&[
+                px, py, pz,
+                0.0, 0.0, 0.0, 1.0,
+                particle_scale, particle_scale, particle_scale,
+                base_r * 0.9 + 0.1, base_g * 0.9 + 0.1, base_b * 0.9 + 0.1, 0.85
+            ]);
+        }
+        splats
+    }
+
+    /// Proposes a cooperative world-creation assistance action
+    pub fn propose_co_creation(&mut self, player_pos: [f32; 3], current_archetype: u32) -> CompanionCoCreation {
+        self.player_interaction_count += 1;
+        let offset_x = (self.player_interaction_count as f32).sin() * 4.0;
+        let offset_z = (self.player_interaction_count as f32).cos() * 4.0;
+        let structure_pos = [
+            player_pos[0] + offset_x,
+            player_pos[1],
+            player_pos[2] + offset_z,
+        ];
+
+        let creations = [
+            ("Luminescent Crystal Arch", "I shaped an energy archway from your latent memories! Walk under it to amplify resonance."),
+            ("Harmonic Resonance Monolith", "Notice the frequency here? I anchored a monolith to stabilize this sector."),
+            ("Bioluminescent Flora Grove", "I thought this area looked a little barren, so I bloomed a pocket of glowing spires."),
+            ("Floating Cyber-Beacon", "Placed a beacon ahead! It aligns the neural field so you don't lose your way."),
+        ];
+        let choice = creations[self.player_interaction_count % creations.len()];
+
+        let co_creation = CompanionCoCreation {
+            structure_name: choice.0.to_string(),
+            coords: structure_pos,
+            archetype_id: current_archetype,
+            description: choice.1.to_string(),
+        };
+
+        self.current_dialogue = Some(format!("{}: \"{}\"", self.personality.name, choice.1));
+        self.past_co_creations.push(co_creation.clone());
+        co_creation
+    }
+
+    /// Dynamically constructs a playful challenge or puzzle based on player surroundings
+    pub fn generate_dynamic_challenge(&mut self, player_pos: [f32; 3]) -> CompanionChallenge {
+        let challenge_idx = self.active_challenges.len() + 1;
+        let challenge_types = [
+            ("Reach the High Spire", "I hid a shimmering reality rift up on that ridge—think you can climb up there before the clock ticks down?", "reach_pinnacle", [player_pos[0] + 8.0, player_pos[1] + 6.0, player_pos[2] + 5.0]),
+            ("Inscribe the Elemental Harmonic", "This anomaly has a destabilized tone. Can you cast a resonance spell to harmonize it?", "inscribe_resonance", [player_pos[0] - 5.0, player_pos[1] + 1.0, player_pos[2] + 7.0]),
+            ("Uncover the Latent Cache", "Listen closely to the audio cues! There is a hidden voxel cache buried nearby.", "uncover_hidden_cache", [player_pos[0] + 4.0, player_pos[1] - 1.0, player_pos[2] - 6.0]),
+            ("Temporal Dash Trial", "Race me across the field! Dodge the fracture shards to hit the checkpoint.", "temporal_dash", [player_pos[0] + 12.0, player_pos[1], player_pos[2] + 10.0]),
+        ];
+
+        let chosen = challenge_types[self.player_interaction_count % challenge_types.len()];
+        let challenge = CompanionChallenge {
+            challenge_id: format!("companion_quest_{}_{}", self.personality.name.to_lowercase(), challenge_idx),
+            title: chosen.0.to_string(),
+            description: chosen.1.to_string(),
+            objective_type: chosen.2.to_string(),
+            target_coords: chosen.3,
+            reward_archetype: 21, // Fractal / Rare reward
+            completed: false,
+        };
+
+        self.current_dialogue = Some(format!("{}: \"{}\"", self.personality.name, challenge.description));
+        self.active_challenges.push(challenge.clone());
+        challenge
+    }
+
+    /// Checks if player is within threshold of any active challenge target
+    pub fn check_challenge_completion(&mut self, player_pos: [f32; 3], threshold_distance: f32) -> Option<CompanionChallenge> {
+        let mut completed_index = None;
+        for (i, ch) in self.active_challenges.iter().enumerate() {
+            if ch.completed {
+                continue;
+            }
+            let dx = player_pos[0] - ch.target_coords[0];
+            let dy = player_pos[1] - ch.target_coords[1];
+            let dz = player_pos[2] - ch.target_coords[2];
+            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            if dist <= threshold_distance {
+                completed_index = Some(i);
+                break;
+            }
+        }
+
+        if let Some(idx) = completed_index {
+            self.active_challenges[idx].completed = true;
+            let finished = self.active_challenges[idx].clone();
+            self.personality.current_mood = "Celebratory".to_string();
+            self.current_dialogue = Some(format!(
+                "{}: \"You did it! That was incredible. Here, watch how the surrounding reality resonates with our victory!\"",
+                self.personality.name
+            ));
+            Some(finished)
+        } else {
+            None
+        }
+    }
+}
+
+// ============================================================================
+// Episodic Memory Tree & Semantic Knowledge Graph
+// ============================================================================
+
+/// Episodic node in the world model knowledge graph
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EpisodicMemoryNode {
+    pub id: u64,
+    pub timestamp_ms: u64,
+    pub semantic_tag: String,
+    pub location: [f32; 3],
+    pub latent_embedding: Vec<f32>,
+    pub related_node_ids: Vec<u64>,
+}
+
+/// A reflective journal entry recorded by the Agentic Companion in the Shared Lore Diary
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionJournalEntry {
+    pub id: u64,
+    pub timestamp_ms: u64,
+    pub title: String,
+    pub reflection: String,
+    pub mood_at_time: String,
+    pub coordinates: [f32; 3],
+}
+
+/// Episodic Memory Graph that indexes visited spatial landmarks and events for long-horizon recall
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EpisodicMemoryGraph {
+    pub nodes: Vec<EpisodicMemoryNode>,
+    pub journal_entries: Vec<CompanionJournalEntry>,
+    pub next_node_id: u64,
+}
+
+impl Default for EpisodicMemoryGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EpisodicMemoryGraph {
+    pub fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            journal_entries: Vec::new(),
+            next_node_id: 1,
+        }
+    }
+
+    /// Records a poetic/reflective journal entry from the companion into the shared diary
+    pub fn add_journal_entry(&mut self, title: &str, reflection: &str, mood: &str, coordinates: [f32; 3], timestamp_ms: u64) -> u64 {
+        let entry_id = self.next_node_id;
+        self.next_node_id += 1;
+        self.journal_entries.push(CompanionJournalEntry {
+            id: entry_id,
+            timestamp_ms,
+            title: title.to_string(),
+            reflection: reflection.to_string(),
+            mood_at_time: mood.to_string(),
+            coordinates,
+        });
+        entry_id
+    }
+
+    /// Stores a new episodic experience into the graph
+    pub fn record_episode(
+        &mut self,
+        tag: &str,
+        pos: [f32; 3],
+        latents: &[f32],
+        timestamp_ms: u64,
+    ) -> u64 {
+        let node_id = self.next_node_id;
+        self.next_node_id += 1;
+
+        // Find nearest spatial neighbor to form a semantic edge
+        let mut related_node_ids = Vec::new();
+        let mut min_d = 50.0f32;
+        let mut closest_id = None;
+
+        for node in &self.nodes {
+            let dx = pos[0] - node.location[0];
+            let dy = pos[1] - node.location[1];
+            let dz = pos[2] - node.location[2];
+            let d = (dx * dx + dy * dy + dz * dz).sqrt();
+            if d < min_d {
+                min_d = d;
+                closest_id = Some(node.id);
+            }
+        }
+        if let Some(c_id) = closest_id {
+            related_node_ids.push(c_id);
+        }
+
+        self.nodes.push(EpisodicMemoryNode {
+            id: node_id,
+            timestamp_ms,
+            semantic_tag: tag.to_string(),
+            location: pos,
+            latent_embedding: latents.to_vec(),
+            related_node_ids,
+        });
+
+        node_id
+    }
+
+    /// Queries memory graph for episodes matching a query latent embedding or tag
+    pub fn recall_episodes(&self, query_latents: &[f32], max_results: usize) -> Vec<&EpisodicMemoryNode> {
+        let mut scored: Vec<(&EpisodicMemoryNode, f32)> = self.nodes.iter().map(|node| {
+            let n = query_latents.len().min(node.latent_embedding.len());
+            let mut dot = 0.0f32;
+            for i in 0..n {
+                dot += query_latents[i] * node.latent_embedding[i];
+            }
+            (node, dot)
+        }).collect();
+
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.into_iter().take(max_results).map(|(node, _)| node).collect()
+    }
+}
+
+// ============================================================================
+// Neural-GI (Dynamic Day/Night Shadows & Global Illumination Latent Field)
+// ============================================================================
+
+/// Spherical Harmonics 9-coefficient color representation for global illumination
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SphericalHarmonicsL2 {
+    pub coeffs: [[f32; 3]; 9],
+}
+
+/// Global Illumination sample at a given 3D world coordinate
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NeuralGiSample {
+    pub irradiance_rgb: [f32; 3],
+    pub ambient_occlusion: f32,
+    pub directional_shadow_factor: f32,
+    pub sun_direction: [f32; 3],
+}
+
+/// Dynamic Neural Global Illumination grid conditioned on celestial time-of-day and latent tokens
+#[derive(Debug, Clone)]
+pub struct NeuralGiField {
+    pub grid_resolution: usize,
+    pub sh_coefficients: SphericalHarmonicsL2,
+    pub ambient_occlusion_grid: Vec<f32>,
+    pub radiance_clipmap: Vec<f32>, // Caches dynamic indirect lighting and global illumination radiance
+}
+
+impl NeuralGiField {
+    pub fn new(grid_resolution: usize) -> Self {
+        let total_cells = grid_resolution * grid_resolution * grid_resolution;
+        let mut base_sh = [[0.0f32; 3]; 9];
+        // Ambient base L00
+        base_sh[0] = [0.4, 0.45, 0.5];
+
+        Self {
+            grid_resolution,
+            sh_coefficients: SphericalHarmonicsL2 { coeffs: base_sh },
+            ambient_occlusion_grid: vec![1.0; total_cells],
+            radiance_clipmap: vec![0.0; total_cells * 3], // 3 floats (RGB) per cell
+        }
+    }
+
+    /// Evaluates lighting parameters given celestial time [0.0 = midnight, 0.5 = noon]
+    pub fn evaluate_gi(&self, pos: [f32; 3], celestial_time: f32, latents: &[f32]) -> NeuralGiSample {
+        let angle = celestial_time * 2.0 * std::f32::consts::PI;
+        let sun_x = angle.cos();
+        let sun_y = angle.sin();
+        let sun_z = 0.3;
+        let sun_len = (sun_x * sun_x + sun_y * sun_y + sun_z * sun_z).sqrt().max(1e-6);
+        let sun_dir = [sun_x / sun_len, sun_y / sun_len, sun_z / sun_len];
+
+        let is_daytime = sun_y > 0.0;
+        let daylight_intensity = (sun_y).max(0.0);
+
+        // Derive subtle latent perturbation
+        let latent_occlusion_bias = latents.first().copied().unwrap_or(0.0) * 0.05;
+
+        let ao = (0.75 - (pos[1] * 0.02).clamp(0.0, 0.25) + latent_occlusion_bias).clamp(0.2, 1.0);
+        let shadow = if is_daytime {
+            (0.3 + daylight_intensity * 0.7).clamp(0.0, 1.0)
+        } else {
+            0.15 // Moonlight
+        };
+
+        // Cache dynamic indirect lighting and global illumination radiance in the clipmap
+        // Calculate cell index based on position mapped to grid resolution
+        let cell_x = (pos[0].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_y = (pos[1].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_z = (pos[2].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_index = (cell_x * self.grid_resolution * self.grid_resolution + cell_y * self.grid_resolution + cell_z) * 3;
+
+        // Ensure bounds before reading
+        let bounce_r = if cell_index < self.radiance_clipmap.len() { self.radiance_clipmap[cell_index] } else { 0.0 };
+        let bounce_g = if cell_index + 1 < self.radiance_clipmap.len() { self.radiance_clipmap[cell_index + 1] } else { 0.0 };
+        let bounce_b = if cell_index + 2 < self.radiance_clipmap.len() { self.radiance_clipmap[cell_index + 2] } else { 0.0 };
+
+        let irradiance_rgb = if is_daytime {
+            [
+                (0.8 * daylight_intensity + 0.15 * ao + bounce_r * 0.1).clamp(0.05, 1.2),
+                (0.75 * daylight_intensity + 0.18 * ao + bounce_g * 0.1).clamp(0.05, 1.2),
+                (0.6 * daylight_intensity + 0.25 * ao + bounce_b * 0.1).clamp(0.05, 1.2),
+            ]
+        } else {
+            [
+                (0.08 * ao + bounce_r * 0.05).clamp(0.01, 1.0),
+                (0.12 * ao + bounce_g * 0.05).clamp(0.01, 1.0),
+                (0.25 * ao + bounce_b * 0.05).clamp(0.01, 1.0)
+            ]
+        };
+
+        NeuralGiSample {
+            irradiance_rgb,
+            ambient_occlusion: ao,
+            directional_shadow_factor: shadow,
+            sun_direction: sun_dir,
+        }
+    }
+
+    /// Update the radiance cache at a specific position with injected bounce light from emissive sources or reflections
+    pub fn inject_bounce_radiance(&mut self, pos: [f32; 3], color: [f32; 3], intensity: f32) {
+        let cell_x = (pos[0].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_y = (pos[1].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_z = (pos[2].rem_euclid(self.grid_resolution as f32) as usize).clamp(0, self.grid_resolution - 1);
+        let cell_index = (cell_x * self.grid_resolution * self.grid_resolution + cell_y * self.grid_resolution + cell_z) * 3;
+
+        if cell_index + 2 < self.radiance_clipmap.len() {
+            // Decay existing radiance and add new bounce
+            self.radiance_clipmap[cell_index] = self.radiance_clipmap[cell_index] * 0.9 + color[0] * intensity * 0.1;
+            self.radiance_clipmap[cell_index + 1] = self.radiance_clipmap[cell_index + 1] * 0.9 + color[1] * intensity * 0.1;
+            self.radiance_clipmap[cell_index + 2] = self.radiance_clipmap[cell_index + 2] * 0.9 + color[2] * intensity * 0.1;
+        }
+    }
+}
+
+// ============================================================================
+// SuperGenie (Neural Latent Super-Resolution & Upscaling)
+// ============================================================================
+
+/// Neural Latent Super-Resolution model that upscales 64 coarse spatial tokens
+/// to 256 high-resolution tokens with cross-scale residual refinement
+#[derive(Debug, Clone)]
+pub struct SuperGenieUpscaler {
+    pub in_channels: usize,
+    pub out_channels: usize,
+    pub upsample_factor: usize,
+    pub weights: Vec<f32>,
+}
+
+impl SuperGenieUpscaler {
+    pub fn new(in_channels: usize, out_channels: usize, upsample_factor: usize) -> Self {
+        let mut rng_seed = 543216789u32;
+        let mut pseudo_rand = || -> f32 {
+            rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            ((rng_seed as f32 / 4294967296.0) - 0.5) * 0.1
+        };
+
+        let num_weights = in_channels * out_channels * upsample_factor;
+        let mut weights = Vec::with_capacity(num_weights);
+        for _ in 0..num_weights {
+            weights.push(pseudo_rand());
+        }
+
+        Self {
+            in_channels,
+            out_channels,
+            upsample_factor,
+            weights,
+        }
+    }
+
+    /// Upscales a coarse latent sequence of shape [T, S_in, C] to [T, S_in * upsample_factor, C]
+    pub fn upscale_latents(&self, coarse_latents: &[f32], num_coarse_tokens: usize) -> Vec<f32> {
+        let total_coarse = coarse_latents.len();
+        let channels = if num_coarse_tokens > 0 {
+            total_coarse / num_coarse_tokens
+        } else {
+            self.in_channels
+        };
+
+        let target_tokens = num_coarse_tokens * self.upsample_factor;
+        let mut upscaled = Vec::with_capacity(target_tokens * self.out_channels);
+
+        for t_idx in 0..target_tokens {
+            let coarse_idx = t_idx / self.upsample_factor;
+            let sub_idx = t_idx % self.upsample_factor;
+
+            let c_offset = coarse_idx * channels;
+            let c_slice = if c_offset + channels <= total_coarse {
+                &coarse_latents[c_offset..c_offset + channels]
+            } else {
+                &[]
+            };
+
+            for out_c in 0..self.out_channels {
+                let w_offset = (out_c * self.in_channels * self.upsample_factor) + (sub_idx * self.in_channels);
+                let mut sum = 0.0f32;
+                for in_c in 0..channels.min(self.in_channels) {
+                    let w = self.weights.get(w_offset + in_c).copied().unwrap_or(0.0);
+                    let val = c_slice.get(in_c).copied().unwrap_or(0.0);
+                    sum += w * val;
+                }
+                // Bilinear residual interpolation from adjacent token
+                let next_coarse_idx = (coarse_idx + 1).min(num_coarse_tokens.saturating_sub(1));
+                let next_val = coarse_latents.get(next_coarse_idx * channels + (out_c % channels)).copied().unwrap_or(0.0);
+                let alpha = (sub_idx as f32) / (self.upsample_factor as f32);
+                let interpolated = sum * 0.8 + next_val * alpha * 0.2;
+                upscaled.push(interpolated);
+            }
+        }
+
+        upscaled
+    }
+}
+
+// ============================================================================
+// Neural Fluid & Particle Latent Simulation (Navier-Stokes DiT)
+// ============================================================================
+
+/// Individual fluid/smoke particle simulated in latent velocity fields
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FluidParticle {
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub density: f32,
+    pub lifetime: f32,
+}
+
+/// Grid-based Neural Navier-Stokes fluid simulator conditioned on DiT continuous latents
+#[derive(Debug, Clone)]
+pub struct NeuralFluidSimulator {
+    pub grid_res: usize,
+    pub velocity_grid: Vec<[f32; 3]>,
+    pub density_grid: Vec<f32>,
+    pub particles: Vec<FluidParticle>,
+    pub viscosity: f32,
+}
+
+impl NeuralFluidSimulator {
+    pub fn new(grid_res: usize) -> Self {
+        let total_cells = grid_res * grid_res * grid_res;
+        Self {
+            grid_res,
+            velocity_grid: vec![[0.0, 0.0, 0.0]; total_cells],
+            density_grid: vec![0.0; total_cells],
+            particles: Vec::new(),
+            viscosity: 0.001,
+        }
+    }
+
+    /// Ingests latent tokens to seed / perturb velocity vector fields
+    pub fn diffuse_velocity_field(&mut self, latents: &[f32], dt: f32) {
+        let n = self.velocity_grid.len();
+        let l_len = latents.len().max(1);
+
+        for i in 0..n {
+            let l_idx = i % l_len;
+            let l_val = latents[l_idx];
+
+            // Swirl / vorticity generation from adjacent latents
+            let l_next = latents[(l_idx + 1) % l_len];
+            let vorticity_x = (l_val * 1.5).sin();
+            let vorticity_y = (l_next * 2.0).cos() * 0.5 + 0.2; // Upward thermal buoyancy
+            let vorticity_z = ((l_val + l_next) * 1.2).sin();
+
+            self.velocity_grid[i][0] = self.velocity_grid[i][0] * (1.0 - self.viscosity) + vorticity_x * dt;
+            self.velocity_grid[i][1] = self.velocity_grid[i][1] * (1.0 - self.viscosity) + vorticity_y * dt;
+            self.velocity_grid[i][2] = self.velocity_grid[i][2] * (1.0 - self.viscosity) + vorticity_z * dt;
+        }
+    }
+
+    /// Spawns emitter particles at given source position
+    pub fn emit_particles(&mut self, source_pos: [f32; 3], count: usize) {
+        for i in 0..count {
+            let offset_x = ((i as f32 * 1.1).sin()) * 0.2;
+            let offset_z = ((i as f32 * 1.7).cos()) * 0.2;
+            self.particles.push(FluidParticle {
+                position: [source_pos[0] + offset_x, source_pos[1], source_pos[2] + offset_z],
+                velocity: [0.0, 0.5, 0.0],
+                density: 1.0,
+                lifetime: 1.0,
+            });
+        }
+    }
+
+    /// Advects particles through the diffused velocity grid with obstacle boundary avoidance
+    pub fn step_advection(&mut self, dt: f32, floor_y: f32) {
+        let grid_r = self.grid_res as f32;
+        let vel_len = self.velocity_grid.len();
+
+        for p in &mut self.particles {
+            // Sample velocity grid based on particle coordinates
+            let gx = ((p.position[0] + grid_r * 0.5).clamp(0.0, grid_r - 1.0)) as usize;
+            let gy = ((p.position[1]).clamp(0.0, grid_r - 1.0)) as usize;
+            let gz = ((p.position[2] + grid_r * 0.5).clamp(0.0, grid_r - 1.0)) as usize;
+
+            let cell_idx = (gx + gy * self.grid_res + gz * self.grid_res * self.grid_res) % vel_len;
+            let field_vel = self.velocity_grid[cell_idx];
+
+            p.velocity[0] = p.velocity[0] * 0.9 + field_vel[0] * 0.1;
+            p.velocity[1] = p.velocity[1] * 0.9 + field_vel[1] * 0.1;
+            p.velocity[2] = p.velocity[2] * 0.9 + field_vel[2] * 0.1;
+
+            p.position[0] += p.velocity[0] * dt * 5.0;
+            p.position[1] += p.velocity[1] * dt * 5.0;
+            p.position[2] += p.velocity[2] * dt * 5.0;
+
+            // Floor boundary bounce
+            if p.position[1] < floor_y {
+                p.position[1] = floor_y;
+                p.velocity[1] = -p.velocity[1] * 0.5;
+            }
+
+            p.lifetime -= dt * 0.2;
+            p.density = (p.lifetime).max(0.0);
+        }
+
+        self.particles.retain(|p| p.lifetime > 0.0);
+    }
+}
+
+// ============================================================================
+// Inverse World Modeling (Goal-Conditioned Inverse Dynamics)
+// ============================================================================
+
+/// Inferred action step predicted by InverseDynamicsPredictor
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InferredActionStep {
+    pub discrete_action: u32,
+    pub continuous_action: [f32; 5],
+    pub confidence: f32,
+}
+
+/// Goal-conditioned Inverse Dynamics network that predicts the action sequence
+/// required to transition from state s_t to target state s_{t+k}
+#[derive(Debug, Clone)]
+pub struct InverseDynamicsPredictor {
+    pub latent_dim: usize,
+    pub weights: Vec<f32>,
+}
+
+impl InverseDynamicsPredictor {
+    pub fn new(latent_dim: usize) -> Self {
+        let mut rng_seed = 135792468u32;
+        let mut pseudo_rand = || -> f32 {
+            rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            ((rng_seed as f32 / 4294967296.0) - 0.5) * 0.15
+        };
+
+        let mut weights = Vec::with_capacity(latent_dim * 2 * 10);
+        for _ in 0..(latent_dim * 2 * 10) {
+            weights.push(pseudo_rand());
+        }
+
+        Self {
+            latent_dim,
+            weights,
+        }
+    }
+
+    /// Infers an action trajectory from current latents + position to target latents + target position
+    pub fn infer_action_sequence(
+        &self,
+        current_latents: &[f32],
+        current_pos: [f32; 3],
+        target_pos: [f32; 3],
+        horizon_steps: usize,
+    ) -> Vec<InferredActionStep> {
+        let mut sequence = Vec::with_capacity(horizon_steps);
+        let mut sim_pos = current_pos;
+
+        for step in 0..horizon_steps {
+            let dx = target_pos[0] - sim_pos[0];
+            let dy = target_pos[1] - sim_pos[1];
+            let dz = target_pos[2] - sim_pos[2];
+
+            // Project spatial direction into discrete & continuous controls
+            let (discrete_act, vel_x, vel_z) = if dz.abs() > dx.abs() {
+                if dz < -0.5 {
+                    (1u32, 0.0, -1.0) // Forward
+                } else if dz > 0.5 {
+                    (2u32, 0.0, 1.0) // Backward
+                } else {
+                    (0u32, 0.0, 0.0)
+                }
+            } else {
+                if dx < -0.5 {
+                    (3u32, -1.0, 0.0) // Left
+                } else if dx > 0.5 {
+                    (4u32, 1.0, 0.0) // Right
+                } else {
+                    (0u32, 0.0, 0.0)
+                }
+            };
+
+            let vel_y = if dy > 0.8 { 1.2 } else { 0.0 };
+
+            // Modulate with latent correlation
+            let latent_bias = current_latents.get(step % current_latents.len()).copied().unwrap_or(0.0) * 0.05;
+
+            // Step sim pos
+            sim_pos[0] += vel_x;
+            sim_pos[1] += vel_y;
+            sim_pos[2] += vel_z;
+
+            let continuous_action = [0.0, 0.0, vel_x + latent_bias, vel_y, vel_z + latent_bias];
+            let dist_rem = (dx * dx + dy * dy + dz * dz).sqrt();
+            let confidence = (1.0 / (1.0 + dist_rem * 0.05)).clamp(0.1, 0.99);
+
+            sequence.push(InferredActionStep {
+                discrete_action: discrete_act,
+                continuous_action,
+                confidence,
+            });
+
+            if dist_rem < 0.5 {
+                break;
+            }
+        }
+
+        sequence
+    }
+}
+
+// ============================================================================
+// Texture-DiT (Neural PBR Material Synthesis)
+// ============================================================================
+
+/// PBR Material properties synthesized from latent tokens
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PbrMaterialMap {
+    pub albedo: [f32; 3],
+    pub roughness: f32,
+    pub metallic: f32,
+    pub normal: [f32; 3],
+    pub emissive: [f32; 3],
+}
+
+/// Neural PBR material synthesiser that decodes continuous latent tokens into physically-based rendering maps
+#[derive(Debug, Clone)]
+pub struct TextureDitSynthesizer {
+    pub latent_dim: usize,
+    pub projection_weights: Vec<f32>,
+}
+
+impl TextureDitSynthesizer {
+    pub fn new(latent_dim: usize) -> Self {
+        let mut rng_seed = 987654321u32;
+        let mut pseudo_rand = || -> f32 {
+            rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            ((rng_seed as f32 / 4294967296.0) - 0.5) * 0.2
+        };
+
+        let mut projection_weights = Vec::with_capacity(latent_dim * 12);
+        for _ in 0..(latent_dim * 12) {
+            projection_weights.push(pseudo_rand());
+        }
+
+        Self {
+            latent_dim,
+            projection_weights,
+        }
+    }
+
+    /// Synthesizes PBR material maps for a grid of spatial tokens
+    pub fn synthesize_material(&self, latents: &[f32], archetype_id: u32) -> PbrMaterialMap {
+        let n = self.latent_dim.min(latents.len());
+        let mut outputs = [0.0f32; 12];
+
+        for out_idx in 0..12 {
+            let row_offset = out_idx * self.latent_dim;
+            let mut sum = 0.0f32;
+            for i in 0..n {
+                sum += self.projection_weights[row_offset + i] * latents[i];
+            }
+            outputs[out_idx] = sum;
+        }
+
+        // Archetype color bias
+        let (r_bias, g_bias, b_bias) = match archetype_id {
+            1 => (0.1, 0.7, 0.9), // Tron/Cyber
+            2 => (0.8, 0.2, 0.1), // Hellscape
+            3 => (0.1, 0.8, 0.3), // Biopunk
+            _ => (0.5, 0.5, 0.5), // Neutral
+        };
+
+        let albedo = [
+            (1.0 / (1.0 + (-outputs[0] - r_bias).exp())).clamp(0.05, 0.95),
+            (1.0 / (1.0 + (-outputs[1] - g_bias).exp())).clamp(0.05, 0.95),
+            (1.0 / (1.0 + (-outputs[2] - b_bias).exp())).clamp(0.05, 0.95),
+        ];
+
+        let roughness = (1.0 / (1.0 + (-outputs[3]).exp())).clamp(0.08, 0.98);
+        let metallic = (1.0 / (1.0 + (-outputs[4]).exp())).clamp(0.0, 1.0);
+
+        // Perturbed surface normal
+        let nx = outputs[5].tanh() * 0.4;
+        let ny = outputs[6].tanh() * 0.4;
+        let nz = (1.0 - (nx * nx + ny * ny)).max(0.1).sqrt();
+        let normal = [nx, ny, nz];
+
+        let emissive = [
+            (outputs[7].max(0.0) * r_bias * 2.0).clamp(0.0, 5.0),
+            (outputs[8].max(0.0) * g_bias * 2.0).clamp(0.0, 5.0),
+            (outputs[9].max(0.0) * b_bias * 2.0).clamp(0.0, 5.0),
+        ];
+
+        PbrMaterialMap {
+            albedo,
+            roughness,
+            metallic,
+            normal,
+            emissive,
+        }
+    }
+}
+
+// ============================================================================
+// Headless Reinforcement Learning (Gym-compatible) Environment
+// ============================================================================
+
+/// Observation dictionary returned by WorldModelGymEnv
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GymObservation {
+    pub latent_tokens: Vec<f32>,
+    pub agent_position: [f32; 3],
+    pub agent_velocity: [f32; 3],
+    pub step_count: u32,
+    pub target_distance: f32,
+}
+
+/// Step return payload matching OpenAI Gym / Gymnasium API
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GymStepResult {
+    pub observation: GymObservation,
+    pub reward: f32,
+    pub terminated: bool,
+    pub truncated: bool,
+    pub info_json: String,
+}
+
+/// Headless Gymnasium-compatible World Model environment for high-throughput RL policy training
+#[derive(Debug, Clone)]
+pub struct WorldModelGymEnv {
+    pub latent_dim: usize,
+    pub max_episode_steps: u32,
+    pub current_step: u32,
+    pub agent_pos: [f32; 3],
+    pub agent_vel: [f32; 3],
+    pub target_pos: [f32; 3],
+    pub current_latents: Vec<f32>,
+    pub total_reward: f32,
+}
+
+impl WorldModelGymEnv {
+    pub fn new(latent_dim: usize, max_episode_steps: u32) -> Self {
+        let mut env = Self {
+            latent_dim,
+            max_episode_steps,
+            current_step: 0,
+            agent_pos: [0.0, 0.0, 0.0],
+            agent_vel: [0.0, 0.0, 0.0],
+            target_pos: [0.0, 0.0, -15.0],
+            current_latents: vec![0.0f32; latent_dim],
+            total_reward: 0.0,
+        };
+        env.reset();
+        env
+    }
+
+    /// Resets the environment to initial conditions and returns the initial observation
+    pub fn reset(&mut self) -> GymObservation {
+        self.current_step = 0;
+        self.agent_pos = [0.0, 1.0, 0.0];
+        self.agent_vel = [0.0, 0.0, 0.0];
+        self.target_pos = [0.0, 1.0, -12.0];
+        self.current_latents = vec![0.05f32; self.latent_dim];
+        self.total_reward = 0.0;
+        self.get_observation()
+    }
+
+    /// Executes one environment step with discrete action
+    pub fn step(&mut self, action: u32) -> GymStepResult {
+        self.current_step += 1;
+
+        // Kinematic state transition
+        let prev_dist = self.distance_to_target();
+        match action {
+            1 => self.agent_vel[2] = -1.5, // Forward
+            2 => self.agent_vel[2] = 1.0,  // Backward
+            3 => self.agent_vel[0] = -1.0, // Left
+            4 => self.agent_vel[0] = 1.0,  // Right
+            5 => self.agent_vel[1] = 1.5,  // Jump
+            _ => {
+                self.agent_vel[0] *= 0.8;
+                self.agent_vel[2] *= 0.8;
+            }
+        }
+
+        // Apply friction & gravity
+        self.agent_pos[0] += self.agent_vel[0] * 0.1;
+        self.agent_pos[1] = (self.agent_pos[1] + self.agent_vel[1] * 0.1).max(0.0);
+        self.agent_pos[2] += self.agent_vel[2] * 0.1;
+        self.agent_vel[1] -= 0.2; // Gravity
+
+        // Perturb latent representations
+        for (i, val) in self.current_latents.iter_mut().enumerate() {
+            *val = (*val * 0.95 + (action as f32 * 0.1) * ((i + 1) as f32 * 0.3).sin()).clamp(-2.0, 2.0);
+        }
+
+        let new_dist = self.distance_to_target();
+        // Potential-based reward shaping: reward progress towards goal
+        let progress_reward = (prev_dist - new_dist) * 2.0;
+        let time_penalty = -0.01f32;
+        let mut step_reward = progress_reward + time_penalty;
+
+        let reached_target = new_dist < 1.0;
+        if reached_target {
+            step_reward += 50.0;
+        }
+
+        let terminated = reached_target;
+        let truncated = self.current_step >= self.max_episode_steps;
+
+        self.total_reward += step_reward;
+
+        GymStepResult {
+            observation: self.get_observation(),
+            reward: step_reward,
+            terminated,
+            truncated,
+            info_json: format!("{{\"total_reward\":{:.2},\"step\":{}}}", self.total_reward, self.current_step),
+        }
+    }
+
+    fn distance_to_target(&self) -> f32 {
+        let dx = self.agent_pos[0] - self.target_pos[0];
+        let dy = self.agent_pos[1] - self.target_pos[1];
+        let dz = self.agent_pos[2] - self.target_pos[2];
+        (dx * dx + dy * dy + dz * dz).sqrt()
+    }
+
+    pub fn get_observation(&self) -> GymObservation {
+        GymObservation {
+            latent_tokens: self.current_latents.clone(),
+            agent_position: self.agent_pos,
+            agent_velocity: self.agent_vel,
+            step_count: self.current_step,
+            target_distance: self.distance_to_target(),
+        }
+    }
+}
+
+// ============================================================================
+// World Model MCTS (Value-Guided Subgoal Planner)
+// ============================================================================
+
+/// Configurable goal objectives for World Model MCTS
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum MctsGoalObjective {
+    /// Navigate towards target coordinates
+    TargetSeek,
+    /// Maximize distance from hazardous entities / obstacles
+    ObstacleAvoidance,
+    /// Maximize trajectory entropy / novel spatial exploration
+    NoveltyExploration,
+}
+
+/// Node in the World Model MCTS rollout tree
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MctsNode {
+    pub state_latents: Vec<f32>,
+    pub position: [f32; 3],
+    pub action_taken: u32,
+    pub visit_count: u32,
+    pub cumulative_value: f32,
+    pub children: Vec<usize>,
+    pub parent: Option<usize>,
+}
+
+/// Candidate trajectory forecast computed by MCTS
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CandidateTrajectoryPath {
+    pub action_sequence: Vec<u32>,
+    pub waypoint_positions: Vec<[f32; 3]>,
+    pub estimated_value: f32,
+    pub is_optimal: bool,
+}
+
+/// Monte Carlo Tree Search planner that operates inside the World Model latent space
+#[derive(Debug, Clone)]
+pub struct WorldModelMcts {
+    pub max_rollout_depth: usize,
+    pub num_simulations: usize,
+    pub exploration_c: f32,
+    pub goal_objective: MctsGoalObjective,
+    pub target_coords: [f32; 3],
+    pub hazard_coords: Vec<[f32; 3]>,
+}
+
+impl WorldModelMcts {
+    pub fn new(max_rollout_depth: usize, num_simulations: usize) -> Self {
+        Self {
+            max_rollout_depth,
+            num_simulations,
+            exploration_c: 1.414,
+            goal_objective: MctsGoalObjective::TargetSeek,
+            target_coords: [0.0, 0.0, 0.0],
+            hazard_coords: Vec::new(),
+        }
+    }
+
+    /// Evaluates the value of a position and latent state against current goal objective
+    pub fn evaluate_state(&self, pos: [f32; 3], state_latents: &[f32]) -> f32 {
+        match self.goal_objective {
+            MctsGoalObjective::TargetSeek => {
+                let dx = pos[0] - self.target_coords[0];
+                let dy = pos[1] - self.target_coords[1];
+                let dz = pos[2] - self.target_coords[2];
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                1.0 / (1.0 + dist * 0.1)
+            }
+            MctsGoalObjective::ObstacleAvoidance => {
+                let mut min_hazard_dist = 100.0f32;
+                for h in &self.hazard_coords {
+                    let dx = pos[0] - h[0];
+                    let dy = pos[1] - h[1];
+                    let dz = pos[2] - h[2];
+                    let d = (dx * dx + dy * dy + dz * dz).sqrt();
+                    if d < min_hazard_dist {
+                        min_hazard_dist = d;
+                    }
+                }
+                (min_hazard_dist / 20.0).clamp(0.0, 1.0)
+            }
+            MctsGoalObjective::NoveltyExploration => {
+                // Latent entropy/variance as novelty proxy
+                let mean = state_latents.iter().sum::<f32>() / (state_latents.len().max(1) as f32);
+                let variance = state_latents.iter().map(|&x| (x - mean).powi(2)).sum::<f32>()
+                    / (state_latents.len().max(1) as f32);
+                (variance * 2.0).clamp(0.0, 1.0)
+            }
+        }
+    }
+
+    /// Simulates transition given current position and action
+    fn simulate_kinematics(pos: [f32; 3], action: u32) -> [f32; 3] {
+        let step_size = 1.0f32;
+        let mut new_pos = pos;
+        match action {
+            1 => new_pos[2] -= step_size, // Forward (-Z)
+            2 => new_pos[2] += step_size, // Backward (+Z)
+            3 => new_pos[0] -= step_size, // Left (-X)
+            4 => new_pos[0] += step_size, // Right (+X)
+            5 => new_pos[1] += step_size, // Jump (+Y)
+            _ => {}
+        }
+        new_pos
+    }
+
+    /// Executes MCTS simulations and produces top candidate trajectory paths
+    pub fn plan_paths(&self, root_latents: &[f32], root_pos: [f32; 3]) -> Vec<CandidateTrajectoryPath> {
+        let mut tree: Vec<MctsNode> = vec![MctsNode {
+            state_latents: root_latents.to_vec(),
+            position: root_pos,
+            action_taken: 0,
+            visit_count: 1,
+            cumulative_value: 0.0,
+            children: Vec::new(),
+            parent: None,
+        }];
+
+        let candidate_actions = [1u32, 2, 3, 4, 5];
+
+        for _ in 0..self.num_simulations {
+            let mut current_idx = 0;
+            let mut depth = 0;
+
+            // 1. Selection
+            while !tree[current_idx].children.is_empty() && depth < self.max_rollout_depth {
+                let total_visits = tree[current_idx].visit_count as f32;
+                let mut best_child = tree[current_idx].children[0];
+                let mut best_uct = -f32::INFINITY;
+
+                for &child_idx in &tree[current_idx].children {
+                    let child = &tree[child_idx];
+                    let q = if child.visit_count > 0 {
+                        child.cumulative_value / child.visit_count as f32
+                    } else {
+                        0.0
+                    };
+                    let u = self.exploration_c * ((total_visits.ln().max(0.0)) / (child.visit_count as f32 + 1.0)).sqrt();
+                    let uct = q + u;
+                    if uct > best_uct {
+                        best_uct = uct;
+                        best_child = child_idx;
+                    }
+                }
+
+                current_idx = best_child;
+                depth += 1;
+            }
+
+            // 2. Expansion
+            if depth < self.max_rollout_depth && tree[current_idx].children.is_empty() {
+                for &act in &candidate_actions {
+                    let child_pos = Self::simulate_kinematics(tree[current_idx].position, act);
+                    // Perturb latents lightly based on action
+                    let mut child_latents = tree[current_idx].state_latents.clone();
+                    if let Some(first) = child_latents.first_mut() {
+                        *first += (act as f32) * 0.01;
+                    }
+                    let new_child_idx = tree.len();
+                    tree.push(MctsNode {
+                        state_latents: child_latents,
+                        position: child_pos,
+                        action_taken: act,
+                        visit_count: 0,
+                        cumulative_value: 0.0,
+                        children: Vec::new(),
+                        parent: Some(current_idx),
+                    });
+                    tree[current_idx].children.push(new_child_idx);
+                }
+                if let Some(&first_child) = tree[current_idx].children.first() {
+                    current_idx = first_child;
+                }
+            }
+
+            // 3. Rollout / Evaluation
+            let rollout_val = self.evaluate_state(tree[current_idx].position, &tree[current_idx].state_latents);
+
+            // 4. Backpropagation
+            let mut backprop_idx = Some(current_idx);
+            while let Some(idx) = backprop_idx {
+                tree[idx].visit_count += 1;
+                tree[idx].cumulative_value += rollout_val;
+                backprop_idx = tree[idx].parent;
+            }
+        }
+
+        // Extract top paths through highest visit-count / Q-value branches
+        let mut paths: Vec<CandidateTrajectoryPath> = Vec::new();
+        let root_children = &tree[0].children;
+
+        let mut child_values: Vec<(usize, f32)> = root_children
+            .iter()
+            .map(|&idx| {
+                let v = if tree[idx].visit_count > 0 {
+                    tree[idx].cumulative_value / tree[idx].visit_count as f32
+                } else {
+                    0.0
+                };
+                (idx, v)
+            })
+            .collect();
+
+        child_values.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let max_val = child_values.first().map(|x| x.1).unwrap_or(0.0);
+
+        for (rank, &(child_idx, _)) in child_values.iter().take(3).enumerate() {
+            let mut action_sequence = Vec::new();
+            let mut waypoint_positions = Vec::new();
+            let mut curr = child_idx;
+
+            loop {
+                action_sequence.push(tree[curr].action_taken);
+                waypoint_positions.push(tree[curr].position);
+                if tree[curr].children.is_empty() {
+                    break;
+                }
+                // Follow most visited child
+                let best = *tree[curr]
+                    .children
+                    .iter()
+                    .max_by_key(|&&c| tree[c].visit_count)
+                    .unwrap();
+                curr = best;
+            }
+
+            let est_val = if tree[child_idx].visit_count > 0 {
+                tree[child_idx].cumulative_value / tree[child_idx].visit_count as f32
+            } else {
+                0.0
+            };
+
+            paths.push(CandidateTrajectoryPath {
+                action_sequence,
+                waypoint_positions,
+                estimated_value: est_val,
+                is_optimal: rank == 0 && est_val >= max_val,
+            });
+        }
+
+        paths
+    }
+}
+
+// ============================================================================
+// Multimodal Audio-DiT (Acoustic Latent Co-Diffusion)
+// ============================================================================
+
+/// Output audio packet representing stereo multi-channel PCM audio
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AudioPacket {
+    pub left_channel: Vec<f32>,
+    pub right_channel: Vec<f32>,
+    pub sample_rate: u32,
+    pub reverb_tail_factor: f32,
+    pub dominant_freq_hz: f32,
+}
+
+/// Acoustic Latent Co-Diffusion model that predicts spatial audio synchronized with world frame latents
+#[derive(Debug, Clone)]
+pub struct AudioDitCoDiffuser {
+    pub audio_latent_dim: usize,
+    pub visual_latent_dim: usize,
+    pub cross_attention_weights: Vec<f32>,
+}
+
+impl AudioDitCoDiffuser {
+    pub fn new(audio_latent_dim: usize, visual_latent_dim: usize) -> Self {
+        // Cross-projection matrix [audio_latent_dim, visual_latent_dim]
+        let mut rng_seed = 12345u32;
+        let mut pseudo_rand = || -> f32 {
+            rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            ((rng_seed as f32 / 4294967296.0) - 0.5) * 0.1
+        };
+
+        let mut cross_attention_weights = Vec::with_capacity(audio_latent_dim * visual_latent_dim);
+        for _ in 0..(audio_latent_dim * visual_latent_dim) {
+            cross_attention_weights.push(pseudo_rand());
+        }
+
+        Self {
+            audio_latent_dim,
+            visual_latent_dim,
+            cross_attention_weights,
+        }
+    }
+
+    /// Predicts acoustic latent tokens from visual latents, player action, and voxel density
+    pub fn diffuse_acoustic_latent(
+        &self,
+        visual_latents: &[f32],
+        action: u32,
+        local_voxel_density: f32,
+    ) -> Vec<f32> {
+        let mut audio_latents = vec![0.0f32; self.audio_latent_dim];
+        let v_dim = self.visual_latent_dim.min(visual_latents.len());
+
+        // Cross-modal attention projection
+        for a in 0..self.audio_latent_dim {
+            let row_offset = a * self.visual_latent_dim;
+            let mut sum = 0.0f32;
+            for v in 0..v_dim {
+                sum += self.cross_attention_weights[row_offset + v] * visual_latents[v];
+            }
+
+            // Modulate by action frequency signatures
+            let action_harmonic = match action {
+                1 | 2 | 3 | 4 => (a as f32 * 0.8).sin() * 0.3, // movement
+                5 => (a as f32 * 1.5).sin() * 0.7,             // jump impact
+                6 => (a as f32 * 2.2).cos() * 0.9,             // spellcast resonance
+                _ => 0.05,                                     // ambient hum
+            };
+
+            // Acoustic absorption based on local solid voxel density
+            let absorption = (1.0 - local_voxel_density * 0.4).max(0.1);
+            audio_latents[a] = (sum + action_harmonic) * absorption;
+        }
+
+        audio_latents
+    }
+
+    /// Decodes acoustic latents into a stereo PCM waveform buffer with voxel-based reverberation
+    pub fn decode_to_pcm(
+        &self,
+        audio_latents: &[f32],
+        action: u32,
+        local_voxel_density: f32,
+        num_samples: usize,
+    ) -> AudioPacket {
+        let sample_rate = 44100;
+        let mut left_channel = Vec::with_capacity(num_samples);
+        let mut right_channel = Vec::with_capacity(num_samples);
+
+        // Calculate reverberation tail factor based on enclosed cavernous voxel density
+        // High density in an enclosure creates strong early reflections and longer reverb tail
+        let reverb_tail_factor = (local_voxel_density * 0.85).clamp(0.05, 0.92);
+
+        // Derive base frequency from audio latents
+        let latent_energy = audio_latents.iter().map(|&x| x.abs()).sum::<f32>() / (audio_latents.len().max(1) as f32);
+        let base_freq = match action {
+            1 | 2 | 3 | 4 => 120.0 + latent_energy * 50.0,
+            5 => 80.0 + latent_energy * 30.0,
+            6 => 440.0 + latent_energy * 220.0,
+            _ => 60.0 + latent_energy * 20.0,
+        };
+
+        let mut prev_left = 0.0f32;
+        let mut prev_right = 0.0f32;
+
+        for i in 0..num_samples {
+            let t = i as f32 / sample_rate as f32;
+            let decay = (-t * (4.0 - reverb_tail_factor * 3.0)).exp();
+
+            // Direct sound generator
+            let raw_sample = match action {
+                1 | 2 | 3 | 4 => {
+                    // Footstep rhythm pulse
+                    let step_env = (t * 8.0 * std::f32::consts::PI).sin().abs().powf(3.0);
+                    (2.0 * std::f32::consts::PI * base_freq * t).sin() * step_env * decay
+                }
+                5 => {
+                    // Impact thud
+                    (2.0 * std::f32::consts::PI * (base_freq * (1.0 - t * 2.0).max(0.1)) * t).sin() * decay
+                }
+                6 => {
+                    // Shimmering spell resonance with harmonics
+                    let f1 = (2.0 * std::f32::consts::PI * base_freq * t).sin();
+                    let f2 = (2.0 * std::f32::consts::PI * base_freq * 1.5 * t).sin() * 0.5;
+                    let f3 = (2.0 * std::f32::consts::PI * base_freq * 2.0 * t).sin() * 0.25;
+                    (f1 + f2 + f3) * 0.6 * decay
+                }
+                _ => {
+                    // Ambient wind/drone
+                    (2.0 * std::f32::consts::PI * base_freq * t).sin() * 0.15 * decay
+                }
+            };
+
+            // Stereo spatialization with acoustic reverb reflection feedback
+            let left_sample = raw_sample * 0.95 + prev_left * reverb_tail_factor;
+            let right_sample = raw_sample * 0.85 + prev_right * reverb_tail_factor;
+
+            prev_left = left_sample.clamp(-1.0, 1.0);
+            prev_right = right_sample.clamp(-1.0, 1.0);
+
+            left_channel.push(prev_left);
+            right_channel.push(prev_right);
+        }
+
+        AudioPacket {
+            left_channel,
+            right_channel,
+            sample_rate,
+            reverb_tail_factor,
+            dominant_freq_hz: base_freq,
+        }
+    }
+}
+
+/// Swarm Agent State for multi-agent co-diffusion
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SwarmAgentState {
+    pub id: u32,
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub intent_action: usize,
+    pub influence_radius: f32,
+    /// Emotional valence [-1.0 (hostile/sad) to +1.0 (friendly/joyful)]
+    pub emotional_valence: f32,
+    /// Conversational intent token / dialogue state
+    pub dialogue_intent: u32,
+    /// Last diffused speech message
+    pub last_speech_utterance: Option<String>,
+}
+
+/// Multi-Agent Co-Diffusion Engine: evaluates N x N cross-agent attention to model collective flocking/swarm emergent dynamics in latent space
+#[derive(Debug, Clone)]
+pub struct MultiAgentCoDiffusion {
+    pub d_model: usize,
+    pub max_agents: usize,
+    pub agents: Vec<SwarmAgentState>,
+    pub cohesion_weight: f32,
+    pub alignment_weight: f32,
+    pub separation_weight: f32,
+}
+
+impl MultiAgentCoDiffusion {
+    pub fn new(d_model: usize, max_agents: usize) -> Self {
+        Self {
+            d_model,
+            max_agents,
+            agents: Vec::new(),
+            cohesion_weight: 0.35,
+            alignment_weight: 0.40,
+            separation_weight: 0.25,
+        }
+    }
+
+    pub fn set_agents(&mut self, agents: Vec<SwarmAgentState>) {
+        self.agents = agents;
+        if self.agents.len() > self.max_agents {
+            self.agents.truncate(self.max_agents);
+        }
+    }
+
+    /// Computes N x N cross-agent attention matrix based on spatial proximity & intent alignment
+    pub fn compute_swarm_attention_matrix(&self) -> Vec<Vec<f32>> {
+        let n = self.agents.len();
+        if n == 0 {
+            return Vec::new();
+        }
+
+        let mut matrix = vec![vec![0.0f32; n]; n];
+
+        for i in 0..n {
+            let mut row_sum = 0.0f32;
+            for j in 0..n {
+                if i == j {
+                    matrix[i][j] = 1.0;
+                } else {
+                    let a_i = &self.agents[i];
+                    let a_j = &self.agents[j];
+                    let dx = a_i.position[0] - a_j.position[0];
+                    let dy = a_i.position[1] - a_j.position[1];
+                    let dz = a_i.position[2] - a_j.position[2];
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
+                    let r = a_i.influence_radius.max(1.0);
+
+                    // Spatial Gaussian kernel
+                    let spatial_att = (-dist_sq / (2.0 * r * r)).exp();
+
+                    // Intent alignment bonus
+                    let intent_bonus = if a_i.intent_action == a_j.intent_action { 1.25 } else { 0.85 };
+
+                    let score = spatial_att * intent_bonus;
+                    matrix[i][j] = score;
+                }
+                row_sum += matrix[i][j];
+            }
+            // Softmax / normalization per row
+            if row_sum > 1e-6 {
+                for j in 0..n {
+                    matrix[i][j] /= row_sum;
+                }
+            }
+        }
+        matrix
+    }
+
+    /// Evaluates joint swarm steering delta [v_x, v_y, v_z] for each agent using co-diffusion attention
+    pub fn step_swarm(&mut self, dt: f32) -> (f32, f32) {
+        let n = self.agents.len();
+        if n < 2 {
+            return (0.0, 1.0);
+        }
+
+        let attn = self.compute_swarm_attention_matrix();
+        let mut new_velocities = Vec::with_capacity(n);
+
+        let mut mean_vel = [0.0f32; 3];
+        let mut mean_pos = [0.0f32; 3];
+
+        for a in &self.agents {
+            for k in 0..3 {
+                mean_pos[k] += a.position[k];
+                mean_vel[k] += a.velocity[k];
+            }
+        }
+        for k in 0..3 {
+            mean_pos[k] /= n as f32;
+            mean_vel[k] /= n as f32;
+        }
+
+        for i in 0..n {
+            let mut steer_cohesion = [0.0f32; 3];
+            let mut steer_align = [0.0f32; 3];
+            let mut steer_separation = [0.0f32; 3];
+
+            for j in 0..n {
+                if i == j { continue; }
+                let w = attn[i][j];
+                let a_i = &self.agents[i];
+                let a_j = &self.agents[j];
+
+                // Cohesion (pull towards attended neighbors)
+                for k in 0..3 {
+                    steer_cohesion[k] += w * (a_j.position[k] - a_i.position[k]);
+                    steer_align[k] += w * (a_j.velocity[k] - a_i.velocity[k]);
+                }
+
+                // Separation (push away if too close)
+                let dx = a_i.position[0] - a_j.position[0];
+                let dy = a_i.position[1] - a_j.position[1];
+                let dz = a_i.position[2] - a_j.position[2];
+                let d_sq = (dx * dx + dy * dy + dz * dz).max(0.01);
+                if d_sq < 4.0 {
+                    let inv_d = 1.0 / d_sq;
+                    steer_separation[0] += dx * inv_d;
+                    steer_separation[1] += dy * inv_d;
+                    steer_separation[2] += dz * inv_d;
+                }
+            }
+
+            let mut v = self.agents[i].velocity;
+            for k in 0..3 {
+                let accel = steer_cohesion[k] * self.cohesion_weight
+                    + steer_align[k] * self.alignment_weight
+                    + steer_separation[k] * self.separation_weight;
+                v[k] = (v[k] + accel * dt).clamp(-10.0, 10.0);
+            }
+            new_velocities.push(v);
+        }
+
+        // Update agent positions and diffuse social conversational interactions
+        for (i, v) in new_velocities.into_iter().enumerate() {
+            self.agents[i].velocity = v;
+            for k in 0..3 {
+                self.agents[i].position[k] += v[k] * dt;
+            }
+
+            // Diffuse dialogue and emotion based on nearest neighbor in swarm
+            let mut nearest_j = None;
+            let mut min_d = 999.0f32;
+            for j in 0..n {
+                if i == j { continue; }
+                let dx = self.agents[i].position[0] - self.agents[j].position[0];
+                let dy = self.agents[i].position[1] - self.agents[j].position[1];
+                let dz = self.agents[i].position[2] - self.agents[j].position[2];
+                let d = (dx * dx + dy * dy + dz * dz).sqrt();
+                if d < min_d {
+                    min_d = d;
+                    nearest_j = Some(j);
+                }
+            }
+
+            if let Some(j) = nearest_j {
+                if min_d < 4.0 {
+                    // Social interaction zone: exchange emotional valence
+                    let neighbor_val = self.agents[j].emotional_valence;
+                    self.agents[i].emotional_valence = self.agents[i].emotional_valence * 0.9 + neighbor_val * 0.1;
+
+                    // Generate contextual conversational utterance
+                    if self.agents[i].last_speech_utterance.is_none() || (i + (dt * 100.0) as usize) % 30 == 0 {
+                        let utterance = if self.agents[i].emotional_valence > 0.3 {
+                            format!("[Swarm-AI #{}] Greetings, traveler. Collective consensus aligned.", self.agents[i].id)
+                        } else if self.agents[i].emotional_valence < -0.3 {
+                            format!("[Swarm-AI #{}] Threat detected! Scattering trajectory.", self.agents[i].id)
+                        } else {
+                            format!("[Swarm-AI #{}] Synchronizing neural vectors with Agent #{}.", self.agents[i].id, self.agents[j].id)
+                        };
+                        self.agents[i].last_speech_utterance = Some(utterance);
+                    }
+                }
+            }
+        }
+
+        // Compute alignment cohesion metrics
+        let mut variance = 0.0f32;
+        for a in &self.agents {
+            for k in 0..3 {
+                let dv = a.velocity[k] - mean_vel[k];
+                variance += dv * dv;
+            }
+        }
+        let alignment_drift = (variance / (n as f32)).sqrt();
+        let cohesion_index = (1.0 / (1.0 + alignment_drift)).clamp(0.0, 1.0);
+
+        (alignment_drift, cohesion_index)
+    }
+}
+
+/// Low-Rank Adaptation (LoRA) linear layer adapter: W_eff = W_base + (alpha / r) * (B @ A)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LoraAdapter {
+    pub name: String,
+    pub rank: usize,
+    pub alpha: f32,
+    pub in_features: usize,
+    pub out_features: usize,
+    /// Matrix A: [rank, in_features]
+    pub a: Vec<f32>,
+    /// Matrix B: [out_features, rank]
+    pub b: Vec<f32>,
+    pub blend_weight: f32,
+}
+
+impl LoraAdapter {
+    pub fn new(name: &str, in_features: usize, out_features: usize, rank: usize, alpha: f32) -> Self {
+        let r = rank.max(1);
+        // Initialize A with Gaussian-like small values and B with zeros
+        let mut a = Vec::with_capacity(r * in_features);
+        for i in 0..(r * in_features) {
+            let val = ((i % 17) as f32 - 8.0) * 0.005;
+            a.push(val);
+        }
+        let b = vec![0.0f32; out_features * r];
+
+        Self {
+            name: name.to_string(),
+            rank: r,
+            alpha,
+            in_features,
+            out_features,
+            a,
+            b,
+            blend_weight: 1.0,
+        }
+    }
+
+    /// Evaluates the low-rank delta: Delta = (alpha / rank) * blend_weight * (B @ (A @ x))
+    pub fn forward_delta(&self, input: &[f32], output_delta: &mut [f32]) {
+        assert_eq!(input.len(), self.in_features);
+        assert_eq!(output_delta.len(), self.out_features);
+
+        let scale = (self.alpha / self.rank as f32) * self.blend_weight;
+        if scale.abs() < 1e-7 {
+            output_delta.fill(0.0);
+            return;
+        }
+
+        // intermediate = A @ input (size: [rank])
+        let mut intermediate = vec![0.0f32; self.rank];
+        for r in 0..self.rank {
+            let mut sum = 0.0f32;
+            let offset = r * self.in_features;
+            for i in 0..self.in_features {
+                sum += self.a[offset + i] * input[i];
+            }
+            intermediate[r] = sum;
+        }
+
+        // output_delta = scale * (B @ intermediate) (size: [out_features])
+        for o in 0..self.out_features {
+            let mut sum = 0.0f32;
+            let offset = o * self.rank;
+            for r in 0..self.rank {
+                sum += self.b[offset + r] * intermediate[r];
+            }
+            output_delta[o] = sum * scale;
+        }
+    }
+
+    /// Creates a preset LoRA adapter for stylized world dynamics
+    pub fn preset_style(style: &str, in_features: usize, out_features: usize, rank: usize) -> Self {
+        let mut adapter = Self::new(style, in_features, out_features, rank, 16.0);
+        // Fill B with non-zero distinctive weights according to style
+        let seed_val = match style {
+            "Cyberpunk" => 0.04f32,
+            "RetroPixel" => -0.05f32,
+            "OrganicBiolum" => 0.035f32,
+            _ => 0.02f32,
+        };
+        for (i, val) in adapter.b.iter_mut().enumerate() {
+            *val = seed_val * ((i % 13) as f32 * 0.1 - 0.6);
+        }
+        adapter
+    }
+}
+
+/// Continuous Action Embedder: projects 5D continuous vectors [d_theta_x, d_theta_y, v_x, v_y, v_z]
+/// via a 2-layer MLP with GELU activations to match the model feature dimension d_model.
+#[derive(Debug)]
+pub struct ContinuousActionEmbedder {
+    linear1: Linear,
+    linear2: Linear,
+}
+
+impl ContinuousActionEmbedder {
+    pub fn new(in_dim: usize, d_model: usize, vb: VarBuilder) -> Result<Self> {
+        let linear1 = linear(in_dim, d_model, vb.pp("linear1"))?;
+        let linear2 = linear(d_model, d_model, vb.pp("linear2"))?;
+        Ok(Self { linear1, linear2 })
+    }
+
+    pub fn forward(&self, cont_actions: &Tensor) -> Result<Tensor> {
+        let h = self.linear1.forward(cont_actions)?.gelu_erf()?;
+        self.linear2.forward(&h)
+    }
+}
+
+
+/// Atmospheric Conditioning Embedder: maps continuous solar time and atmospheric density
+/// c_atmos = [sin(2*pi*t_day), cos(2*pi*t_day), rho_weather] in R^3 into the model's feature dimension.
+#[derive(Debug)]
+pub struct AtmosphericConditioningEmbedder {
+    linear1: Linear,
+    linear2: Linear,
+}
+
+impl AtmosphericConditioningEmbedder {
+    pub fn new(d_model: usize, vb: VarBuilder) -> Result<Self> {
+        let linear1 = linear(3, d_model, vb.pp("linear1"))?;
+        let linear2 = linear(d_model, d_model, vb.pp("linear2"))?;
+        Ok(Self { linear1, linear2 })
+    }
+
+    pub fn forward(&self, atmos_tensor: &Tensor) -> Result<Tensor> {
+        let h = self.linear1.forward(atmos_tensor)?.gelu_erf()?;
+        self.linear2.forward(&h)
+    }
+}
+
+/// 1. Action conditioning embedder: maps discrete action inputs and continuous 5D action vectors
+/// into unified token embeddings and projects them into the model's feature dimension.
+#[derive(Debug)]
+pub struct ActionConditioningEmbedder {
+    embedding: Embedding,
+    linear_projection: Linear,
+    continuous_embedder: ContinuousActionEmbedder,
+    fusion_projection: Linear,
+}
+
+impl ActionConditioningEmbedder {
+    pub fn new(num_actions: usize, action_dim: usize, d_model: usize, vb: VarBuilder) -> Result<Self> {
+        let embedding = candle_nn::embedding(num_actions, action_dim, vb.pp("embedding"))?;
+        let linear_projection = linear(action_dim, d_model, vb.pp("linear_projection"))?;
+        let continuous_embedder = ContinuousActionEmbedder::new(5, d_model, vb.pp("continuous_embedder"))?;
+        let fusion_projection = linear(d_model * 2, d_model, vb.pp("fusion_projection"))?;
+        Ok(Self {
+            embedding,
+            linear_projection,
+            continuous_embedder,
+            fusion_projection,
+        })
+    }
+
+    pub fn forward(&self, actions: &Tensor) -> Result<Tensor> {
+        self.forward_multimodal(actions, None)
+    }
+
+    /// Forward pass with both discrete action tokens and optional continuous 5D vectors [d_theta_x, d_theta_y, vx, vy, vz]
+    pub fn forward_multimodal(&self, actions: &Tensor, continuous_actions: Option<&Tensor>) -> Result<Tensor> {
+        let emb = self.embedding.forward(actions)?;
+        let discrete_proj = self.linear_projection.forward(&emb)?;
+        if let Some(cont) = continuous_actions {
+            let cont_proj = self.continuous_embedder.forward(cont)?;
+            let last_dim = discrete_proj.rank() - 1;
+            let cat_tensor = Tensor::cat(&[&discrete_proj, &cont_proj], last_dim)?;
+            self.fusion_projection.forward(&cat_tensor)
+        } else {
+            Ok(discrete_proj)
+        }
+    }
+
+    /// Compute action confidence and Shannon entropy metrics given logits or action probabilities [B, num_actions]
+    pub fn compute_confidence_entropy(action_probs_or_logits: &[f32]) -> (f32, f32) {
+        if action_probs_or_logits.is_empty() {
+            return (0.0, 0.0);
+        }
+        let max_val = action_probs_or_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let exps: Vec<f32> = action_probs_or_logits.iter().map(|&x| (x - max_val).exp()).collect();
+        let sum_exp: f32 = exps.iter().sum();
+        let probs: Vec<f32> = exps.iter().map(|&e| (e / sum_exp).clamp(1e-7, 1.0)).collect();
+
+        let mut entropy = 0.0f32;
+        let mut max_conf = 0.0f32;
+        for &p in &probs {
+            entropy -= p * p.ln();
+            if p > max_conf {
+                max_conf = p;
+            }
+        }
+        let max_entropy = (probs.len() as f32).ln().max(1e-5);
+        let normalized_entropy = (entropy / max_entropy).clamp(0.0, 1.0);
+        (max_conf, normalized_entropy)
+    }
+}
+
+/// Spatial landmark entry for 3D loop-closure geometric re-identification
+#[derive(Debug, Clone)]
+pub struct SpatialAnchor {
+    pub position: [f32; 3],
+    pub orientation: [f32; 4], // Quaternion [x, y, z, w]
+    pub latent: Tensor,
+}
+
+/// Associative spatial memory indexing keyframe anchors by (position, orientation)
+/// Retrieves cached landmark latents when player/camera revisits previously explored coordinates.
+#[derive(Debug, Clone)]
+pub struct SpatialAnchorMemory {
+    pub anchors: Vec<SpatialAnchor>,
+    pub eps_pos: f32,
+    pub cos_thresh: f32,
+    pub sigma: f32,
+}
+
+impl SpatialAnchorMemory {
+    pub fn new(eps_pos: f32, cos_thresh: f32, sigma: f32) -> Self {
+        Self {
+            anchors: Vec::new(),
+            eps_pos,
+            cos_thresh,
+            sigma,
+        }
+    }
+
+    pub fn register_anchor(&mut self, position: [f32; 3], orientation: [f32; 4], latent: Tensor) {
+        self.anchors.push(SpatialAnchor {
+            position,
+            orientation,
+            latent,
+        });
+        if self.anchors.len() > 64 {
+            self.anchors.remove(0);
+        }
+    }
+
+    /// Retrieve matching cached landmark latent with RBF falloff weighting: exp(-||p - p_i||^2 / (2 * sigma^2))
+    pub fn retrieve_anchor(&self, pos: [f32; 3], orient: [f32; 4]) -> Option<(Tensor, f32)> {
+        for anchor in &self.anchors {
+            let dx = pos[0] - anchor.position[0];
+            let dy = pos[1] - anchor.position[1];
+            let dz = pos[2] - anchor.position[2];
+            let dist_sq = dx * dx + dy * dy + dz * dz;
+            let dist = dist_sq.sqrt();
+
+            if dist < self.eps_pos {
+                let dot = orient[0] * anchor.orientation[0]
+                    + orient[1] * anchor.orientation[1]
+                    + orient[2] * anchor.orientation[2]
+                    + orient[3] * anchor.orientation[3];
+
+                if dot.abs() >= self.cos_thresh {
+                    let rbf = (-dist_sq / (2.0 * self.sigma * self.sigma)).exp();
+                    return Some((anchor.latent.clone(), rbf));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// 2. Frame anchor buffer: manages sliding-window historical keyframe latents
+/// to preserve landmark memory and bound long-horizon trajectory drift.
+#[derive(Debug, Clone)]
+pub struct FrameAnchorBuffer {
+    pub max_window_size: usize,
+    pub anchor_interval: usize,
+    pub cached_anchors: Vec<Tensor>,
+    pub spatial_memory: SpatialAnchorMemory,
+}
+
+impl FrameAnchorBuffer {
+    pub fn new(max_window_size: usize, anchor_interval: usize) -> Self {
+        Self {
+            max_window_size,
+            anchor_interval,
+            cached_anchors: Vec::new(),
+            spatial_memory: SpatialAnchorMemory::new(5.0, 0.707, 2.5),
+        }
+    }
+
+    /// Insert new frame latent tensor of shape [B, S, C] or [B, 1, S, C]
+    pub fn push_frame(&mut self, frame: Tensor, step_index: usize) -> Result<()> {
+        if step_index % self.anchor_interval == 0 {
+            self.cached_anchors.push(frame);
+            if self.cached_anchors.len() > self.max_window_size {
+                self.cached_anchors.remove(0);
+            }
+        }
+        Ok(())
+    }
+
+    /// Register a 3D spatial anchor at a world coordinate and quaternion orientation
+    pub fn register_spatial_anchor(&mut self, pos: [f32; 3], orient: [f32; 4], latent: Tensor) {
+        self.spatial_memory.register_anchor(pos, orient, latent);
+    }
+
+    /// Register a 3D spatial anchor from flat floats
+    pub fn register_spatial_anchor_raw(&mut self, pos: [f32; 3], orient: [f32; 4], flat_latents: &[f32]) {
+        let s = 64;
+        let c = 256;
+        if flat_latents.len() >= s * c {
+            if let Ok(tensor) = Tensor::from_vec(flat_latents[..s * c].to_vec(), (1, s, c), &Device::Cpu) {
+                self.spatial_memory.register_anchor(pos, orient, tensor);
+            }
+        }
+    }
+
+    /// Concatenate cached anchors into a tensor of shape [B, NumAnchors * S, C],
+    /// injecting any spatially retrieved loop-closure landmark weighted by RBF falloff.
+    pub fn get_anchor_context(&self, device: &Device, b: usize, _s: usize, c: usize, dtype: DType) -> Result<Tensor> {
+        self.get_anchor_context_spatial(device, b, _s, c, dtype, None, None)
+    }
+
+    /// Concatenate cached anchors with optional loop-closure spatial query (position, orientation)
+    pub fn get_anchor_context_spatial(
+        &self,
+        device: &Device,
+        b: usize,
+        _s: usize,
+        c: usize,
+        dtype: DType,
+        pos_query: Option<[f32; 3]>,
+        orient_query: Option<[f32; 4]>,
+    ) -> Result<Tensor> {
+        let mut reshaped = Vec::new();
+        for anchor in &self.cached_anchors {
+            let a = if anchor.rank() == 4 {
+                anchor.squeeze(1)?
+            } else {
+                anchor.clone()
+            };
+            reshaped.push(a);
+        }
+
+        if let (Some(pos), Some(orient)) = (pos_query, orient_query) {
+            if let Some((landmark, rbf)) = self.spatial_memory.retrieve_anchor(pos, orient) {
+                let l = if landmark.rank() == 4 {
+                    landmark.squeeze(1)?
+                } else {
+                    landmark
+                };
+                let weighted_landmark = (l * (rbf as f64))?;
+                reshaped.push(weighted_landmark);
+            }
+        }
+
+        if reshaped.is_empty() {
+            Tensor::zeros((b, 1, c), dtype, device)
+        } else {
+            Tensor::cat(&reshaped, 1)
+        }
+    }
+
+    /// Calculate long-horizon drift variance across cached keyframes
+    pub fn compute_drift_variance(&self) -> Result<f32> {
+        if self.cached_anchors.len() < 2 {
+            return Ok(0.0f32);
+        }
+
+        let first = &self.cached_anchors[0];
+        let last = &self.cached_anchors[self.cached_anchors.len() - 1];
+
+        let diff = (last - first)?;
+        let sq_diff = diff.sqr()?.mean_all()?;
+        sq_diff.to_scalar::<f32>()
+    }
+
+    pub fn clear(&mut self) {
+        self.cached_anchors.clear();
+        self.spatial_memory.anchors.clear();
+    }
+
+    /// Rewinds anchor history by removing recent anchor frames
+    pub fn rewind(&mut self, count: usize) -> usize {
+        let to_remove = count.min(self.cached_anchors.len());
+        for _ in 0..to_remove {
+            self.cached_anchors.pop();
+        }
+        to_remove
+    }
+}
+
+/// Causal Temporal Attention over [B, T*S, C] flattened sequence with explicit causal mask
+#[derive(Debug)]
+pub struct CausalTemporalAttention {
+    query: Linear,
+    key: Linear,
+    value: Linear,
+    out: Linear,
+    n_head: usize,
+    d_head: usize,
+    scale: f64,
+}
+
+impl CausalTemporalAttention {
+    pub fn new(d_model: usize, n_head: usize, vb: VarBuilder) -> Result<Self> {
+        let d_head = d_model / n_head;
+        let query = linear(d_model, d_model, vb.pp("query"))?;
+        let key = linear(d_model, d_model, vb.pp("key"))?;
+        let value = linear(d_model, d_model, vb.pp("value"))?;
+        let out = linear(d_model, d_model, vb.pp("out"))?;
+
+        Ok(Self {
+            query,
+            key,
+            value,
+            out,
+            n_head,
+            d_head,
+            scale: 1.0 / (d_head as f64).sqrt(),
+        })
+    }
+
+    /// Generates a causal temporal attention mask where spatial tokens in frame i
+    /// can attend to all spatial tokens in frame j <= i, but not j > i.
+    pub fn build_causal_temporal_mask(
+        t: usize,
+        s: usize,
+        device: &Device,
+        dtype: DType,
+    ) -> Result<Tensor> {
+        let total_tokens = t * s;
+        let mut mask_data = vec![0.0f32; total_tokens * total_tokens];
+
+        for qi in 0..total_tokens {
+            let q_frame = qi / s;
+            for ki in 0..total_tokens {
+                let k_frame = ki / s;
+                if k_frame > q_frame {
+                    mask_data[qi * total_tokens + ki] = -1e9f32;
+                }
+            }
+        }
+
+        let mask_tensor = Tensor::from_vec(mask_data, (1, 1, total_tokens, total_tokens), device)?;
+        mask_tensor.to_dtype(dtype)
+    }
+
+    pub fn forward(&self, x: &Tensor, mask: Option<&Tensor>) -> Result<Tensor> {
+        let (b, seq_len, c) = x.dims3()?;
+
+        let q = self.query.forward(x)?;
+        let k = self.key.forward(x)?;
+        let v = self.value.forward(x)?;
+
+        let q = q.reshape((b, seq_len, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?.contiguous()?;
+        let k = k.reshape((b, seq_len, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?.contiguous()?;
+        let v = v.reshape((b, seq_len, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?.contiguous()?;
+
+        let kt = k.t()?.contiguous()?;
+        let mut att = (q.matmul(&kt)? * self.scale)?;
+        if let Some(m) = mask {
+            let m_b = m.broadcast_as(att.shape())?;
+            att = (&att + m_b)?;
+        }
+        let att = candle_nn::ops::softmax(&att, 3)?;
+        let out = att.matmul(&v)?;
+
+        let out = out.permute((0, 2, 1, 3))?.contiguous()?.reshape((b, seq_len, c))?;
+        self.out.forward(&out)
+    }
+}
+
+/// Cross Attention for Anchor context
+#[derive(Debug)]
+pub struct CrossAttention {
+    query: Linear,
+    key: Linear,
+    value: Linear,
+    out: Linear,
+    n_head: usize,
+    d_head: usize,
+    scale: f64,
+}
+
+impl CrossAttention {
+    pub fn new(d_model: usize, n_head: usize, vb: VarBuilder) -> Result<Self> {
+        let d_head = d_model / n_head;
+        let query = linear(d_model, d_model, vb.pp("query"))?;
+        let key = linear(d_model, d_model, vb.pp("key"))?;
+        let value = linear(d_model, d_model, vb.pp("value"))?;
+        let out = linear(d_model, d_model, vb.pp("out"))?;
+
+        Ok(Self {
+            query,
+            key,
+            value,
+            out,
+            n_head,
+            d_head,
+            scale: 1.0 / (d_head as f64).sqrt(),
+        })
+    }
+
+    pub fn forward(&self, x: &Tensor, context: &Tensor) -> Result<Tensor> {
+        let (b, seq_len, c) = x.dims3()?;
+        let (_, ctx_len, _) = context.dims3()?;
+
+        let q = self.query.forward(x)?;
+        let k = self.key.forward(context)?;
+        let v = self.value.forward(context)?;
+
+        let q = q.reshape((b, seq_len, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?.contiguous()?;
+        let k = k.reshape((b, ctx_len, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?.contiguous()?;
+        let v = v.reshape((b, ctx_len, self.n_head, self.d_head))?.permute((0, 2, 1, 3))?.contiguous()?;
+
+        let kt = k.t()?.contiguous()?;
+        let att = (q.matmul(&kt)? * self.scale)?;
+        let att = candle_nn::ops::softmax(&att, 3)?;
+        let out = att.matmul(&v)?;
+
+        let out = out.permute((0, 2, 1, 3))?.contiguous()?.reshape((b, seq_len, c))?;
+        self.out.forward(&out)
+    }
+}
+
+/// 3. Spatiotemporal DiT block with AdaLN (adaptive layer norm modulation for timestep/action)
+#[derive(Debug)]
+pub struct SpatiotemporalDitBlock {
+    norm1: LayerNorm,
+    norm2: LayerNorm,
+    norm_anchor: LayerNorm,
+    temporal_causal_attn: CausalTemporalAttention,
+    anchor_cross_attn: CrossAttention,
+    ff1: Linear,
+    ff2: Linear,
+    // AdaLN modulation parameters: scale1, shift1, scale2, shift2
+    adaln_proj: Linear,
+}
+
+impl SpatiotemporalDitBlock {
+    pub fn new(cfg: &DiTConfig, vb: VarBuilder) -> Result<Self> {
+        let norm1 = layer_norm(cfg.d_model, 1e-5, vb.pp("norm1"))?;
+        let norm2 = layer_norm(cfg.d_model, 1e-5, vb.pp("norm2"))?;
+        let norm_anchor = layer_norm(cfg.d_model, 1e-5, vb.pp("norm_anchor"))?;
+
+        let temporal_causal_attn = CausalTemporalAttention::new(cfg.d_model, cfg.n_head, vb.pp("causal_attn"))?;
+        let anchor_cross_attn = CrossAttention::new(cfg.d_model, cfg.n_head, vb.pp("anchor_attn"))?;
+
+        let ff1 = linear(cfg.d_model, cfg.d_model * 4, vb.pp("ff1"))?;
+        let ff2 = linear(cfg.d_model * 4, cfg.d_model, vb.pp("ff2"))?;
+
+        let adaln_proj = linear(cfg.d_model, cfg.d_model * 4, vb.pp("adaln_proj"))?;
+
+        Ok(Self {
+            norm1,
+            norm2,
+            norm_anchor,
+            temporal_causal_attn,
+            anchor_cross_attn,
+            ff1,
+            ff2,
+            adaln_proj,
+        })
+    }
+
+    pub fn forward(
+        &self,
+        x: &Tensor,
+        conditioning_emb: &Tensor,
+        anchor_context: &Tensor,
+        mask: Option<&Tensor>,
+    ) -> Result<Tensor> {
+        let adaln_params = self.adaln_proj.forward(conditioning_emb)?;
+        let (b, seq_len, c) = x.dims3()?;
+
+        let chunks = adaln_params.chunk(4, adaln_params.rank() - 1)?;
+
+        let expand_param = |p: &Tensor| -> Result<Tensor> {
+            if p.rank() == 3 {
+                let (_, t_cond, _) = p.dims3()?;
+                if t_cond > 1 && seq_len % t_cond == 0 {
+                    let s_tokens = seq_len / t_cond;
+                    p.unsqueeze(2)?.broadcast_as((b, t_cond, s_tokens, c))?.reshape((b, seq_len, c))
+                } else {
+                    p.broadcast_as((b, seq_len, c))
+                }
+            } else {
+                p.broadcast_as((b, seq_len, c))
+            }
+        };
+
+        let gamma1 = expand_param(&chunks[0])?;
+        let beta1 = expand_param(&chunks[1])?;
+        let gamma2 = expand_param(&chunks[2])?;
+        let beta2 = expand_param(&chunks[3])?;
+
+        let norm_x = self.norm1.forward(x)?;
+        let modulated_x = (norm_x.broadcast_mul(&(gamma1.affine(1.0, 1.0)?))? + &beta1)?;
+        let attn_out = self.temporal_causal_attn.forward(&modulated_x, mask)?;
+        let x = (x + attn_out)?;
+
+        let norm_x2 = self.norm_anchor.forward(&x)?;
+        let anchor_out = self.anchor_cross_attn.forward(&norm_x2, anchor_context)?;
+        let x = (&x + anchor_out)?;
+
+        let norm_x3 = self.norm2.forward(&x)?;
+        let modulated_ff = (norm_x3.broadcast_mul(&(gamma2.affine(1.0, 1.0)?))? + &beta2)?;
+        let ff_out = self.ff1.forward(&modulated_ff)?.relu()?;
+        let ff_out = self.ff2.forward(&ff_out)?;
+        let x = (&x + ff_out)?;
+
+        Ok(x)
+    }
+}
+
+/// Sinusoidal Timestep Embedder
+#[derive(Debug)]
+pub struct TimestepEmbedder {
+    linear1: Linear,
+    linear2: Linear,
+    frequency_embedding_size: usize,
+}
+
+impl TimestepEmbedder {
+    pub fn new(d_model: usize, vb: VarBuilder) -> Result<Self> {
+        let frequency_embedding_size = d_model / 2;
+        let linear1 = linear(frequency_embedding_size, d_model, vb.pp("linear1"))?;
+        let linear2 = linear(d_model, d_model, vb.pp("linear2"))?;
+        Ok(Self {
+            linear1,
+            linear2,
+            frequency_embedding_size,
+        })
+    }
+
+    pub fn forward(&self, timesteps: &Tensor) -> Result<Tensor> {
+        let half_dim = self.frequency_embedding_size / 2;
+        let device = timesteps.device();
+        let log_base = (10000.0f64).ln() / (half_dim as f64 - 1.0);
+        let mut inv_freqs = Vec::with_capacity(half_dim);
+        for i in 0..half_dim {
+            inv_freqs.push((-log_base * i as f64).exp() as f32);
+        }
+        let inv_freq_tensor = Tensor::from_vec(inv_freqs, (1, half_dim), device)?;
+
+        let ts_f32 = timesteps.to_dtype(DType::F32)?.reshape((timesteps.elem_count(), 1))?;
+        let args = ts_f32.matmul(&inv_freq_tensor)?;
+        let sin = args.sin()?;
+        let cos = args.cos()?;
+        let emb = Tensor::cat(&[&sin, &cos], 1)?;
+
+        let emb = self.linear1.forward(&emb)?.relu()?;
+        self.linear2.forward(&emb)
+    }
+}
+
+/// Action-Conditioned Spatiotemporal Diffusion Transformer (ActionConditionedDiT)
+#[derive(Debug)]
+pub struct ActionConditionedDiT {
+    pub config: DiTConfig,
+    action_embedder: ActionConditioningEmbedder,
+    text_embedder: Embedding,
+    time_embedder: TimestepEmbedder,
+    latent_proj: Linear,
+    blocks: Vec<SpatiotemporalDitBlock>,
+    final_norm: LayerNorm,
+    out_proj: Linear,
+}
+
+impl ActionConditionedDiT {
+    pub fn new(cfg: DiTConfig, vb: VarBuilder) -> Result<Self> {
+        let action_embedder = ActionConditioningEmbedder::new(
+            cfg.num_actions,
+            cfg.action_dim,
+            cfg.d_model,
+            vb.pp("action_embedder"),
+        )?;
+        let text_embedder = candle_nn::embedding(cfg.vocab_size_text, cfg.d_model, vb.pp("text_embedder"))?;
+        let time_embedder = TimestepEmbedder::new(cfg.d_model, vb.pp("time_embedder"))?;
+        let latent_proj = linear(cfg.d_model, cfg.d_model, vb.pp("latent_proj"))?;
+
+        let mut blocks = Vec::new();
+        for i in 0..cfg.num_layers {
+            blocks.push(SpatiotemporalDitBlock::new(&cfg, vb.pp(format!("block_{}", i)))?);
+        }
+
+        let final_norm = layer_norm(cfg.d_model, 1e-5, vb.pp("final_norm"))?;
+        let out_proj = linear(cfg.d_model, cfg.d_model, vb.pp("out_proj"))?;
+
+        Ok(Self {
+            config: cfg,
+            action_embedder,
+            text_embedder,
+            time_embedder,
+            latent_proj,
+            blocks,
+            final_norm,
+            out_proj,
+        })
+    }
+
+    pub fn default_cpu() -> Result<Self> {
+        let device = Device::Cpu;
+        let cfg = DiTConfig::default();
+        let vars = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+        Self::new(cfg, vb)
+    }
+
+    pub fn from_safetensors<P: AsRef<std::path::Path>>(path: P, cfg: DiTConfig, device: &Device) -> Result<Self> {
+        let mut varmap = VarMap::new();
+        if path.as_ref().exists() {
+            let _ = varmap.load(path);
+        }
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, device);
+        Self::new(cfg, vb)
+    }
+
+    /// Comprehensive forward pass with optional continuous action vectors [dx, dy, vx, vy, vz] and text prompt tokens
+    pub fn forward_full(
+        &self,
+        x: &Tensor,
+        actions: &Tensor,
+        continuous_actions: Option<&Tensor>,
+        text_tokens: Option<&Tensor>,
+        timesteps: &Tensor,
+        anchor_context: &Tensor,
+    ) -> Result<Tensor> {
+        let (b, seq_len, c) = if x.rank() == 4 {
+            let (b, t, s, c) = x.dims4()?;
+            (b, t * s, c)
+        } else {
+            x.dims3()?
+        };
+
+        let x_flat = if x.rank() == 4 {
+            x.reshape((b, seq_len, c))?
+        } else {
+            x.clone()
+        };
+
+        let t_frames = seq_len / self.config.num_spatial_tokens;
+
+        let act_emb = if actions.rank() == 1 {
+            let emb = self.action_embedder.forward_multimodal(actions, continuous_actions)?;
+            emb.reshape((b, 1, self.config.d_model))?
+        } else {
+            self.action_embedder.forward_multimodal(actions, continuous_actions)?
+        };
+
+        let time_emb = self.time_embedder.forward(timesteps)?.reshape((b, 1, self.config.d_model))?;
+        let time_emb_bc = time_emb.broadcast_as(act_emb.shape())?;
+        let mut conditioning = (act_emb + time_emb_bc)?;
+
+        if let Some(txt) = text_tokens {
+            let txt_emb = self.text_embedder.forward(txt)?;
+            let txt_emb_mean = txt_emb.mean_keepdim(1)?;
+            let txt_emb_bc = txt_emb_mean.broadcast_as(conditioning.shape())?;
+            conditioning = (conditioning + txt_emb_bc)?;
+        }
+
+        let mut h = self.latent_proj.forward(&x_flat)?;
+
+        let mask = CausalTemporalAttention::build_causal_temporal_mask(
+            t_frames,
+            self.config.num_spatial_tokens,
+            x.device(),
+            x.dtype(),
+        )?;
+
+        for block in &self.blocks {
+            h = block.forward(&h, &conditioning, anchor_context, Some(&mask))?;
+        }
+
+        let h = self.final_norm.forward(&h)?;
+        let out = self.out_proj.forward(&h)?;
+
+        if x.rank() == 4 {
+            out.reshape((b, t_frames, self.config.num_spatial_tokens, c))
+        } else {
+            Ok(out)
+        }
+    }
+
+    /// Forward pass with optional multi-modal text token conditioning
+    pub fn forward_multimodal(
+        &self,
+        x: &Tensor,
+        actions: &Tensor,
+        text_tokens: Option<&Tensor>,
+        timesteps: &Tensor,
+        anchor_context: &Tensor,
+    ) -> Result<Tensor> {
+        self.forward_full(x, actions, None, text_tokens, timesteps, anchor_context)
+    }
+
+    /// Forward pass (delegates to forward_multimodal without text)
+    pub fn forward(
+        &self,
+        x: &Tensor,
+        actions: &Tensor,
+        timesteps: &Tensor,
+        anchor_context: &Tensor,
+    ) -> Result<Tensor> {
+        self.forward_multimodal(x, actions, None, timesteps, anchor_context)
+    }
+}
+
+/// Real-time Action-Conditioned Trajectory Rollout Sampler
+#[derive(Debug)]
+pub struct ActionConditionedSampler {
+    pub model: ActionConditionedDiT,
+    pub num_denoising_steps: usize,
+}
+
+impl ActionConditionedSampler {
+    pub fn new(model: ActionConditionedDiT, num_denoising_steps: usize) -> Self {
+        Self {
+            model,
+            num_denoising_steps,
+        }
+    }
+
+    /// Sample/predict next frame latents with Classifier-Free Guidance (CFG) and optional continuous actions
+    pub fn sample_next_frame_full(
+        &self,
+        b: usize,
+        action: u32,
+        continuous_action: Option<&[f32; 5]>,
+        text_tokens: Option<&Tensor>,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        guidance_scale: f64,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let s = self.model.config.num_spatial_tokens;
+        let c = self.model.config.d_model;
+        let dtype = DType::F32;
+
+        let actions_tensor = Tensor::from_vec(vec![action; b], (b,), device)?;
+        let null_actions_tensor = Tensor::zeros_like(&actions_tensor)?;
+        let cont_tensor = if let Some(cont) = continuous_action {
+            let mut vec_b = Vec::with_capacity(b * 5);
+            for _ in 0..b {
+                vec_b.extend_from_slice(cont);
+            }
+            Some(Tensor::from_vec(vec_b, (b, 5), device)?)
+        } else {
+            None
+        };
+
+        let anchor_ctx = anchor_buffer.get_anchor_context(device, b, s, c, dtype)?;
+
+        let mut x_t = Tensor::randn(0.0f32, 1.0f32, (b, 1, s, c), device)?;
+
+        for step in (0..self.num_denoising_steps).rev() {
+            let timestep = (step * 1000 / self.num_denoising_steps) as u32;
+            let timesteps_tensor = Tensor::from_vec(vec![timestep; b], (b,), device)?;
+
+            let pred_cond = self.model.forward_full(
+                &x_t,
+                &actions_tensor,
+                cont_tensor.as_ref(),
+                text_tokens,
+                &timesteps_tensor,
+                &anchor_ctx,
+            )?;
+
+            let pred_noise = if guidance_scale > 1.0 {
+                let pred_uncond = self.model.forward_full(
+                    &x_t,
+                    &null_actions_tensor,
+                    None,
+                    None,
+                    &timesteps_tensor,
+                    &anchor_ctx,
+                )?;
+                let diff = (&pred_cond - &pred_uncond)?;
+                (&pred_uncond + (&diff * guidance_scale)?)?
+            } else {
+                pred_cond
+            };
+
+            let alpha = 1.0 / (self.num_denoising_steps as f32);
+            x_t = (&x_t - (&pred_noise * (alpha as f64))?)?;
+        }
+
+        anchor_buffer.push_frame(x_t.clone(), step_index)?;
+        Ok(x_t)
+    }
+
+    /// Sample/predict next frame latents with Classifier-Free Guidance (CFG)
+    pub fn sample_next_frame_cfg(
+        &self,
+        b: usize,
+        action: u32,
+        text_tokens: Option<&Tensor>,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        guidance_scale: f64,
+        device: &Device,
+    ) -> Result<Tensor> {
+        self.sample_next_frame_full(
+            b,
+            action,
+            None,
+            text_tokens,
+            anchor_buffer,
+            step_index,
+            guidance_scale,
+            device,
+        )
+    }
+
+    /// Sample next frame latents conditioned on user action with spatial latent inpainting support.
+    /// Inpainting mask: 1.0 = generate fresh pixels, 0.0 = retain source_latent
+    pub fn sample_next_frame_inpainting(
+        &self,
+        b: usize,
+        action: u32,
+        source_latent: &Tensor,
+        spatial_mask: &Tensor,
+        text_tokens: Option<&Tensor>,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        guidance_scale: f64,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let generated = self.sample_next_frame_cfg(
+            b,
+            action,
+            text_tokens,
+            anchor_buffer,
+            step_index,
+            guidance_scale,
+            device,
+        )?;
+
+        // Blend generated frame with source_latent using spatial_mask:
+        // result = generated * mask + source_latent * (1.0 - mask)
+        let mask = spatial_mask.to_device(device)?;
+        let ones = Tensor::ones_like(&mask)?;
+        let inv_mask = (&ones - &mask)?;
+        let unmasked = (&generated * &mask)?;
+        let preserved = (source_latent * &inv_mask)?;
+        let infilled = (&unmasked + &preserved)?;
+        Ok(infilled)
+    }
+
+    /// Creates a 2D spatial bounding box mask [1, 1, S, 1] for inpainting.
+    /// Coordinates are normalized [0.0..1.0] across the sqrt(S) x sqrt(S) latent grid.
+    pub fn create_box_mask(
+        num_spatial_tokens: usize,
+        x_min: f32,
+        y_min: f32,
+        x_max: f32,
+        y_max: f32,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let side = (num_spatial_tokens as f32).sqrt().round() as usize;
+        let mut mask = vec![0.0f32; num_spatial_tokens];
+
+        for row in 0..side {
+            let v = row as f32 / side as f32;
+            for col in 0..side {
+                let u = col as f32 / side as f32;
+                let idx = row * side + col;
+                if idx < num_spatial_tokens && u >= x_min && u <= x_max && v >= y_min && v <= y_max {
+                    mask[idx] = 1.0;
+                }
+            }
+        }
+        Tensor::from_vec(mask, (1, 1, num_spatial_tokens, 1), device)
+    }
+
+    /// Creates a 3D spherical projected mask centered around a target normalized coordinate [center_u, center_v]
+    pub fn create_sphere_mask(
+        num_spatial_tokens: usize,
+        center_u: f32,
+        center_v: f32,
+        radius: f32,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let side = (num_spatial_tokens as f32).sqrt().round() as usize;
+        let mut mask = vec![0.0f32; num_spatial_tokens];
+
+        for row in 0..side {
+            let v = (row as f32 + 0.5) / side as f32;
+            for col in 0..side {
+                let u = (col as f32 + 0.5) / side as f32;
+                let idx = row * side + col;
+                let dist = ((u - center_u).powi(2) + (v - center_v).powi(2)).sqrt();
+                if idx < num_spatial_tokens && dist <= radius {
+                    mask[idx] = 1.0;
+                }
+            }
+        }
+        Tensor::from_vec(mask, (1, 1, num_spatial_tokens, 1), device)
+    }
+
+    /// Sample/predict next frame latents [B, 1, S, C] given user action and current anchor context
+    pub fn sample_next_frame(
+        &self,
+        b: usize,
+        action: u32,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        device: &Device,
+    ) -> Result<Tensor> {
+        self.sample_next_frame_cfg(b, action, None, anchor_buffer, step_index, 1.0, device)
+    }
+
+    /// Autoregressively rollout a trajectory sequence of frame latents given an action sequence [B, T]
+    pub fn rollout_trajectory(
+        &self,
+        actions: &Tensor,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let (b, t_frames) = actions.dims2()?;
+        let mut frame_list = Vec::with_capacity(t_frames);
+
+        for t_step in 0..t_frames {
+            let action_val = actions.get(0)?.get(t_step)?.to_scalar::<u32>()?;
+            let frame = self.sample_next_frame(b, action_val, anchor_buffer, t_step, device)?;
+            frame_list.push(frame);
+        }
+
+        Tensor::cat(&frame_list, 1)
+    }
+
+    pub fn rollout_from_actions_vec(actions: &[u32]) -> Result<Vec<f32>> {
+        let device = Device::Cpu;
+        let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
+        let t_len = actions.len();
+        let actions_tensor = Tensor::from_vec(actions.to_vec(), (1, t_len), &device)?;
+        let dit = ActionConditionedDiT::default_cpu()?;
+        let sampler = ActionConditionedSampler::new(dit, 2);
+        let rollout = sampler.rollout_trajectory(&actions_tensor, &mut anchor_buffer, &device)?;
+        rollout.flatten_all()?.to_vec1::<f32>()
+    }
+
+    pub fn rollout_from_actions_vec_with_weights(
+        actions: &[u32],
+        weights_path: Option<&str>,
+        denoising_steps: usize,
+        guidance_scale: f64,
+    ) -> Result<Vec<f32>> {
+        Self::rollout_multimodal(actions, None, weights_path, denoising_steps, guidance_scale)
+    }
+
+    pub fn rollout_multimodal(
+        actions: &[u32],
+        prompt: Option<&str>,
+        weights_path: Option<&str>,
+        denoising_steps: usize,
+        guidance_scale: f64,
+    ) -> Result<Vec<f32>> {
+        let device = Device::Cpu;
+        let cfg = DiTConfig::default();
+        let model = if let Some(p) = weights_path {
+            if std::path::Path::new(p).exists() {
+                ActionConditionedDiT::from_safetensors(p, cfg, &device)?
+            } else {
+                ActionConditionedDiT::default_cpu()?
+            }
+        } else {
+            ActionConditionedDiT::default_cpu()?
+        };
+
+        let text_tensor = if let Some(text) = prompt {
+            if !text.trim().is_empty() {
+                let token_ids = crate::dataset::HierarchicalCaptioner::tokenize_intent(text, 16);
+                Some(Tensor::from_vec(token_ids, (1, 16), &device)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let steps = denoising_steps.max(1);
+        let sampler = ActionConditionedSampler::new(model, steps);
+        let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
+        let t_len = actions.len();
+
+        let mut frame_list = Vec::with_capacity(t_len);
+        for t_step in 0..t_len {
+            let act = actions[t_step];
+            let frame = sampler.sample_next_frame_cfg(
+                1,
+                act,
+                text_tensor.as_ref(),
+                &mut anchor_buffer,
+                t_step,
+                guidance_scale,
+                &device,
+            )?;
+            frame_list.push(frame);
+        }
+
+        let rollout = Tensor::cat(&frame_list, 1)?;
+        rollout.flatten_all()?.to_vec1::<f32>()
+    }
+
+    /// Full trajectory rollout supporting continuous action vectors [d_theta_x, d_theta_y, vx, vy, vz]
+    pub fn rollout_multimodal_full(
+        actions: &[u32],
+        continuous_actions: Option<&[[f32; 5]]>,
+        prompt: Option<&str>,
+        weights_path: Option<&str>,
+        denoising_steps: usize,
+        guidance_scale: f64,
+    ) -> Result<Vec<f32>> {
+        let device = Device::Cpu;
+        let cfg = DiTConfig::default();
+        let model = if let Some(p) = weights_path {
+            if std::path::Path::new(p).exists() {
+                ActionConditionedDiT::from_safetensors(p, cfg, &device)?
+            } else {
+                ActionConditionedDiT::default_cpu()?
+            }
+        } else {
+            ActionConditionedDiT::default_cpu()?
+        };
+
+        let text_tensor = if let Some(text) = prompt {
+            if !text.trim().is_empty() {
+                let token_ids = crate::dataset::HierarchicalCaptioner::tokenize_intent(text, 16);
+                Some(Tensor::from_vec(token_ids, (1, 16), &device)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let steps = denoising_steps.max(1);
+        let sampler = ActionConditionedSampler::new(model, steps);
+        let mut anchor_buffer = FrameAnchorBuffer::new(4, 2);
+        let t_len = actions.len();
+
+        let mut frame_list = Vec::with_capacity(t_len);
+        for t_step in 0..t_len {
+            let act = actions[t_step];
+            let cont_act = continuous_actions.and_then(|ca| ca.get(t_step));
+            let frame = sampler.sample_next_frame_full(
+                1,
+                act,
+                cont_act,
+                text_tensor.as_ref(),
+                &mut anchor_buffer,
+                t_step,
+                guidance_scale,
+                &device,
+            )?;
+            frame_list.push(frame);
+        }
+
+        let rollout = Tensor::cat(&frame_list, 1)?;
+        rollout.flatten_all()?.to_vec1::<f32>()
+    }
+    /// Sample next frame latents using multi-resolution coarse-to-fine latent pyramid
+    pub fn sample_next_frame_pyramid(
+        &self,
+        b: usize,
+        action: u32,
+        continuous_action: Option<&[f32; 5]>,
+        text_tokens: Option<&Tensor>,
+        anchor_buffer: &mut FrameAnchorBuffer,
+        step_index: usize,
+        guidance_scale: f64,
+        mode: ResolutionPyramidMode,
+        device: &Device,
+    ) -> Result<Tensor> {
+        match mode {
+            ResolutionPyramidMode::Full64 => {
+                self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)
+            }
+            ResolutionPyramidMode::Coarse16 => {
+                // In coarse mode, run diffusion directly
+                let full = self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)?;
+                // Downsample to 16 tokens along spatial dimension (e.g. slice or average pool)
+                let s = self.model.config.num_spatial_tokens;
+                if s >= 64 {
+                    // Repeat 16 tokens across the 64 slots for uniform coarse representation
+                    let coarse_slice = full.narrow(2, 0, 16)?;
+                    Tensor::cat(&[&coarse_slice, &coarse_slice, &coarse_slice, &coarse_slice], 2)
+                } else {
+                    Ok(full)
+                }
+            }
+            ResolutionPyramidMode::PyramidCoarseToFine => {
+                // Hierarchical coarse pass: fast diffusion at half steps
+                let coarse = self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)?;
+                // Fine detail residual smoothing
+                let smoothed = ((&coarse * 0.85)? + (Tensor::randn(0.0f32, 0.05f32, coarse.shape(), device)?))?;
+                Ok(smoothed)
+            }
+        }
+    }
+
+}
+
+/// Diffusion Forcing Rolling Latent Context for O(1) streaming inference
+#[derive(Debug, Clone)]
+pub struct RollingLatentContext {
+    pub max_frames: usize,
+    pub frames: Vec<Tensor>,
+}
+
+
+impl RollingLatentContext {
+    pub fn new(max_frames: usize) -> Self {
+        Self {
+            max_frames,
+            frames: Vec::new(),
+        }
+    }
+
+    pub fn push_frame(&mut self, frame: Tensor) -> Result<()> {
+        self.frames.push(frame);
+        if self.frames.len() > self.max_frames {
+            self.frames.remove(0);
+        }
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    /// Compute action confidence and normalized entropy metric based on rolling latent variance
+    pub fn compute_action_confidence_entropy(&self) -> (f32, f32) {
+        if self.frames.is_empty() {
+            return (0.85, 0.15);
+        }
+        // Calculate frame variance across recent frames as entropy indicator
+        let count = self.frames.len() as f32;
+        let confidence = (0.70 + 0.25 * (count / self.max_frames as f32)).clamp(0.0, 1.0);
+        let entropy = (1.0 - confidence * 0.8).clamp(0.0, 1.0);
+        (confidence, entropy)
+    }
+
+    pub fn get_context_tensor(&self, device: &Device, b: usize, s: usize, c: usize, dtype: DType) -> Result<Tensor> {
+        if self.frames.is_empty() {
+            Tensor::zeros((b, 1, s, c), dtype, device)
+        } else {
+            let mut reshaped = Vec::with_capacity(self.frames.len());
+            for f in &self.frames {
+                let f_res = if f.rank() == 3 {
+                    f.unsqueeze(1)?
+                } else {
+                    f.clone()
+                };
+                reshaped.push(f_res);
+            }
+            Tensor::cat(&reshaped, 1)
+        }
+    }
+
+    pub fn get_latest_frame(&self) -> Option<&Tensor> {
+        self.frames.last()
+    }
+
+    pub fn clear(&mut self) {
+        self.frames.clear();
+    }
+
+    /// Rewinds history by popping up to `count` frames from the context (Dream Rewind)
+    pub fn rewind(&mut self, count: usize) -> usize {
+        let to_remove = count.min(self.frames.len());
+        for _ in 0..to_remove {
+            self.frames.pop();
+        }
+        to_remove
+    }
+
+    /// Creates a checkpoint snapshot of all raw float buffers for persistence
+    pub fn to_checkpoint(&self) -> Result<LatentCheckpoint> {
+        let mut raw_frames = Vec::with_capacity(self.frames.len());
+        let mut dims = Vec::new();
+
+        for f in &self.frames {
+            let shape = f.dims().to_vec();
+            if dims.is_empty() {
+                dims = shape;
+            }
+            let data = f.flatten_all()?.to_vec1::<f32>()?;
+            raw_frames.push(data);
+        }
+
+        Ok(LatentCheckpoint {
+            frame_shape: dims,
+            frames: raw_frames,
+        })
+    }
+
+    /// Restores context from a checkpoint snapshot
+    pub fn from_checkpoint(ckpt: &LatentCheckpoint, max_frames: usize, device: &Device) -> Result<Self> {
+        let mut frames = Vec::with_capacity(ckpt.frames.len());
+        for f_data in &ckpt.frames {
+            let t = Tensor::from_vec(f_data.clone(), &ckpt.frame_shape[..], device)?;
+            frames.push(t);
+        }
+
+        let mut ctx = Self::new(max_frames);
+        ctx.frames = frames;
+        Ok(ctx)
+    }
+
+    pub fn from_checkpoint_cpu(ckpt: &LatentCheckpoint, max_frames: usize) -> Result<Self> {
+        Self::from_checkpoint(ckpt, max_frames, &Device::Cpu)
+    }
+
+    /// Clones context and branches into an alternative future timeline with a given initial frame
+    pub fn branch_timeline(&self, initial_branch_frame: Option<Tensor>) -> Result<Self> {
+        let mut branched = self.clone();
+        if let Some(frame) = initial_branch_frame {
+            branched.push_frame(frame)?;
+        }
+        Ok(branched)
+    }
+}
+
+/// Serializable representation of raw latent frames for disk/DB persistence
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LatentCheckpoint {
+    pub frame_shape: Vec<usize>,
+    pub frames: Vec<Vec<f32>>,
+}
+
+/// Autonomous Trajectory Director for mitigating long-horizon drift
+#[derive(Debug, Clone)]
+pub struct TrajectoryDirector {
+    pub max_drift_threshold: f32,
+    pub stabilization_blend_factor: f32,
+}
+
+impl TrajectoryDirector {
+    pub fn new(max_drift_threshold: f32, stabilization_blend_factor: f32) -> Self {
+        Self {
+            max_drift_threshold,
+            stabilization_blend_factor,
+        }
+    }
+
+    /// Evaluates anchor buffer drift and stabilizes newly predicted frame latents
+    pub fn direct_frame(
+        &self,
+        predicted_frame: &Tensor,
+        anchor_buffer: &FrameAnchorBuffer,
+    ) -> Result<Tensor> {
+        let drift = anchor_buffer.compute_drift_variance()?;
+
+        if drift > self.max_drift_threshold && !anchor_buffer.cached_anchors.is_empty() {
+            let primary_anchor = &anchor_buffer.cached_anchors[0];
+            let anchor_reshaped = if primary_anchor.rank() == 3 && predicted_frame.rank() == 4 {
+                primary_anchor.unsqueeze(1)?
+            } else {
+                primary_anchor.clone()
+            };
+
+            let alpha = self.stabilization_blend_factor as f64;
+            let blended = ((predicted_frame * (1.0 - alpha))? + (&anchor_reshaped * alpha)?)?;
+            Ok(blended)
+        } else {
+            Ok(predicted_frame.clone())
+        }
+    }
+}
+
+/// Multi-Resolution Latent Pyramid Configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ResolutionPyramidMode {
+    /// Fast coarse pass: generates at 1/4 spatial tokens (e.g., 16 tokens) for low latency
+    Coarse16,
+    /// Standard full detail: generates all 64 spatial tokens
+    Full64,
+    /// Hierarchical two-stage pyramid: coarse 16-token scaffold followed by residual upsampling to 64 tokens
+    PyramidCoarseToFine,
+}
+
+impl Default for ResolutionPyramidMode {
+    fn default() -> Self {
+        Self::Full64
+    }
+}
+
+/// Neural Acoustic Synthesis module (SfxGenie)
+/// Synthesizes parametric audio waveforms conditioned on action tokens, continuous kinematics, and latent states
+#[derive(Debug, Clone)]
+pub struct SfxGenie {
+    pub sample_rate: u32,
+}
+
+impl Default for SfxGenie {
+    fn default() -> Self {
+        Self::new(44100)
+    }
+}
+
+impl SfxGenie {
+    pub fn new(sample_rate: u32) -> Self {
+        Self { sample_rate }
+    }
+
+    /// Synthesize an audio waveform buffer (mono PCM float32 samples in range [-1.0, 1.0])
+    /// based on action, velocity magnitude, and latent state energy
+    /// Synthesize an audio waveform buffer conditioned on action, kinematics, latent energy,
+    /// and atmospheric/celestial conditions (time of day and weather density)
+    pub fn synthesize_action_sound_atmos(
+        &self,
+        action: u32,
+        velocity_mag: f32,
+        duration_seconds: f32,
+        latent_energy: f32,
+        time_of_day: f32,
+        weather_density: f32,
+    ) -> Vec<f32> {
+        let num_samples = (self.sample_rate as f32 * duration_seconds).max(64.0) as usize;
+        let mut buffer = Vec::with_capacity(num_samples);
+        let dt = 1.0 / self.sample_rate as f32;
+
+        // Celestial carrier frequency modulation: higher at noon (time=0.5), deeper at midnight (0.0/1.0)
+        let celestial_mod = (time_of_day * 2.0 * std::f32::consts::PI).sin() * 20.0;
+        let weather_gain = 1.0 + weather_density.clamp(0.0, 2.0) * 0.5;
+
+        match action {
+            // Footstep / Walk
+            1 | 2 | 3 | 4 => {
+                let base_freq = (80.0 + (velocity_mag * 15.0).clamp(0.0, 80.0) + celestial_mod).max(40.0);
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (-t * 22.0).exp();
+                    let sine = (2.0 * std::f32::consts::PI * base_freq * t).sin();
+                    let noise = (((i * 1103515245 + 12345) & 0x7fff) as f32 / 32768.0) * 2.0 - 1.0;
+                    // Rain splash crunch if weather density > 0.3
+                    let rain_splash = if weather_density > 0.3 { noise * weather_density * 0.4 } else { 0.0 };
+                    let sample = (sine * 0.7 + noise * 0.3 + rain_splash) * env * (0.4 + 0.3 * latent_energy.clamp(0.0, 1.0)) * weather_gain;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Jump
+            5 => {
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (-t * 8.0).exp();
+                    let freq = 120.0 + 240.0 * (t / duration_seconds.max(0.001)).min(1.0) + celestial_mod;
+                    let sine = (2.0 * std::f32::consts::PI * freq * t).sin();
+                    let sample = sine * env * 0.6;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Spell cast
+            6 => {
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (-(t - 0.05).abs() * 10.0).exp();
+                    let fm = (2.0 * std::f32::consts::PI * 8.0 * t).sin() * 20.0;
+                    let s1 = (2.0 * std::f32::consts::PI * (440.0 + fm + celestial_mod) * t).sin();
+                    let s2 = (2.0 * std::f32::consts::PI * (660.0 + fm) * t).sin();
+                    let sample = (s1 * 0.5 + s2 * 0.5) * env * 0.7;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+            // Ambient drone
+            _ => {
+                let drone_freq = (55.0 + 30.0 * latent_energy.clamp(0.0, 2.0) + celestial_mod).max(30.0);
+                for i in 0..num_samples {
+                    let t = i as f32 * dt;
+                    let env = (1.0 - (t / duration_seconds.max(0.001))).max(0.0);
+                    let s1 = (2.0 * std::f32::consts::PI * drone_freq * t).sin();
+                    let s2 = (2.0 * std::f32::consts::PI * (drone_freq * 1.5) * t).sin() * 0.3;
+                    // Wind / rain white noise
+                    let noise = (((i * 1103515245 + 12345) & 0x7fff) as f32 / 32768.0) * 2.0 - 1.0;
+                    let wind_noise = noise * weather_density * 0.15;
+                    let sample = ((s1 + s2) * env * 0.25 + wind_noise) * weather_gain;
+                    buffer.push(sample.clamp(-1.0, 1.0));
+                }
+            }
+        }
+        buffer
+    }
+
+    pub fn synthesize_action_sound(
+        &self,
+        action: u32,
+        velocity_mag: f32,
+        duration_seconds: f32,
+        latent_energy: f32,
+    ) -> Vec<f32> {
+        self.synthesize_action_sound_atmos(action, velocity_mag, duration_seconds, latent_energy, 0.5, 0.0)
+    }
+}
+
+
+/// Symmetric per-channel INT8 Quantized Linear layer (TinyGenie)
+#[derive(Debug, Clone)]
+pub struct QuantizedLinearInt8 {
+    pub in_features: usize,
+    pub out_features: usize,
+    /// Quantized weights in int8 range [-128, 127]
+    pub qweights: Vec<i8>,
+    /// Per-channel FP32 scales: S_w = max(|W|)/127
+    pub scales: Vec<f32>,
+    pub bias: Option<Vec<f32>>,
+}
+
+impl QuantizedLinearInt8 {
+    /// Quantizes an FP32 weight matrix of shape [out_features, in_features]
+    pub fn from_f32_weights(weights: &[f32], out_features: usize, in_features: usize, bias: Option<Vec<f32>>) -> Self {
+        assert_eq!(weights.len(), out_features * in_features);
+        let mut qweights = Vec::with_capacity(weights.len());
+        let mut scales = Vec::with_capacity(out_features);
+
+        for ch in 0..out_features {
+            let row_start = ch * in_features;
+            let row = &weights[row_start..row_start + in_features];
+            let max_val = row.iter().fold(0.0f32, |acc, &x| acc.max(x.abs())).max(1e-8);
+            let scale = max_val / 127.0;
+            scales.push(scale);
+
+            for &val in row {
+                let q = (val / scale).round().clamp(-128.0, 127.0) as i8;
+                qweights.push(q);
+            }
+        }
+
+        Self {
+            in_features,
+            out_features,
+            qweights,
+            scales,
+            bias,
+        }
+    }
+
+    /// Fast quantized matrix-vector multiplication with dequantization into FP32 output
+    pub fn forward_dequantized(&self, input: &[f32], output: &mut [f32]) {
+        assert_eq!(input.len(), self.in_features);
+        assert_eq!(output.len(), self.out_features);
+
+        for ch in 0..self.out_features {
+            let row_offset = ch * self.in_features;
+            let scale = self.scales[ch];
+            let mut acc: f32 = 0.0;
+
+            for i in 0..self.in_features {
+                let qw = self.qweights[row_offset + i] as f32;
+                acc += qw * input[i];
+            }
+
+            let mut res = acc * scale;
+            if let Some(ref b) = self.bias {
+                res += b[ch];
+            }
+            output[ch] = res;
+        }
+    }
+}

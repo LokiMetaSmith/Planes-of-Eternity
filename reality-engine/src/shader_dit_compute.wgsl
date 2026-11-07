@@ -75,3 +75,314 @@ fn cs_dit_softmax(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 }
+
+// FlashAttention-3 Kernel for WebGPU WGSL
+// Tiled computation of temporal cross-attention: Softmax(Q * K^T / sqrt(d)) * V
+// using var<workgroup> shared memory and causal masking.
+
+struct FlashAttentionUniforms {
+    seq_len_q: u32,
+    seq_len_kv: u32,
+    head_dim: u32,
+    scale: f32,
+};
+
+@group(0) @binding(4)
+var<uniform> fa_uniforms: FlashAttentionUniforms;
+
+@group(0) @binding(5)
+var<storage, read> Q: array<f32>;
+
+@group(0) @binding(6)
+var<storage, read> K: array<f32>;
+
+@group(0) @binding(7)
+var<storage, read> V: array<f32>;
+
+@group(0) @binding(8)
+var<storage, read_write> O: array<f32>; // Output matrix [seq_len_q, head_dim]
+
+// Workgroup shared memory for a block of keys and values
+const BLOCK_SIZE: u32 = 16u; // Adjust based on hardware limits
+var<workgroup> shared_K: array<f32, 256>; // BLOCK_SIZE * BLOCK_SIZE (e.g. 16 * 16 = 256)
+var<workgroup> shared_V: array<f32, 256>; // BLOCK_SIZE * BLOCK_SIZE (e.g. 16 * 16 = 256)
+
+@compute @workgroup_size(16, 16, 1)
+// FlashAttention-3 Kernel for WebGPU WGSL
+// Tiled computation of temporal cross-attention: Softmax(Q * K^T / sqrt(d)) * V
+// using var<workgroup> shared memory and causal masking.
+
+struct FlashAttentionUniforms {
+    seq_len_q: u32,
+    seq_len_kv: u32,
+    head_dim: u32,
+    scale: f32,
+};
+
+@group(0) @binding(4)
+var<uniform> fa_uniforms: FlashAttentionUniforms;
+
+@group(0) @binding(5)
+var<storage, read> Q: array<f32>;
+
+@group(0) @binding(6)
+var<storage, read> K: array<f32>;
+
+@group(0) @binding(7)
+var<storage, read> V: array<f32>;
+
+@group(0) @binding(8)
+var<storage, read_write> O: array<f32>;
+
+const BLOCK_SIZE: u32 = 16u;
+var<workgroup> shared_K: array<f32, 256>; // BLOCK_SIZE * BLOCK_SIZE
+var<workgroup> shared_V: array<f32, 256>; // BLOCK_SIZE * BLOCK_SIZE
+
+@compute @workgroup_size(16, 16, 1)
+fn cs_dit_flash_attention(@builtin(global_invocation_id) global_id: vec3<u32>,
+                          @builtin(local_invocation_id) local_id: vec3<u32>,
+                          @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+
+    let q_idx = global_id.x; // Sequence index for query
+    let d_idx = global_id.y; // Head dimension index
+
+    let valid_q = q_idx < fa_uniforms.seq_len_q;
+    let valid_d = d_idx < fa_uniforms.head_dim;
+
+    var m_i = -1e30; // Max tracker
+    var l_i = 0.0;   // Sum of exp tracker
+    var acc = 0.0;   // Accumulated output
+
+    let num_kv_blocks = (fa_uniforms.seq_len_kv + BLOCK_SIZE - 1u) / BLOCK_SIZE;
+
+    // Load full query vector for the current query index into private memory if valid
+    // (Assuming head_dim is small, e.g., 64 or 128, we compute the dot product inline)
+    // To do this efficiently, each thread in the workgroup computing the same q_idx
+    // needs the full Q vector. We just load it directly from global memory.
+
+    for (var kv_block = 0u; kv_block < num_kv_blocks; kv_block = kv_block + 1u) {
+        let kv_base_idx = kv_block * BLOCK_SIZE;
+
+        // Causal mask check (assuming q and kv sequences align)
+        if (kv_base_idx > q_idx) {
+            break;
+        }
+
+        // Collaborative loading of K and V blocks into workgroup shared memory
+        let load_seq_idx = kv_base_idx + local_id.x;
+        let load_dim_idx = local_id.y;
+
+        // Stride is BLOCK_SIZE (16), so index is load_seq_idx_local * 16 + load_dim_idx_local
+        let shared_idx = local_id.x * BLOCK_SIZE + local_id.y;
+
+        if (load_seq_idx < fa_uniforms.seq_len_kv && load_dim_idx < fa_uniforms.head_dim) {
+            shared_K[shared_idx] = K[load_seq_idx * fa_uniforms.head_dim + load_dim_idx];
+            shared_V[shared_idx] = V[load_seq_idx * fa_uniforms.head_dim + load_dim_idx];
+        } else {
+            shared_K[shared_idx] = 0.0;
+            shared_V[shared_idx] = 0.0;
+        }
+
+        workgroupBarrier();
+
+        if (valid_q && valid_d) {
+            // We need to compute attention scores S = Q * K^T for this q_idx against all keys in the block
+            // Since we need the full Q vector and full K vector to compute one score,
+            // and this thread is only computing one dimension of the output,
+            // all threads in the same row (same q_idx) will compute the same attention scores.
+
+            var m_ij = m_i;
+            var l_ij = l_i;
+            var acc_ij = acc;
+
+            let num_keys_in_block = min(BLOCK_SIZE, fa_uniforms.seq_len_kv - kv_base_idx);
+
+            for (var k_local = 0u; k_local < num_keys_in_block; k_local = k_local + 1u) {
+                let kv_idx = kv_base_idx + k_local;
+                if (kv_idx > q_idx) {
+                    break; // Causal mask
+                }
+
+                // Compute dot product Q[q_idx, :] * K[kv_idx, :]
+                var score = 0.0;
+                for (var d = 0u; d < fa_uniforms.head_dim; d = d + 1u) {
+                    let q_val = Q[q_idx * fa_uniforms.head_dim + d];
+                    // Load K from shared memory if possible, but shared memory only holds BLOCK_SIZE dimensions.
+                    // Assuming head_dim is small and equals BLOCK_SIZE or we loop over blocks of head_dim.
+                    // For simplicity in this implementation, we read K directly from global memory
+                    // or rely on the block we loaded.
+                    // If head_dim > BLOCK_SIZE, we need a block-wise dot product.
+                    // Let's assume K is fetched from global for the dot product to keep it simple,
+                    // and we use shared_V for the value accumulation.
+                    let k_val = K[kv_idx * fa_uniforms.head_dim + d];
+                    score += q_val * k_val;
+                }
+                score *= fa_uniforms.scale;
+
+                // Log-sum-exp updates
+                let m_new = max(m_ij, score);
+                let exp_score = exp(score - m_new);
+                let exp_m_diff = exp(m_ij - m_new);
+
+                l_ij = l_ij * exp_m_diff + exp_score;
+
+                // Read V from shared memory. Since local_id.y == d_idx, and we need V[kv_idx, d_idx]
+                // local_id.x is not k_local. We need to access shared_V[k_local * BLOCK_SIZE + local_id.y]
+                // Wait, shared_V was loaded such that shared_V[local_id.x * 16 + local_id.y] = V[base + local_id.x, local_id.y]
+                // So shared_V[k_local * BLOCK_SIZE + local_id.y] is correct.
+                var v_val = 0.0;
+                if (d_idx < BLOCK_SIZE) {
+                     v_val = shared_V[k_local * BLOCK_SIZE + local_id.y];
+                } else {
+                     v_val = V[kv_idx * fa_uniforms.head_dim + d_idx]; // Fallback if head_dim > BLOCK_SIZE
+                }
+
+                acc_ij = acc_ij * exp_m_diff + exp_score * v_val;
+                m_ij = m_new;
+            }
+
+            m_i = m_ij;
+            l_i = l_ij;
+            acc = acc_ij;
+        }
+
+        workgroupBarrier();
+    }
+
+    if (valid_q && valid_d) {
+        if (l_i > 0.0) {
+            O[q_idx * fa_uniforms.head_dim + d_idx] = acc / l_i;
+        } else {
+            O[q_idx * fa_uniforms.head_dim + d_idx] = 0.0;
+        }
+    }
+}
+
+// FlashAttention-3 Kernel for WebGPU WGSL
+// Tiled computation of temporal cross-attention: Softmax(Q * K^T / sqrt(d)) * V
+// using var<workgroup> shared memory and causal masking.
+
+struct FlashAttentionUniforms {
+    seq_len_q: u32,
+    seq_len_kv: u32,
+    head_dim: u32,
+    scale: f32,
+};
+
+@group(0) @binding(4)
+var<uniform> fa_uniforms: FlashAttentionUniforms;
+
+@group(0) @binding(5)
+var<storage, read> Q: array<f32>;
+
+@group(0) @binding(6)
+var<storage, read> K: array<f32>;
+
+@group(0) @binding(7)
+var<storage, read> V: array<f32>;
+
+@group(0) @binding(8)
+var<storage, read_write> O: array<f32>;
+
+const BLOCK_SIZE: u32 = 16u;
+var<workgroup> shared_K: array<f32, 256>; // BLOCK_SIZE * BLOCK_SIZE
+var<workgroup> shared_V: array<f32, 256>; // BLOCK_SIZE * BLOCK_SIZE
+
+@compute @workgroup_size(16, 16, 1)
+fn cs_dit_flash_attention(@builtin(global_invocation_id) global_id: vec3<u32>,
+                          @builtin(local_invocation_id) local_id: vec3<u32>,
+                          @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+
+    let q_idx = global_id.x; // Sequence index for query
+    let d_idx = global_id.y; // Head dimension index
+
+    let valid_q = q_idx < fa_uniforms.seq_len_q;
+    let valid_d = d_idx < fa_uniforms.head_dim;
+
+    var m_i = -1e30; // Max tracker
+    var l_i = 0.0;   // Sum of exp tracker
+    var acc = 0.0;   // Accumulated output
+
+    let num_kv_blocks = (fa_uniforms.seq_len_kv + BLOCK_SIZE - 1u) / BLOCK_SIZE;
+
+    for (var kv_block = 0u; kv_block < num_kv_blocks; kv_block = kv_block + 1u) {
+        let kv_base_idx = kv_block * BLOCK_SIZE;
+
+        // Causal mask check (assuming q and kv sequences align)
+        if (kv_base_idx > q_idx) {
+            break;
+        }
+
+        // Collaborative loading of K and V blocks into workgroup shared memory
+        let load_seq_idx = kv_base_idx + local_id.x;
+        let load_dim_idx = local_id.y;
+
+        // Stride is BLOCK_SIZE (16), so index is load_seq_idx_local * 16 + load_dim_idx_local
+        let shared_idx = local_id.x * BLOCK_SIZE + local_id.y;
+
+        if (load_seq_idx < fa_uniforms.seq_len_kv && load_dim_idx < fa_uniforms.head_dim) {
+            shared_K[shared_idx] = K[load_seq_idx * fa_uniforms.head_dim + load_dim_idx];
+            shared_V[shared_idx] = V[load_seq_idx * fa_uniforms.head_dim + load_dim_idx];
+        } else {
+            shared_K[shared_idx] = 0.0;
+            shared_V[shared_idx] = 0.0;
+        }
+
+        workgroupBarrier();
+
+        if (valid_q && valid_d) {
+            var m_ij = m_i;
+            var l_ij = l_i;
+            var acc_ij = acc;
+
+            let num_keys_in_block = min(BLOCK_SIZE, fa_uniforms.seq_len_kv - kv_base_idx);
+
+            for (var k_local = 0u; k_local < num_keys_in_block; k_local = k_local + 1u) {
+                let kv_idx = kv_base_idx + k_local;
+                if (kv_idx > q_idx) {
+                    break; // Causal mask
+                }
+
+                // Compute dot product Q[q_idx, :] * K[kv_idx, :]
+                var score = 0.0;
+                for (var d = 0u; d < fa_uniforms.head_dim; d = d + 1u) {
+                    let q_val = Q[q_idx * fa_uniforms.head_dim + d];
+                    let k_val = K[kv_idx * fa_uniforms.head_dim + d];
+                    score += q_val * k_val;
+                }
+                score *= fa_uniforms.scale;
+
+                // Log-sum-exp updates
+                let m_new = max(m_ij, score);
+                let exp_score = exp(score - m_new);
+                let exp_m_diff = exp(m_ij - m_new);
+
+                l_ij = l_ij * exp_m_diff + exp_score;
+
+                var v_val = 0.0;
+                if (d_idx < BLOCK_SIZE) {
+                     v_val = shared_V[k_local * BLOCK_SIZE + local_id.y];
+                } else {
+                     v_val = V[kv_idx * fa_uniforms.head_dim + d_idx]; // Fallback if head_dim > BLOCK_SIZE
+                }
+
+                acc_ij = acc_ij * exp_m_diff + exp_score * v_val;
+                m_ij = m_new;
+            }
+
+            m_i = m_ij;
+            l_i = l_ij;
+            acc = acc_ij;
+        }
+
+        workgroupBarrier();
+    }
+
+    if (valid_q && valid_d) {
+        if (l_i > 0.0) {
+            O[q_idx * fa_uniforms.head_dim + d_idx] = acc / l_i;
+        } else {
+            O[q_idx * fa_uniforms.head_dim + d_idx] = 0.0;
+        }
+    }
+}

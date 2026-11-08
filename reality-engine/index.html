@@ -3374,10 +3374,6 @@
         async function speakCompanionLine(text, mood) {
             console.log(`[Neural TTS] Synthesizing audio for: "${text}" with mood: ${mood}`);
 
-            // In a full production environment, this invokes the local Kokoro ONNX/WASM model
-            // For now, we simulate the latent TTS processing delay and fallback to a highly parameterized
-            // Web Audio synthetic playback or advanced Web Speech synthesis if the model isn't downloaded.
-
             if (window.KokoroTTS && window.KokoroTTS.isReady()) {
                 try {
                     const audioBuffer = await window.KokoroTTS.synthesize(text, { emotion: mood, voice: "samantha_base" });
@@ -3386,6 +3382,15 @@
                     source.buffer = audioBuffer;
                     source.connect(audioCtx.destination);
                     source.start();
+
+                    // Visual Speech Envelope Morphing for Neural TTS
+                    const dialogueEl = document.getElementById('wm-companion-dialogue');
+                    if (dialogueEl) {
+                        dialogueEl.style.boxShadow = "0 0 15px rgba(255, 119, 168, 0.8)";
+                        setTimeout(() => {
+                            if (dialogueEl) dialogueEl.style.boxShadow = "none";
+                        }, 250);
+                    }
                     return;
                 } catch (e) {
                     console.warn("Kokoro TTS synthesis failed, falling back to Web Speech:", e);
@@ -3409,9 +3414,20 @@
                         utterance.pitch = 1.4;
                         utterance.rate = 1.1;
                     } else {
-                        utterance.pitch = 1.1;
+                        utterance.pitch = 1.15;
                         utterance.rate = 1.0;
                     }
+
+                    // Visual Speech Envelope Morphing
+                    const dialogueEl = document.getElementById('wm-companion-dialogue');
+                    utterance.onboundary = (event) => {
+                        if (dialogueEl) {
+                            dialogueEl.style.boxShadow = "0 0 15px rgba(255, 119, 168, 0.8)";
+                            setTimeout(() => {
+                                if (dialogueEl) dialogueEl.style.boxShadow = "none";
+                            }, 120);
+                        }
+                    };
 
                     const voices = window.speechSynthesis.getVoices();
                     const naturalVoice = voices.find(v => v.lang.startsWith("en") && (v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Natural")));

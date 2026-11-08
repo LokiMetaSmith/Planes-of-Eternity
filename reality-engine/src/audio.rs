@@ -199,53 +199,155 @@ impl AudioManager {
         }
     }
 
+    /// Synthesizes emotional parametric neural TTS formant acoustic waveform buffer tuned to mood, timbre style, and archetype
+    pub fn synthesize_companion_formant_voice(
+        mood: &str,
+        voice_style: &str,
+        archetype: &str,
+        sample_rate: u32,
+    ) -> Vec<f32> {
+        let duration_sec = match archetype {
+            "Empathetic Guide" => 0.50f32,
+            "Playful Challenger" => 0.38f32,
+            "Stoic Scholar" => 0.55f32,
+            "Whimsical Mystic" => 0.60f32,
+            "Bioluminescent Architect" => 0.48f32,
+            _ => 0.45f32,
+        };
+
+        let num_samples = (sample_rate as f32 * duration_sec) as usize;
+        let mut samples = vec![0.0f32; num_samples];
+
+        // 1. Mood base fundamental pitch (f0), vibrato rate, and vibrato depth
+        let (mood_f0, mood_vib_rate, mood_vib_depth) = match mood {
+            "Adventurous" => (380.0f32, 7.0f32, 25.0f32),
+            "Contemplative" => (260.0f32, 4.0f32, 12.0f32),
+            "Co-Creative" => (330.0f32, 6.0f32, 18.0f32),
+            "Playful Challenger" => (440.0f32, 9.0f32, 35.0f32),
+            "Celebratory" => (523.25f32, 8.0f32, 40.0f32),
+            _ => (320.0f32, 5.0f32, 15.0f32),
+        };
+
+        // 2. Timbre / style multiplier
+        let (timbre_pitch_mult, formant_brightness) = match voice_style {
+            "Crisp" => (1.15f32, 1.25f32),
+            "Resonant" => (0.85f32, 0.80f32),
+            "Ethereal" => (1.30f32, 1.40f32),
+            _ => (1.00f32, 1.00f32), // "Warm"
+        };
+
+        // 3. Archetype-tuned acoustic timbre profiles:
+        //    - Archetype pitch scale
+        //    - Formant frequency ratios (F1, F2, F3)
+        //    - Formant amplitude weights (w1, w2, w3)
+        //    - Sub-harmonic chest resonance
+        //    - Breathiness / shimmer noise factor
+        let (
+            archetype_pitch_mult,
+            vib_depth_mult,
+            (f1_ratio, f2_ratio, f3_ratio),
+            (w1, w2, w3),
+            sub_harmonic_gain,
+            shimmer_factor,
+        ) = match archetype {
+            "Empathetic Guide" => (
+                1.02f32,
+                0.90f32,
+                (1.00f32, 2.08f32, 3.12f32),
+                (0.58f32, 0.28f32, 0.14f32),
+                0.10f32, // rich, warm comforting undertone
+                0.03f32,
+            ),
+            "Playful Challenger" => (
+                1.18f32,
+                1.30f32,
+                (1.00f32, 2.15f32, 3.25f32),
+                (0.50f32, 0.35f32, 0.15f32),
+                0.04f32, // light and agile
+                0.05f32,
+            ),
+            "Stoic Scholar" => (
+                0.82f32,
+                0.60f32,
+                (1.00f32, 1.95f32, 2.90f32),
+                (0.65f32, 0.25f32, 0.10f32),
+                0.15f32, // deep, grounded vocal depth
+                0.01f32,
+            ),
+            "Whimsical Mystic" => (
+                1.25f32,
+                1.40f32,
+                (1.00f32, 2.22f32, 3.40f32),
+                (0.42f32, 0.32f32, 0.26f32),
+                0.06f32,
+                0.12f32, // ethereal, airy shimmering upper harmonics
+            ),
+            "Bioluminescent Architect" => (
+                0.95f32,
+                1.10f32,
+                (1.00f32, 2.02f32, 3.05f32),
+                (0.52f32, 0.32f32, 0.16f32),
+                0.09f32,
+                0.07f32, // crystalline resonance
+            ),
+            _ => (
+                1.00f32,
+                1.00f32,
+                (1.00f32, 2.05f32, 3.10f32),
+                (0.55f32, 0.30f32, 0.15f32),
+                0.08f32,
+                0.04f32,
+            ),
+        };
+
+        let f0 = mood_f0 * timbre_pitch_mult * archetype_pitch_mult;
+        let vibrato_depth = mood_vib_depth * vib_depth_mult;
+
+        for i in 0..num_samples {
+            let t = i as f32 / sample_rate as f32;
+            let env = (-(t - duration_sec * 0.12).powi(2) / (2.0 * 0.09 * 0.09))
+                .exp()
+                .min(1.0)
+                * (1.0 - t / duration_sec);
+
+            let current_f0 =
+                f0 + vibrato_depth * (2.0 * std::f32::consts::PI * mood_vib_rate * t).sin();
+
+            // Formants with timbre brightness modulation
+            let formant1 = w1 * (2.0 * std::f32::consts::PI * current_f0 * f1_ratio * t).sin();
+            let formant2 = w2 * formant_brightness * (2.0 * std::f32::consts::PI * current_f0 * f2_ratio * t).sin();
+            let formant3 = w3 * formant_brightness * (2.0 * std::f32::consts::PI * current_f0 * f3_ratio * t).sin();
+
+            // Sub-harmonic chest resonance
+            let sub_harmonic = sub_harmonic_gain * (std::f32::consts::PI * current_f0 * t).sin();
+
+            // Subtle pseudo-random breath/shimmer noise for organic vocal texture
+            let pseudo_noise = ((i as f32 * 1337.123).sin() * 43758.5453).fract() - 0.5;
+            let shimmer = shimmer_factor * pseudo_noise * (current_f0 / 300.0);
+
+            samples[i] = (formant1 + formant2 + formant3 + sub_harmonic + shimmer) * env * 0.28;
+        }
+
+        samples
+    }
+
     /// Plays expressive companion speech chime / formant audio burst parameterized by mood and voice style
     pub fn play_companion_vocal_tone(&self, mood: &str) {
-        self.play_companion_neural_voice(mood, "Warm");
+        self.play_companion_archetype_neural_voice(mood, "Warm", "Empathetic Guide");
     }
 
     /// Plays emotional parametric neural TTS audio burst conditioned on mood and voice timbre style
     pub fn play_companion_neural_voice(&self, mood: &str, voice_style: &str) {
+        self.play_companion_archetype_neural_voice(mood, voice_style, "Empathetic Guide");
+    }
+
+    /// Plays emotional parametric neural TTS audio burst conditioned on mood, timbre style, and archetype
+    pub fn play_companion_archetype_neural_voice(&self, mood: &str, voice_style: &str, archetype: &str) {
         #[cfg(target_arch = "wasm32")]
         if let Some(ctx) = &self.ctx {
             let sample_rate = 22050u32;
-            let duration_sec = 0.45f32;
-            let num_samples = (sample_rate as f32 * duration_sec) as usize;
-            let mut samples = vec![0.0f32; num_samples];
-
-            // Mood & style-dependent fundamental pitch, vibrato, and harmonic warmth
-            let (base_f0, vibrato_rate, vibrato_depth) = match mood {
-                "Adventurous" => (380.0f32, 7.0f32, 25.0f32),
-                "Contemplative" => (260.0f32, 4.0f32, 12.0f32),
-                "Co-Creative" => (330.0f32, 6.0f32, 18.0f32),
-                "Playful Challenger" => (440.0f32, 9.0f32, 35.0f32),
-                "Celebratory" => (523.25f32, 8.0f32, 40.0f32),
-                _ => (320.0f32, 5.0f32, 15.0f32),
-            };
-
-            let pitch_mult = match voice_style {
-                "Crisp" => 1.15f32,
-                "Resonant" => 0.85f32,
-                "Ethereal" => 1.30f32,
-                _ => 1.0f32, // "Warm"
-            };
-            let f0 = base_f0 * pitch_mult;
-
-            for i in 0..num_samples {
-                let t = i as f32 / sample_rate as f32;
-                let env = (-(t - duration_sec * 0.1).powi(2) / (2.0 * 0.09 * 0.09))
-                    .exp()
-                    .min(1.0)
-                    * (1.0 - t / duration_sec);
-                let current_f0 =
-                    f0 + vibrato_depth * (2.0 * std::f32::consts::PI * vibrato_rate * t).sin();
-                let formant1 = 0.55 * (2.0 * std::f32::consts::PI * current_f0 * t).sin();
-                let formant2 = 0.30 * (2.0 * std::f32::consts::PI * current_f0 * 2.05 * t).sin();
-                let formant3 = 0.15 * (2.0 * std::f32::consts::PI * current_f0 * 3.10 * t).sin();
-                // Add soft sub-harmonic resonance
-                let sub_harmonic = 0.08 * (std::f32::consts::PI * current_f0 * t).sin();
-                samples[i] = (formant1 + formant2 + formant3 + sub_harmonic) * env * 0.28;
-            }
+            let mut samples = Self::synthesize_companion_formant_voice(mood, voice_style, archetype, sample_rate);
+            let num_samples = samples.len();
 
             if let Ok(audio_buf) = ctx.create_buffer(1, num_samples as u32, sample_rate as f32) {
                 let _ = audio_buf.copy_to_channel(&mut samples, 0);
@@ -259,7 +361,7 @@ impl AudioManager {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let _ = (mood, voice_style);
+            let _ = (mood, voice_style, archetype);
         }
     }
 

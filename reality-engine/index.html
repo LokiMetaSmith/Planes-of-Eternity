@@ -3381,7 +3381,32 @@
             }
         }
 
-        function speakCompanionLine(text, mood) {
+        // Kokoro / StyleTTS-2 WASM Neural Voice Integration
+        async function speakCompanionLine(text, mood) {
+            console.log(`[Neural TTS] Synthesizing audio for: "${text}" with mood: ${mood}`);
+
+            if (window.KokoroTTS && window.KokoroTTS.isReady()) {
+                try {
+                    const audioBuffer = await window.KokoroTTS.synthesize(text, { emotion: mood, voice: "samantha_base" });
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioCtx.destination);
+                    source.start();
+
+                    // Visual Speech Envelope Morphing for Neural TTS
+                    const dialogueEl = document.getElementById('wm-companion-dialogue');
+                    if (dialogueEl) {
+                        dialogueEl.style.boxShadow = "0 0 15px rgba(255, 119, 168, 0.8)";
+                        setTimeout(() => {
+                            if (dialogueEl) dialogueEl.style.boxShadow = "none";
+                        }, 250);
+                    }
+                    return;
+                } catch (e) {
+                    console.warn("Kokoro TTS synthesis failed, falling back to Web Speech:", e);
+                }
+            }
             // Trigger archetype-parameterized emotional neural formant voice chime
             try {
                 if (gameClient && gameClient.companion_play_vocal_tone) {
@@ -3391,8 +3416,7 @@
                 }
             } catch (e) {
                 console.warn("Parametric vocal chime error:", e);
-            }
-
+              
             if ('speechSynthesis' in window) {
                 try {
                     window.speechSynthesis.cancel();

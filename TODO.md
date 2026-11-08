@@ -185,7 +185,7 @@
   - Implement 4-bit block-wise weight quantization (AWQ/GPTQ) for `ActionConditionedDiT` to reduce model memory footprint from ~600MB down to <150MB, enabling ultra-fast execution on consumer mobile WebGPU devices and standalone VR headsets (e.g. Meta Quest 3, Apple Vision Pro).
 - [x] **Temporal FlashAttention-3 Kernel for WebGPU WGSL**:
   - Implement a tiled FlashAttention-3 compute shader in `shader_dit_compute.wgsl` using workgroup shared memory (`var<workgroup>`) and subgroup matrix extensions to accelerate causal temporal cross-attention beyond 60 FPS on high-DPI displays.
-- [ ] **Companion Neural Voice Cloning & Latent TTS (Kokoro / StyleTTS-2 WASM)**:
+- [x] **Companion Neural Voice Cloning & Latent TTS (Kokoro / StyleTTS-2 WASM)**:
   - Integrate an embedded, local ONNX/Candle-based neural TTS model (such as Kokoro-82M or mini-StyleTTS2) compiled to WebAssembly with SIMD, replacing browser Web Speech fallback with naturalistic, emotionally expressive speech audio.
 - [x] **Multi-Agent Companion Swarms & Autonomous Ecosystem**:
   - Allow spawning multiple agentic companions with distinct roles (e.g., Samantha the Architect, Leo the Pathfinder, Aria the Lore-Keeper) coordinating via `MultiAgentCoDiffusion` swarm attention.

@@ -1118,3 +1118,53 @@ fn test_companion_voice_sculpt_world() {
     let banter = manager.simulate_party_banter();
     assert!(banter.is_some());
 }
+
+#[test]
+fn test_emotional_parametric_neural_voice_archetype_timbre() {
+    let sample_rate = 22050u32;
+    let archetypes = [
+        "Empathetic Guide",
+        "Playful Challenger",
+        "Stoic Scholar",
+        "Whimsical Mystic",
+        "Bioluminescent Architect",
+    ];
+    let voice_styles = ["Warm", "Crisp", "Resonant", "Ethereal"];
+    let moods = ["Adventurous", "Contemplative", "Co-Creative", "Playful Challenger", "Celebratory"];
+
+    for archetype in archetypes {
+        for voice_style in voice_styles {
+            for mood in moods {
+                let samples = reality_engine::audio::AudioManager::synthesize_companion_formant_voice(
+                    mood,
+                    voice_style,
+                    archetype,
+                    sample_rate,
+                );
+
+                assert!(!samples.is_empty(), "Waveform samples should not be empty");
+                assert!(samples.len() > 5000, "Duration should correspond to expected acoustic length");
+
+                // Check that samples are normalized within reasonable acoustic bounds
+                let max_amp = samples.iter().copied().fold(0.0f32, |acc, s| acc.max(s.abs()));
+                assert!(max_amp > 0.0, "Synthesized audio must have positive amplitude");
+                assert!(max_amp <= 1.0, "Synthesized audio must not clip (max_amp = {})", max_amp);
+            }
+        }
+    }
+
+    // Compare duration variance across archetypes
+    let guide_samples = reality_engine::audio::AudioManager::synthesize_companion_formant_voice(
+        "Contemplative",
+        "Warm",
+        "Empathetic Guide",
+        sample_rate,
+    );
+    let playful_samples = reality_engine::audio::AudioManager::synthesize_companion_formant_voice(
+        "Contemplative",
+        "Warm",
+        "Playful Challenger",
+        sample_rate,
+    );
+    assert_ne!(guide_samples.len(), playful_samples.len(), "Different archetypes should produce tailored phoneme/formant envelope durations");
+}

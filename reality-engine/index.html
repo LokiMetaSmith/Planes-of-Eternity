@@ -1156,6 +1156,15 @@
                                 <option value="Bioluminescent Architect">Bioluminescent Architect</option>
                             </select>
                         </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.65rem; color: #aaa;">VOICE TIMBRE:</label>
+                            <select id="gen-companion-voice-style" style="width: 100%; background: #111; border: 1px solid #444; color: #fff; font-size: 0.7rem; padding: 3px;">
+                                <option value="Warm">Warm (Resonant)</option>
+                                <option value="Crisp">Crisp (Bright)</option>
+                                <option value="Resonant">Resonant (Deep)</option>
+                                <option value="Ethereal">Ethereal (Airy)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div style="display: flex; gap: 8px; margin-bottom: 6px;">
@@ -1908,6 +1917,7 @@
                     btnGenCompanion.addEventListener('click', () => {
                         const name = document.getElementById('gen-companion-name').value.trim() || "Samantha";
                         const archetype = document.getElementById('gen-companion-archetype').value;
+                        const voiceStyle = document.getElementById('gen-companion-voice-style') ? document.getElementById('gen-companion-voice-style').value : "Warm";
                         const curiosity = parseFloat(sliderCuriosity.value) / 100.0;
                         const empathy = parseFloat(sliderEmpathy.value) / 100.0;
                         const playfulness = parseFloat(sliderPlayfulness.value) / 100.0;
@@ -1921,7 +1931,7 @@
                             playfulness,
                             empathy,
                             analytical_depth: 0.8,
-                            speech_voice_style: "Warm",
+                            speech_voice_style: voiceStyle,
                             visual_hue_shift
                         };
 
@@ -1958,6 +1968,7 @@
                     btnRecruitCompanion.addEventListener('click', () => {
                         const name = document.getElementById('gen-companion-name').value.trim() || "Samantha";
                         const archetype = document.getElementById('gen-companion-archetype').value;
+                        const voiceStyle = document.getElementById('gen-companion-voice-style') ? document.getElementById('gen-companion-voice-style').value : "Warm";
                         const curiosity = parseFloat(sliderCuriosity.value) / 100.0;
                         const empathy = parseFloat(sliderEmpathy.value) / 100.0;
                         const playfulness = parseFloat(sliderPlayfulness.value) / 100.0;
@@ -1971,7 +1982,7 @@
                             playfulness,
                             empathy,
                             analytical_depth: 0.8,
-                            speech_voice_style: "Warm",
+                            speech_voice_style: voiceStyle,
                             visual_hue_shift
                         };
                         if (gameClient && gameClient.companion_recruit_to_party) {
@@ -3371,6 +3382,17 @@
         }
 
         function speakCompanionLine(text, mood) {
+            // Trigger archetype-parameterized emotional neural formant voice chime
+            try {
+                if (gameClient && gameClient.companion_play_vocal_tone) {
+                    const archetype = document.getElementById('gen-companion-archetype') ? document.getElementById('gen-companion-archetype').value : "Empathetic Guide";
+                    const voiceStyle = document.getElementById('gen-companion-voice-style') ? document.getElementById('gen-companion-voice-style').value : "Warm";
+                    gameClient.companion_play_vocal_tone(mood || "Warm", voiceStyle, archetype);
+                }
+            } catch (e) {
+                console.warn("Parametric vocal chime error:", e);
+            }
+
             if ('speechSynthesis' in window) {
                 try {
                     window.speechSynthesis.cancel();

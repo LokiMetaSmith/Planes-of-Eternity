@@ -4,7 +4,6 @@
 use cgmath::{InnerSpace, One, Rotation, SquareMatrix};
 #[cfg(target_arch = "wasm32")]
 use wgpu::util::DeviceExt;
-use cgmath::{InnerSpace, SquareMatrix};
 
 use serde::Serialize;
 #[cfg(target_arch = "wasm32")]
@@ -823,57 +822,6 @@ impl State {
             multiview: None,
         });
 
-        let splat_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Splat Render Pipeline"),
-            layout: Some(&voxel_pipeline_layout),
-            cache: None,
-            vertex: wgpu::VertexState {
-                module: &splat_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[voxel::SplatVertex::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &splat_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None, // Disable backface culling for splats since they are billboards
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: texture::Texture::DEPTH_FORMAT,
-                depth_write_enabled: false, // Don't write to depth buffer to allow blending over each other correctly
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        });
-
-        let initial_splats: Vec<voxel::SplatVertex> = Vec::new();
-        let splat_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Splats Buffer"),
-            contents: bytemuck::cast_slice(&initial_splats),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-
         let lambda_renderer =
             visual_lambda::LambdaRenderer::new(&device, config.format, &camera_bind_group_layout);
 
@@ -1074,59 +1022,6 @@ impl State {
             multiview: None,
         });
 
-        let mut state = Self {
-            surface,
-            device,
-            queue,
-            config,
-            render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            num_indices,
-            instance_buffer,
-            num_instances: chunk_data.len() as u32,
-            chunk_data,
-            diffuse_bind_group,
-            diffuse_texture,
-            camera_uniform,
-            camera_buffer,
-            camera_bind_group,
-            reality_uniform,
-            reality_buffer,
-            reality_bind_group,
-            width,
-            height,
-            lambda_renderer,
-            engine,
-            depth_texture,
-            voxel_world,
-            voxel_pipeline,
-            voxel_meshes: HashMap::new(),
-            splat_pipeline,
-            splats: initial_splats,
-            splat_buffer,
-            voxel_dirty: false,
-            last_lod_update_pos: cgmath::Point3::new(0.0, 0.0, 0.0),
-            voxel_atlas,
-            voxel_bind_group,
-            voxel_density_texture,
-            voxel_density_view,
-            in_xr: false,
-            canvas: canvas.clone(),
-            last_view_proj: None,
-            last_stability_hash: String::new(),
-            entities_instance_buffer,
-            num_entities: 1,
-            max_entities: max_entities as u32,
-            labels_buffer: Vec::with_capacity(1024),
-        };
-
-        state.last_lod_update_pos = state.engine.camera.eye;
-        state.update_lods(true);
-        state.update_voxel_texture(); // Initial upload
-
-        state
-    }
         let splat_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Splat Instance Buffer"),
             contents: bytemuck::cast_slice(&[splat::SplatVertex {
@@ -1884,13 +1779,6 @@ impl State {
         self.voxel_meshes
             .retain(|k, _| self.voxel_world.chunks.contains_key(k));
 
-        // We rebuild the entire splats array to simplify for now
-        self.splats.clear();
-
-        for (_key, chunk) in &self.voxel_world.chunks {
-            self.splats.extend(chunk.generate_splats());
-        }
-
         for (key, lod) in to_update {
             if let Some(chunk) = self.voxel_world.chunks.get(&key) {
                 let mesh_chunk = chunk.create_lod(lod);
@@ -2607,31 +2495,6 @@ impl State {
             }
         };
         let view_proj = self.engine.camera.build_view_projection_matrix();
-        let camera_pos = self.engine.camera.eye;
-
-        // Depth sort splats back-to-front
-        self.splats.sort_by(|a, b| {
-            let dist_a = (a.position[0] - camera_pos.x).powi(2)
-                + (a.position[1] - camera_pos.y).powi(2)
-                + (a.position[2] - camera_pos.z).powi(2);
-            let dist_b = (b.position[0] - camera_pos.x).powi(2)
-                + (b.position[1] - camera_pos.y).powi(2)
-                + (b.position[2] - camera_pos.z).powi(2);
-            // Reverse sort for back-to-front
-            dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Write sorted splats to buffer. We might need a larger buffer if we have more splats now.
-        // For a real engine, we'd dynamically resize the buffer. For the prototype, we recreate it if needed.
-        if self.splats.len() * std::mem::size_of::<voxel::SplatVertex>() > self.splat_buffer.size() as usize {
-            self.splat_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Splats Buffer (Resized)"),
-                contents: bytemuck::cast_slice(&self.splats),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
-        } else if !self.splats.is_empty() {
-            self.queue.write_buffer(&self.splat_buffer, 0, bytemuck::cast_slice(&self.splats));
-        }
 
         let output = wgpu_state.surface.get_current_texture()?;
         let view = output
@@ -2816,23 +2679,6 @@ impl State {
             }
         }
 
-            // Draw Splats
-            if !self.splats.is_empty() {
-                render_pass.set_pipeline(&self.splat_pipeline);
-                // Bind groups from voxel pipeline are the same
-                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.voxel_bind_group, &[]);
-                render_pass.set_bind_group(2, &self.reality_bind_group, &[]);
-
-                render_pass.set_vertex_buffer(0, self.splat_buffer.slice(..));
-                // We draw 6 vertices (2 triangles) per splat instance
-                render_pass.draw(0..6, 0..self.splats.len() as u32);
-            }
-
-            if !self.engine.lambda_system.nodes.is_empty() {
-                self.lambda_renderer.render(
-                    &mut render_pass,
-                    &self.camera_bind_group,
         // Add NPC Splats (with Neural Blending)
         for npc in &mut self.engine.world_state.npcs {
             let color = match npc.reality_signature.active_style.archetype {
@@ -3919,6 +3765,13 @@ impl GameClient {
             serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string())
         } else {
             "{}".to_string()
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn companion_play_vocal_tone(&mut self, mood: &str, voice_style: &str, archetype: &str) {
+        if let Ok(state) = self.state.try_borrow() {
+            state.engine.audio.play_companion_archetype_neural_voice(mood, voice_style, archetype);
         }
     }
 
@@ -6516,7 +6369,7 @@ impl GameClient {
                 coords,
 
                 archetype_id: voxel_type as u32,
-                companion_comment: format!(
+                description: format!(
                     "I hear you. Materializing {} at your coordinates.",
                     structure_name
                 ),
@@ -6529,7 +6382,7 @@ impl GameClient {
                 .past_co_creations
                 .push(co_creation.clone());
             state.engine.companion_manager.companion.current_dialogue =
-                Some(co_creation.companion_comment.clone());
+                Some(co_creation.description.clone());
 
             // Trigger banter if multiple companions are present
             if state.engine.companion_manager.companion_party.len() > 1 {

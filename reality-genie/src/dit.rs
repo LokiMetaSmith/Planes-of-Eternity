@@ -3123,6 +3123,8 @@ pub struct SpatiotemporalDitBlock {
     norm_anchor: LayerNorm,
     temporal_causal_attn: CausalTemporalAttention,
     anchor_cross_attn: CrossAttention,
+    voice_cross_attn: CrossAttention,
+    norm_voice: LayerNorm,
     ff1: Linear,
     ff2: Linear,
     // AdaLN modulation parameters: scale1, shift1, scale2, shift2
@@ -3137,6 +3139,8 @@ impl SpatiotemporalDitBlock {
 
         let temporal_causal_attn = CausalTemporalAttention::new(cfg.d_model, cfg.n_head, vb.pp("causal_attn"))?;
         let anchor_cross_attn = CrossAttention::new(cfg.d_model, cfg.n_head, vb.pp("anchor_attn"))?;
+        let voice_cross_attn = CrossAttention::new(cfg.d_model, cfg.n_head, vb.pp("voice_attn"))?;
+        let norm_voice = layer_norm(cfg.d_model, 1e-5, vb.pp("norm_voice"))?;
 
         let ff1 = linear(cfg.d_model, cfg.d_model * 4, vb.pp("ff1"))?;
         let ff2 = linear(cfg.d_model * 4, cfg.d_model, vb.pp("ff2"))?;
@@ -3149,6 +3153,8 @@ impl SpatiotemporalDitBlock {
             norm_anchor,
             temporal_causal_attn,
             anchor_cross_attn,
+            voice_cross_attn,
+            norm_voice,
             ff1,
             ff2,
             adaln_proj,
@@ -3160,6 +3166,7 @@ impl SpatiotemporalDitBlock {
         x: &Tensor,
         conditioning_emb: &Tensor,
         anchor_context: &Tensor,
+        voice_latents: Option<&Tensor>,
         mask: Option<&Tensor>,
     ) -> Result<Tensor> {
         let adaln_params = self.adaln_proj.forward(conditioning_emb)?;
@@ -3193,7 +3200,13 @@ impl SpatiotemporalDitBlock {
 
         let norm_x2 = self.norm_anchor.forward(&x)?;
         let anchor_out = self.anchor_cross_attn.forward(&norm_x2, anchor_context)?;
-        let x = (&x + anchor_out)?;
+        let mut x = (&x + anchor_out)?;
+
+        if let Some(vl) = voice_latents {
+            let norm_x_v = self.norm_voice.forward(&x)?;
+            let voice_out = self.voice_cross_attn.forward(&norm_x_v, vl)?;
+            x = (&x + voice_out)?;
+        }
 
         let norm_x3 = self.norm2.forward(&x)?;
         let modulated_ff = (norm_x3.broadcast_mul(&(gamma2.affine(1.0, 1.0)?))? + &beta2)?;
@@ -3317,6 +3330,7 @@ impl ActionConditionedDiT {
         text_tokens: Option<&Tensor>,
         timesteps: &Tensor,
         anchor_context: &Tensor,
+        voice_latents: Option<&Tensor>,
     ) -> Result<Tensor> {
         let (b, seq_len, c) = if x.rank() == 4 {
             let (b, t, s, c) = x.dims4()?;
@@ -3361,7 +3375,7 @@ impl ActionConditionedDiT {
         )?;
 
         for block in &self.blocks {
-            h = block.forward(&h, &conditioning, anchor_context, Some(&mask))?;
+            h = block.forward(&h, &conditioning, anchor_context, voice_latents, Some(&mask))?;
         }
 
         let h = self.final_norm.forward(&h)?;
@@ -3383,7 +3397,7 @@ impl ActionConditionedDiT {
         timesteps: &Tensor,
         anchor_context: &Tensor,
     ) -> Result<Tensor> {
-        self.forward_full(x, actions, None, text_tokens, timesteps, anchor_context)
+        self.forward_full(x, actions, None, text_tokens, timesteps, anchor_context, None)
     }
 
     /// Forward pass (delegates to forward_multimodal without text)
@@ -3420,6 +3434,7 @@ impl ActionConditionedSampler {
         action: u32,
         continuous_action: Option<&[f32; 5]>,
         text_tokens: Option<&Tensor>,
+        voice_latents: Option<&Tensor>,
         anchor_buffer: &mut FrameAnchorBuffer,
         step_index: usize,
         guidance_scale: f64,
@@ -3456,6 +3471,7 @@ impl ActionConditionedSampler {
                 text_tokens,
                 &timesteps_tensor,
                 &anchor_ctx,
+                voice_latents,
             )?;
 
             let pred_noise = if guidance_scale > 1.0 {
@@ -3466,6 +3482,7 @@ impl ActionConditionedSampler {
                     None,
                     &timesteps_tensor,
                     &anchor_ctx,
+                    None,
                 )?;
                 let diff = (&pred_cond - &pred_uncond)?;
                 (&pred_uncond + (&diff * guidance_scale)?)?
@@ -3497,6 +3514,7 @@ impl ActionConditionedSampler {
             action,
             None,
             text_tokens,
+            None,
             anchor_buffer,
             step_index,
             guidance_scale,
@@ -3652,7 +3670,7 @@ impl ActionConditionedSampler {
         let cfg = DiTConfig::default();
         let model = if let Some(p) = weights_path {
             if std::path::Path::new(p).exists() {
-                ActionConditionedDiT::from_safetensors(p, cfg, &device)?
+                ActionConditionedDiT::from_safetensors(p, cfg.clone(), &device)?
             } else {
                 ActionConditionedDiT::default_cpu()?
             }
@@ -3700,6 +3718,7 @@ impl ActionConditionedSampler {
         actions: &[u32],
         continuous_actions: Option<&[[f32; 5]]>,
         prompt: Option<&str>,
+        voice_latents: Option<&[f32]>,
         weights_path: Option<&str>,
         denoising_steps: usize,
         guidance_scale: f64,
@@ -3708,7 +3727,7 @@ impl ActionConditionedSampler {
         let cfg = DiTConfig::default();
         let model = if let Some(p) = weights_path {
             if std::path::Path::new(p).exists() {
-                ActionConditionedDiT::from_safetensors(p, cfg, &device)?
+                ActionConditionedDiT::from_safetensors(p, cfg.clone(), &device)?
             } else {
                 ActionConditionedDiT::default_cpu()?
             }
@@ -3736,11 +3755,13 @@ impl ActionConditionedSampler {
         for t_step in 0..t_len {
             let act = actions[t_step];
             let cont_act = continuous_actions.and_then(|ca| ca.get(t_step));
+            let voice_tensor = voice_latents.and_then(|vl| Tensor::from_vec(vl.to_vec(), (1, vl.len() / cfg.d_model, cfg.d_model), &device).ok());
             let frame = sampler.sample_next_frame_full(
                 1,
                 act,
                 cont_act,
                 text_tensor.as_ref(),
+                voice_tensor.as_ref(),
                 &mut anchor_buffer,
                 t_step,
                 guidance_scale,
@@ -3767,11 +3788,11 @@ impl ActionConditionedSampler {
     ) -> Result<Tensor> {
         match mode {
             ResolutionPyramidMode::Full64 => {
-                self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)
+                self.sample_next_frame_full(b, action, continuous_action, text_tokens, None, anchor_buffer, step_index, guidance_scale, device)
             }
             ResolutionPyramidMode::Coarse16 => {
                 // In coarse mode, run diffusion directly
-                let full = self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)?;
+                let full = self.sample_next_frame_full(b, action, continuous_action, text_tokens, None, anchor_buffer, step_index, guidance_scale, device)?;
                 // Downsample to 16 tokens along spatial dimension (e.g. slice or average pool)
                 let s = self.model.config.num_spatial_tokens;
                 if s >= 64 {
@@ -3784,7 +3805,7 @@ impl ActionConditionedSampler {
             }
             ResolutionPyramidMode::PyramidCoarseToFine => {
                 // Hierarchical coarse pass: fast diffusion at half steps
-                let coarse = self.sample_next_frame_full(b, action, continuous_action, text_tokens, anchor_buffer, step_index, guidance_scale, device)?;
+                let coarse = self.sample_next_frame_full(b, action, continuous_action, text_tokens, None, anchor_buffer, step_index, guidance_scale, device)?;
                 // Fine detail residual smoothing
                 let smoothed = ((&coarse * 0.85)? + (Tensor::randn(0.0f32, 0.05f32, coarse.shape(), device)?))?;
                 Ok(smoothed)

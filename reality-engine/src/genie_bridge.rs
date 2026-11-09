@@ -44,6 +44,7 @@ pub struct GenieBridge {
     pub rollback_netcode: Arc<Mutex<LatentRollbackNetcode>>,
     pub webrtc_streamer: Arc<Mutex<WebRtcLatentChunkStreamer>>,
     pub holographic_manager: Arc<Mutex<HolographicTeleportationManager>>,
+    pub latest_voice_latents: Arc<Mutex<Option<Vec<f32>>>>,
 }
 
 impl std::fmt::Debug for GenieBridge {
@@ -114,6 +115,7 @@ impl GenieBridge {
             rollback_netcode: Arc::new(Mutex::new(LatentRollbackNetcode::new(128))),
             webrtc_streamer: Arc::new(Mutex::new(WebRtcLatentChunkStreamer::new())),
             holographic_manager: Arc::new(Mutex::new(HolographicTeleportationManager::new())),
+            latest_voice_latents: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -297,6 +299,7 @@ impl GenieBridge {
         guidance_scale: f64,
     ) {
         let latents_ref = Arc::clone(&self.latest_action_dit_latents);
+        let voice_latents_ref = Arc::clone(&self.latest_voice_latents);
         let audio_dit_ref = Arc::clone(&self.audio_dit);
         let audio_packet_ref = Arc::clone(&self.latest_audio_packet);
         let _actions_clone = actions.clone();
@@ -305,11 +308,13 @@ impl GenieBridge {
         {
             let actions_clone = _actions_clone;
             std::thread::spawn(move || {
+                let voice_latents = voice_latents_ref.lock().ok().and_then(|mut guard| guard.take());
                 if let Ok(flat) =
                     reality_genie::dit::ActionConditionedSampler::rollout_multimodal_full(
                         &actions_clone,
                         continuous_actions.as_deref(),
                         prompt.as_deref(),
+                        voice_latents.as_deref(),
                         Some("action_dit_model.safetensors"),
                         num_denoising_steps,
                         guidance_scale,
@@ -336,10 +341,12 @@ impl GenieBridge {
 
         #[cfg(target_arch = "wasm32")]
         {
+            let voice_latents = voice_latents_ref.lock().ok().and_then(|mut guard| guard.take());
             if let Ok(flat) = reality_genie::dit::ActionConditionedSampler::rollout_multimodal_full(
                 &actions,
                 continuous_actions.as_deref(),
                 prompt.as_deref(),
+                voice_latents.as_deref(),
                 None,
                 num_denoising_steps,
                 guidance_scale,

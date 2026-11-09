@@ -6305,6 +6305,16 @@ impl GameClient {
         serde_json::to_string(&dynamic_profile).unwrap_or_else(|_| "{}".to_string())
     }
 
+
+    #[wasm_bindgen]
+    pub fn stream_voice_latents(&mut self, latents: &[f32]) {
+        if let Ok(state) = self.state.try_borrow() {
+            if let Ok(mut lock) = state.voxel_world.genie.latest_voice_latents.lock() {
+                *lock = Some(latents.to_vec());
+            }
+        }
+    }
+
     #[wasm_bindgen]
     pub fn companion_voice_sculpt_world(&mut self, speech_prompt: &str) -> String {
         let player_pos = if let Ok(state) = self.state.try_borrow() {

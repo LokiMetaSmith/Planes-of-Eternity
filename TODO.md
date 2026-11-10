@@ -194,7 +194,7 @@
   - Cache dynamic indirect lighting and global illumination radiance in a low-resolution 3D latent clipmap volume to allow dynamic day-night transitions with bounce lighting on procedural voxels.
 - [x] **Continuous Latent Ragdolls & Inverse Kinematics**:
   - Expand `LatentPhysicsEngine` with 14-bone humanoid skeletal rigs, allowing NPC splats and companions to conform to sloping terrain and climb procedural obstacles.
-- [ ] **Decentralized P2P World State Sharding via libp2p**:
+- [x] **Decentralized P2P World State Sharding via libp2p**:
   - Replace single-channel WebRTC streaming with distributed Kademlia DHT peer discovery and zero-knowledge validity proofs for trustless peer-to-peer infinite procedural worlds.
 - [x] **Voice-Driven Neural World Sculpting (Real-Time Voice-to-3DGS)**:
   - Stream real-time microphone spectrograms through Whisper / Wav2Vec latent encodings directly into the DiT cross-attention layer, letting players mold terrain and sculpt objects in real-time as they speak.

@@ -30,6 +30,10 @@ pub struct GameState {
     pub companion_state_json: Option<String>,
     #[serde(default)]
     pub companion_party_state_json: Option<String>,
+    #[serde(default)]
+    pub genie_multiverse_state_json: Option<String>,
+    #[serde(default)]
+    pub time_echo_replay_json: Option<String>,
     pub timestamp: u64,
     #[serde(default)]
     pub version: u32,

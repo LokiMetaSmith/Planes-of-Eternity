@@ -1666,6 +1666,12 @@ impl State {
                         companion_party_state_json: Some(
                             self.engine.companion_manager.get_party_roster_json(),
                         ),
+                        genie_multiverse_state_json: Some(
+                            self.engine.genie_bridge.export_multiverse_state_json(),
+                        ),
+                        time_echo_replay_json: Some(
+                            self.engine.genie_bridge.export_time_echo_replay_json(),
+                        ),
                         timestamp: js_sys::Date::now() as u64,
                         version: persistence::SAVE_VERSION,
                     };
@@ -1710,6 +1716,12 @@ impl State {
                 ),
                 companion_party_state_json: Some(
                     self.engine.companion_manager.get_party_roster_json(),
+                ),
+                genie_multiverse_state_json: Some(
+                    self.engine.genie_bridge.export_multiverse_state_json(),
+                ),
+                time_echo_replay_json: Some(
+                    self.engine.genie_bridge.export_time_echo_replay_json(),
                 ),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,
@@ -4006,6 +4018,12 @@ impl GameClient {
             companion_party_state_json: Some(
                 state.engine.companion_manager.get_party_roster_json(),
             ),
+            genie_multiverse_state_json: Some(
+                state.engine.genie_bridge.export_multiverse_state_json(),
+            ),
+            time_echo_replay_json: Some(
+                state.engine.genie_bridge.export_time_echo_replay_json(),
+            ),
             timestamp: js_sys::Date::now() as u64,
             version: persistence::SAVE_VERSION,
         };
@@ -5294,6 +5312,12 @@ pub async fn start(canvas_id: String) -> Result<GameClient, JsValue> {
                 ),
                 companion_party_state_json: Some(
                     state.engine.companion_manager.get_party_roster_json(),
+                ),
+                genie_multiverse_state_json: Some(
+                    state.engine.genie_bridge.export_multiverse_state_json(),
+                ),
+                time_echo_replay_json: Some(
+                    state.engine.genie_bridge.export_time_echo_replay_json(),
                 ),
                 timestamp: js_sys::Date::now() as u64,
                 version: persistence::SAVE_VERSION,

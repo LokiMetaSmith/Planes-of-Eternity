@@ -593,9 +593,11 @@ fn test_lambda_layout_persistence() {
         input_config: InputConfig::default(), // Default input config
         voxel_world: None,
         companion_state_json: None,
+        companion_party_state_json: None,
+        genie_multiverse_state_json: None,
+        time_echo_replay_json: None,
         timestamp: 0,
         version: 1,
-        companion_party_state_json: None,
     };
 
     // 2. Initialize Engine
@@ -1055,6 +1057,8 @@ fn test_companion_party_save_persistence() {
         voxel_world: None,
         companion_state_json: Some(manager.get_companion_state_json()),
         companion_party_state_json: Some(manager.get_party_roster_json()),
+        genie_multiverse_state_json: None,
+        time_echo_replay_json: None,
         timestamp: 0,
         version: 1,
     };
@@ -1084,7 +1088,7 @@ fn test_companion_voice_sculpt_world() {
     let speech_prompt = "crystal beacon";
 
     let prompt_lower = speech_prompt.to_lowercase();
-    let (structure_name, voxel_type, radius) = if prompt_lower.contains("pillar") || prompt_lower.contains("tower") {
+    let (structure_name, voxel_type, _radius) = if prompt_lower.contains("pillar") || prompt_lower.contains("tower") {
         ("Harmonic Spire", 2u8, 2i32)
     } else if prompt_lower.contains("clear") || prompt_lower.contains("trench") || prompt_lower.contains("hollow") {
         ("Excavated Sanctuary", 0u8, 3i32)
@@ -1167,4 +1171,137 @@ fn test_emotional_parametric_neural_voice_archetype_timbre() {
         sample_rate,
     );
     assert_ne!(guide_samples.len(), playful_samples.len(), "Different archetypes should produce tailored phoneme/formant envelope durations");
+}
+
+#[test]
+fn test_genie_multiverse_and_time_echo_save_persistence() {
+    use reality_engine::genie_bridge::GenieBridge;
+    use reality_engine::persistence::{self, GameState, PlayerState};
+    use reality_engine::projector::RealityProjector;
+    use reality_engine::world::WorldState;
+
+    let bridge = GenieBridge::new();
+
+    // 1. Setup timelines in GenieBridge
+    assert!(bridge.branch_timeline("branch_alpha"));
+    assert!(bridge.branch_timeline("branch_beta"));
+    assert!(bridge.switch_timeline("branch_alpha"));
+
+    // 2. Setup TimeEchoReplay frames
+    {
+        let mut echo = bridge.time_echo.lock().unwrap();
+        echo.record(100.0, [1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], Some(vec![0.5; 64]), 1, [0.0; 5]);
+        echo.record(101.0, [2.0, 3.0, 4.0], [0.0, 0.0, 0.0, 1.0], Some(vec![0.8; 64]), 2, [0.0; 5]);
+    }
+
+    // 3. Export to JSON
+    let multiverse_json = bridge.export_multiverse_state_json();
+    let echo_json = bridge.export_time_echo_replay_json();
+    assert!(!multiverse_json.is_empty());
+    assert!(!echo_json.is_empty());
+
+    // 4. Construct GameState containing these exports
+    let game_state = GameState {
+        player: PlayerState {
+            projector: RealityProjector::new(
+                cgmath::Point3::new(0.0, 0.0, 0.0),
+                reality_engine::reality_types::RealitySignature::default(),
+            ),
+        },
+        world: WorldState::default(),
+        lambda_source: "FIRE".to_string(),
+        lambda_layout: vec![],
+        input_config: InputConfig::default(),
+        voxel_world: None,
+        companion_state_json: None,
+        companion_party_state_json: None,
+        genie_multiverse_state_json: Some(multiverse_json),
+        time_echo_replay_json: Some(echo_json),
+        timestamp: 1700000000,
+        version: persistence::SAVE_VERSION,
+    };
+
+    // Serialize GameState to JSON and deserialize back
+    let serialized_save = serde_json::to_string(&game_state).expect("Serialization failed");
+    let loaded_state: GameState = serde_json::from_str(&serialized_save).expect("Deserialization failed");
+
+    // 5. Create new GenieBridge and restore states
+    let restored_bridge = GenieBridge::new();
+    assert!(restored_bridge.import_multiverse_state_json(&loaded_state.genie_multiverse_state_json.unwrap()));
+    assert!(restored_bridge.import_time_echo_replay_json(&loaded_state.time_echo_replay_json.unwrap()));
+
+    // 6. Verify restored timelines and active timeline
+    let active = restored_bridge.active_timeline.lock().unwrap().clone();
+    assert_eq!(active, "branch_alpha");
+
+    let timelines = restored_bridge.list_timelines();
+    assert!(timelines.contains(&"branch_alpha".to_string()));
+    assert!(timelines.contains(&"branch_beta".to_string()));
+
+    // Verify restored time echo frames
+    let echo_lock = restored_bridge.time_echo.lock().unwrap();
+    assert_eq!(echo_lock.frames.len(), 2);
+    assert_eq!(echo_lock.frames[0].timestamp, 100.0);
+    assert_eq!(echo_lock.frames[0].player_position, [1.0, 2.0, 3.0]);
+    assert_eq!(echo_lock.frames[1].timestamp, 101.0);
+    assert_eq!(echo_lock.frames[1].player_position, [2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn test_companion_procedural_trial_and_coop_puzzle_lifecycle() {
+    use reality_engine::genie_bridge::{EngineCompanionManager, LoreJournalBridge};
+
+    let mut manager = EngineCompanionManager::new("Samantha", [0.0, 1.0, 0.0]);
+    let mut journal = LoreJournalBridge::new();
+    let initial_entries = journal.episodic_graph.journal_entries.len();
+
+    // 1. Test Cooperative Puzzle Lifecycle
+    let player_pos = [5.0, 1.0, 10.0];
+    let puzzle = manager.start_active_coop_puzzle(player_pos, 42);
+    assert_eq!(puzzle.is_solved, false);
+    assert_eq!(manager.active_puzzle.is_some(), true);
+    assert_eq!(manager.companion.personality.current_mood, "Playful Challenger");
+
+    // Advance puzzle resonance partially (not solved yet)
+    let (solved, resonance, victory_msg) = manager.step_active_puzzle_resonance(0.5, Some(&mut journal));
+    assert_eq!(solved, false);
+    assert!(resonance > 0.2);
+    assert!(victory_msg.is_none());
+
+    // Advance puzzle resonance to threshold (solved!)
+    let (solved2, resonance2, victory_msg2) = manager.step_active_puzzle_resonance(3.0, Some(&mut journal));
+    assert_eq!(solved2, true);
+    assert!(resonance2 >= 1.0);
+    assert!(victory_msg2.is_some());
+    assert_eq!(manager.companion.personality.current_mood, "Celebratory");
+    assert!(manager.accumulated_essence >= 100);
+    assert!(journal.episodic_graph.journal_entries.len() > initial_entries);
+
+    // 2. Test Procedural Trial Lifecycle
+    let journal_count_before_trial = journal.episodic_graph.journal_entries.len();
+    let trial = manager.start_procedural_trial(player_pos);
+    assert_eq!(trial.rooms.len(), 3);
+    assert_eq!(manager.active_trial_current_room, 0);
+
+    // Advance from room 0 to room 1
+    let (trial_done1, room_idx1, room_msg1) = manager.advance_trial_room(Some(&mut journal));
+    assert_eq!(trial_done1, false);
+    assert_eq!(room_idx1, 1);
+    assert!(room_msg1.is_some());
+
+    // Advance from room 1 to room 2
+    let (trial_done2, room_idx2, room_msg2) = manager.advance_trial_room(Some(&mut journal));
+    assert_eq!(trial_done2, false);
+    assert_eq!(room_idx2, 2);
+    assert!(room_msg2.is_some());
+
+    // Final room completion (Conquered!)
+    let essence_before = manager.accumulated_essence;
+    let (trial_done3, room_idx3, room_msg3) = manager.advance_trial_room(Some(&mut journal));
+    assert_eq!(trial_done3, true);
+    assert_eq!(room_idx3, 2);
+    assert!(room_msg3.is_some());
+    assert_eq!(manager.accumulated_essence, essence_before + trial.completion_reward_essence);
+    assert_eq!(manager.companion.personality.current_mood, "Celebratory");
+    assert!(journal.episodic_graph.journal_entries.len() > journal_count_before_trial);
 }

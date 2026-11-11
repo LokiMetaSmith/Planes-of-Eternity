@@ -154,6 +154,98 @@ impl GenieBridge {
         false
     }
 
+    /// Serializes entire multiverse timelines, parent mappings, active timeline, and rolling context
+    pub fn export_multiverse_state_json(&self) -> String {
+        #[derive(serde::Serialize)]
+        struct MultiverseStateExport {
+            active_timeline: String,
+            timeline_parents: std::collections::HashMap<String, String>,
+            current_context_checkpoint: Option<reality_genie::dit::LatentCheckpoint>,
+            timeline_checkpoints: std::collections::HashMap<String, reality_genie::dit::LatentCheckpoint>,
+        }
+
+        let active = self.active_timeline.lock().map(|a| a.clone()).unwrap_or_else(|_| "main".to_string());
+        let parents = self.timeline_parents.lock().map(|p| p.clone()).unwrap_or_default();
+        let cur_ckpt = self.rolling_context.lock().ok().and_then(|ctx| ctx.to_checkpoint().ok());
+
+        let mut timeline_ckpts = std::collections::HashMap::new();
+        if let Ok(timelines) = self.timelines.lock() {
+            for (k, v) in timelines.iter() {
+                if let Ok(ckpt) = v.to_checkpoint() {
+                    timeline_ckpts.insert(k.clone(), ckpt);
+                }
+            }
+        }
+
+        let export = MultiverseStateExport {
+            active_timeline: active,
+            timeline_parents: parents,
+            current_context_checkpoint: cur_ckpt,
+            timeline_checkpoints: timeline_ckpts,
+        };
+
+        serde_json::to_string(&export).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// Restores multiverse timelines, parent mappings, active timeline, and rolling context
+    pub fn import_multiverse_state_json(&self, json_str: &str) -> bool {
+        #[derive(serde::Deserialize)]
+        struct MultiverseStateImport {
+            active_timeline: String,
+            timeline_parents: std::collections::HashMap<String, String>,
+            current_context_checkpoint: Option<reality_genie::dit::LatentCheckpoint>,
+            timeline_checkpoints: std::collections::HashMap<String, reality_genie::dit::LatentCheckpoint>,
+        }
+
+        if let Ok(imported) = serde_json::from_str::<MultiverseStateImport>(json_str) {
+            if let Ok(mut active_lock) = self.active_timeline.lock() {
+                *active_lock = imported.active_timeline;
+            }
+            if let Ok(mut parents_lock) = self.timeline_parents.lock() {
+                *parents_lock = imported.timeline_parents;
+            }
+            if let Some(cur_ckpt) = imported.current_context_checkpoint {
+                if let Ok(ctx) = reality_genie::dit::RollingLatentContext::from_checkpoint_cpu(&cur_ckpt, 8) {
+                    if let Ok(mut cur_lock) = self.rolling_context.lock() {
+                        *cur_lock = ctx;
+                    }
+                }
+            }
+            if let Ok(mut timelines_lock) = self.timelines.lock() {
+                timelines_lock.clear();
+                for (name, ckpt) in imported.timeline_checkpoints {
+                    if let Ok(ctx) = reality_genie::dit::RollingLatentContext::from_checkpoint_cpu(&ckpt, 8) {
+                        timelines_lock.insert(name, ctx);
+                    }
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Serializes TimeEchoReplay frame buffer
+    pub fn export_time_echo_replay_json(&self) -> String {
+        if let Ok(echo) = self.time_echo.lock() {
+            serde_json::to_string(&echo.frames).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
+    }
+
+    /// Imports TimeEchoReplay frame buffer
+    pub fn import_time_echo_replay_json(&self, json_str: &str) -> bool {
+        if let Ok(frames) = serde_json::from_str::<Vec<TimeEchoFrame>>(json_str) {
+            if let Ok(mut echo) = self.time_echo.lock() {
+                echo.frames = frames;
+                echo.scrub_index = echo.frames.len().saturating_sub(1);
+                return true;
+            }
+        }
+        false
+    }
+
     /// Serializes entire multiverse timeline hierarchy into JSON for the Canvas Tree Visualizer
     pub fn get_multiverse_tree_json(&self) -> String {
         let active_name = self
@@ -739,7 +831,107 @@ impl EngineCompanionManager {
         &mut self,
         player_pos: [f32; 3],
     ) -> reality_genie::dit::CompanionCoopPuzzle {
-        reality_genie::dit::CompanionCoopPuzzle::new_random(1, player_pos)
+        let puzzle = reality_genie::dit::CompanionCoopPuzzle::new_random(1, player_pos);
+        self.active_puzzle = Some(puzzle.clone());
+        puzzle
+    }
+
+    /// Starts and tracks an active cooperative puzzle
+    pub fn start_active_coop_puzzle(&mut self, player_pos: [f32; 3], puzzle_id: u64) -> reality_genie::dit::CompanionCoopPuzzle {
+        let puzzle = reality_genie::dit::CompanionCoopPuzzle::new_random(puzzle_id, player_pos);
+        self.companion.personality.current_mood = "Playful Challenger".to_string();
+        self.companion.current_dialogue = Some(format!(
+            "{}: \"Let's solve this together! {}\"",
+            self.companion.personality.name, puzzle.player_objective
+        ));
+        self.active_puzzle = Some(puzzle.clone());
+        puzzle
+    }
+
+    /// Advances the resonance step of the currently active cooperative puzzle
+    pub fn step_active_puzzle_resonance(&mut self, player_input_power: f32, journal: Option<&mut LoreJournalBridge>) -> (bool, f32, Option<String>) {
+        if let Some(ref mut puzzle) = self.active_puzzle {
+            let solved = puzzle.step_coop_resonance(player_input_power);
+            let current_res = puzzle.current_resonance;
+            if solved {
+                let reward = puzzle.reward_description.clone();
+                let name = self.companion.personality.name.clone();
+                let victory_msg = format!("{}: \"Resonance matched! We unlocked: {}\"", name, reward);
+                self.companion.personality.current_mood = "Celebratory".to_string();
+                self.companion.personality.relationship_depth = (self.companion.personality.relationship_depth + 0.1).min(1.0);
+                self.companion.current_dialogue = Some(victory_msg.clone());
+                self.accumulated_essence += 100;
+
+                if let Some(j) = journal {
+                    j.record_entry(
+                        &format!("Harmonic Puzzle Solved: {}", puzzle.puzzle_type),
+                        &format!("Collaboratively calibrated resonance with {}. Unlocked {}.", name, reward),
+                        "Celebratory",
+                        self.companion.position,
+                        1700000000,
+                    );
+                }
+
+                (true, current_res, Some(victory_msg))
+            } else {
+                (false, current_res, None)
+            }
+        } else {
+            (false, 0.0, None)
+        }
+    }
+
+    /// Starts and tracks a new procedural trial authored by the companion
+    pub fn start_procedural_trial(&mut self, player_pos: [f32; 3]) -> reality_genie::dit::CompanionProceduralTrial {
+        let trial = self.companion.author_procedural_trial(player_pos);
+        self.active_trial = Some(trial.clone());
+        self.active_trial_current_room = 0;
+        trial
+    }
+
+    /// Advances to the next room/stage in the active procedural trial
+    pub fn advance_trial_room(&mut self, journal: Option<&mut LoreJournalBridge>) -> (bool, usize, Option<String>) {
+        if let Some(ref trial) = self.active_trial {
+            let total_rooms = trial.rooms.len();
+            if self.active_trial_current_room + 1 < total_rooms {
+                self.active_trial_current_room += 1;
+                let room = &trial.rooms[self.active_trial_current_room];
+                let msg = format!(
+                    "{}: \"Entering Room {} ({})! Objective: {}\"",
+                    self.companion.personality.name,
+                    room.room_index + 1,
+                    room.room_type,
+                    room.objective
+                );
+                self.companion.current_dialogue = Some(msg.clone());
+                (false, self.active_trial_current_room, Some(msg))
+            } else {
+                // Completed trial!
+                let reward = trial.completion_reward_essence;
+                self.accumulated_essence += reward;
+                self.companion.personality.current_mood = "Celebratory".to_string();
+                self.companion.personality.relationship_depth = (self.companion.personality.relationship_depth + 0.15).min(1.0);
+                let completion_msg = format!(
+                    "{}: \"Trial '{}' Conquered! We received +{} reality essence!\"",
+                    self.companion.personality.name, trial.trial_name, reward
+                );
+                self.companion.current_dialogue = Some(completion_msg.clone());
+
+                if let Some(j) = journal {
+                    j.record_entry(
+                        &format!("Trial Conquered: {}", trial.trial_name),
+                        &format!("Successfully traversed all {} trial rooms. Awarded {} reality essence.", total_rooms, reward),
+                        "Celebratory",
+                        self.companion.position,
+                        1700000000,
+                    );
+                }
+
+                (true, self.active_trial_current_room, Some(completion_msg))
+            }
+        } else {
+            (false, 0, None)
+        }
     }
 
     /// Dispatches companion to scout ahead into off-screen frontier
@@ -758,6 +950,10 @@ pub struct EngineCompanionManager {
     pub companion: reality_genie::dit::AgenticCompanion,
     pub companion_party: Vec<reality_genie::dit::AgenticCompanion>,
     pub banter_timer: f32,
+    pub active_puzzle: Option<reality_genie::dit::CompanionCoopPuzzle>,
+    pub active_trial: Option<reality_genie::dit::CompanionProceduralTrial>,
+    pub active_trial_current_room: usize,
+    pub accumulated_essence: u32,
 }
 
 impl Default for EngineCompanionManager {
@@ -766,6 +962,10 @@ impl Default for EngineCompanionManager {
             companion: reality_genie::dit::AgenticCompanion::default(),
             companion_party: Vec::new(),
             banter_timer: 0.0,
+            active_puzzle: None,
+            active_trial: None,
+            active_trial_current_room: 0,
+            accumulated_essence: 0,
         }
     }
 }
@@ -777,6 +977,10 @@ impl EngineCompanionManager {
             companion: primary.clone(),
             companion_party: vec![primary],
             banter_timer: 0.0,
+            active_puzzle: None,
+            active_trial: None,
+            active_trial_current_room: 0,
+            accumulated_essence: 0,
         }
     }
 

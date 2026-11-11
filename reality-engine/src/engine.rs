@@ -98,6 +98,7 @@ pub struct Engine {
     pub pending_mouse_delta: [f32; 2],
     pub active_narrative_prompt: String,
     pub companion_manager: crate::genie_bridge::EngineCompanionManager,
+    pub genie_bridge: crate::genie_bridge::GenieBridge,
 }
 
 pub struct CollisionResult {
@@ -127,7 +128,7 @@ impl Engine {
         let camera_controller = CameraController::new(0.2);
 
         let (player_projector, world_state, active_anomaly, lambda_system, input_config) =
-            if let Some(state) = initial_state {
+            if let Some(ref state) = initial_state {
                 log::info!("Restoring game state...");
                 // Restore camera position
                 camera.eye = state.player.projector.location;
@@ -147,12 +148,12 @@ impl Engine {
                 let source = if state.lambda_source.is_empty() {
                     "FIRE".to_string()
                 } else {
-                    state.lambda_source
+                    state.lambda_source.clone()
                 };
                 if let Some(term) = lambda::parse(&source) {
                     ls.set_term(term);
                     if !state.lambda_layout.is_empty() {
-                        ls.apply_layout(state.lambda_layout);
+                        ls.apply_layout(state.lambda_layout.clone());
                     }
                 } else {
                     // Fallback
@@ -161,11 +162,11 @@ impl Engine {
                 }
 
                 (
-                    state.player.projector,
-                    state.world,
+                    state.player.projector.clone(),
+                    state.world.clone(),
                     Some(active_anomaly),
                     ls,
-                    state.input_config,
+                    state.input_config.clone(),
                 )
             } else {
                 let mut player_sig = RealitySignature::default();
@@ -246,6 +247,28 @@ impl Engine {
 
         let audio = AudioManager::new();
 
+        let mut companion_manager = crate::genie_bridge::EngineCompanionManager::default();
+        let genie_bridge = crate::genie_bridge::GenieBridge::new();
+
+        if let Some(ref st) = initial_state {
+            if let Some(ref comp_json) = st.companion_state_json {
+                if let Ok(comp) = serde_json::from_str::<reality_genie::dit::AgenticCompanion>(comp_json) {
+                    companion_manager.companion = comp;
+                }
+            }
+            if let Some(ref party_json) = st.companion_party_state_json {
+                if let Ok(party) = serde_json::from_str::<Vec<reality_genie::dit::AgenticCompanion>>(party_json) {
+                    companion_manager.companion_party = party;
+                }
+            }
+            if let Some(ref multi_json) = st.genie_multiverse_state_json {
+                genie_bridge.import_multiverse_state_json(multi_json);
+            }
+            if let Some(ref echo_json) = st.time_echo_replay_json {
+                genie_bridge.import_time_echo_replay_json(echo_json);
+            }
+        }
+
         Self {
             world_state,
             player_projector,
@@ -279,7 +302,8 @@ impl Engine {
             active_action_buffer: Vec::new(),
             pending_mouse_delta: [0.0, 0.0],
             active_narrative_prompt: String::new(),
-            companion_manager: crate::genie_bridge::EngineCompanionManager::default(),
+            companion_manager,
+            genie_bridge,
         }
     }
 
